@@ -1,0 +1,43 @@
+services:
+  # Servicio de Base de Datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: internet_cafe_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: internet_cafe
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # Rol Migrador: Ejecuta las migraciones de Alembic
+  migrador:
+    build: ./backend
+    container_name: internet_cafe_migrador
+    command: alembic upgrade head
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password123@db:5432/internet_cafe
+      - SECRET_KEY=tu-llave-secreta-super-segura-123
+      - PYTHONPATH=/backend
+    depends_on:
+      - db
+
+  # Rol Aplicación: Levanta el servidor FastAPI con Uvicorn
+  app:
+    build: ./backend
+    container_name: internet_cafe_app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=tu-llave-secreta-super-segura-123
+      - DATABASE_URL=postgresql+asyncpg://postgres:password123@db:5432/internet_cafe
+      - PYTHONPATH=/backend
+    depends_on:
+      - migrador
+      - db
+
+volumes:
+  pgdata:

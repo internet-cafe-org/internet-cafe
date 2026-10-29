@@ -1,2 +1,16 @@
 # Exportaciones del SRS (Word y PDF): no se versionan
 entregables/
+/desktop/.gradle/
+/desktop/build/
+
+# Secretos locales: nunca se suben (el repo es publico)
+.env
+.env.*
+!.env.example
+
+# Entorno virtual y cache de Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
