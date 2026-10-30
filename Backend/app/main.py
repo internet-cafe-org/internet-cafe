@@ -8,6 +8,7 @@ y expone los endpoints de salud (/healthz) y disponibilidad de base de datos (/r
 from app.routers import machine, scan
 from app.config import settings
 from app.database import obtener_base_datos
+from app.error_handlers import registrar_manejadores
 from app.logger import configurar_logger
 
 from app.problem_details import (
@@ -49,6 +50,9 @@ app.add_exception_handler(
     Exception,
     manejar_error_general,
 )
+
+# Manejador RFC 9457 completo (QA-03); se registra al final para que prevalezca
+registrar_manejadores(app)
 
 # Registra las rutas de la API
 app.include_router(machine.router, prefix="/api/v1")

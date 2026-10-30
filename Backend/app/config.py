@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 10
     data_enc_keys: str | None = None
     blind_index_key: str | None = None
+    # Base del campo `type` de los errores RFC 9457 (ver app/errors.py)
+    errors_base_url: str = "https://errors.internet-cafe.example"
 
     model_config = SettingsConfigDict(
         env_file=".env",
