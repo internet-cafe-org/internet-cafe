@@ -416,6 +416,47 @@ components:
           type: string
           description: Código identificador del error.
 
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          example: "body.password"
+        message:
+          type: string
+          example: "String should have at least 12 characters"
+    ProblemDetail:
+      type: object
+      description: Error RFC 9457. Toda respuesta 4xx/5xx usa este esquema con `application/problem+json`.
+      required: [type, title, status, code, detail, instance]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: "https://errors.internet-cafe.example/challenge-expired"
+        title:
+          type: string
+          example: "El código QR expiró"
+        status:
+          type: integer
+          example: 410
+        code:
+          type: string
+          description: Código estable del catálogo (SRS §10.5).
+          example: "CHALLENGE_EXPIRED"
+        detail:
+          type: string
+          example: "Escanea el código nuevo del equipo."
+        instance:
+          type: string
+          description: Ruta de la petición, sin query string.
+          example: "/api/v1/scan/claim"
+        errors:
+          type: array
+          description: Solo en 422. Nunca incluye el valor enviado (`input`).
+          items:
+            $ref: '#/components/schemas/FieldError'
   responses:
     Unauthorized:
       description: No autorizado.
@@ -448,3 +489,11 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
 ```
+
+## 3. Formato de errores (QA-03)
+
+- Todos los errores salen como `application/problem+json` con el esquema `ProblemDetail`.
+- `type` se arma con `ERRORS_BASE_URL` más el `code` en kebab-case (`CHALLENGE_EXPIRED` → `/challenge-expired`).
+- Los 422 llevan `code: VALIDATION_ERROR` y `errors[]` con `field` y `message`. No devuelven `input` ni `ctx`, para no repetir contraseñas u otros datos del cliente.
+- Además del catálogo del SRS §10.5 existen los códigos genéricos `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED` e `INTERNAL_ERROR`.
+- Un 500 no incluye la traza; el servidor registra un `request_id` que viaja en la cabecera `X-Request-ID`.
