@@ -1,22 +1,22 @@
-﻿# Contrato de Backend y EspecificaciÃ³n de Datos / OpenAPI v0.1 (BE-01) - Sprint 1
+# Contrato de Backend y Especificación de Datos / OpenAPI v0.1 (BE-01) - Sprint 1
 
-## 1. Objetivo del MÃ³dulo
-Establecer el contrato tÃ©cnico y de datos de la API REST del sistema Internet CafÃ© para el Sprint 1, acordado formalmente con los equipos de UI, Desktop y Seguridad.
+## 1. Objetivo del Módulo
+Establecer el contrato técnico y de datos de la API REST del sistema Internet Café para el Sprint 1, acordado formalmente con los equipos de UI, Desktop y Seguridad.
 
-## 2. EspecificaciÃ³n OpenAPI v0.1 y Contratos de Datos
+## 2. Especificación OpenAPI v0.1 y Contratos de Datos
 
 ```yaml
 openapi: 3.0.3
 info:
   title: Internet Cafe API - Contrato
   version: 0.1.0
-  description: Contrato de datos y endpoints para registro asÃ­ncrono, enrolamiento con JWK, credenciales provisionales y long-polling.
+  description: Contrato de datos y endpoints para registro asíncrono, enrolamiento con JWK, credenciales provisionales y long-polling.
 
 paths:
   /api/v1/registro:
     post:
       summary: Registro inicial de usuario o dispositivo
-      description: Inicia el proceso de registro devolviendo un cÃ³digo 202 indicando aceptaciÃ³n para procesamiento asÃ­ncrono.
+      description: Inicia el proceso de registro devolviendo un código 202 indicando aceptación para procesamiento asíncrono.
       requestBody:
         required: true
         content:
@@ -55,8 +55,8 @@ paths:
 
   /api/v1/enroll:
     post:
-      summary: Enrolamiento con JWK y prueba de posesiÃ³n
-      description: Valida la clave pÃºblica JSON Web Key y la prueba criptogrÃ¡fica de posesiÃ³n.
+      summary: Enrolamiento con JWK y prueba de posesión
+      description: Valida la clave pública JSON Web Key y la prueba criptográfica de posesión.
       requestBody:
         required: true
         content:
@@ -69,15 +69,15 @@ paths:
               properties:
                 jwk:
                   type: object
-                  description: Estructura de clave pÃºblica JSON Web Key (RFC 7517).
+                  description: Estructura de clave pública JSON Web Key (RFC 7517).
                   example: {"kty": "RSA", "n": "...", "e": "AQAB"}
                 prueba_posesion:
                   type: string
-                  description: Firma criptogrÃ¡fica firmada con la clave privada correspondiente.
+                  description: Firma criptográfica firmada con la clave privada correspondiente.
                   example: "eyJhbGciOiJSUzI1NiIs..."
       responses:
         '200':
-          description: Enrolamiento completado con Ã©xito.
+          description: Enrolamiento completado con éxito.
           content:
             application/json:
               schema:
@@ -92,8 +92,8 @@ paths:
 
   /api/v1/credencial-provisional:
     get:
-      summary: EmisiÃ³n de credencial provisional
-      description: Entrega una credencial temporal bajo validaciÃ³n de seguridad previa.
+      summary: Emisión de credencial provisional
+      description: Entrega una credencial temporal bajo validación de seguridad previa.
       parameters:
         - in: header
           name: X-Device-ID
@@ -118,7 +118,7 @@ paths:
   /api/v1/long-poll:
     get:
       summary: Canal de sondeo largo (Long-Poll)
-      description: Mantiene la conexiÃ³n abierta hasta que ocurra un evento relevante para el cliente.
+      description: Mantiene la conexión abierta hasta que ocurra un evento relevante para el cliente.
       parameters:
         - in: query
           name: ultimo_evento_id
@@ -146,7 +146,7 @@ paths:
 
   /api/v1/machine/challenges:
     post:
-      summary: Generar un reto QR para una mÃ¡quina
+      summary: Generar un reto QR para una máquina
       description: Crea un reto QR de un solo uso para el equipo identificado.
       parameters:
         - in: header
@@ -186,7 +186,7 @@ paths:
   /api/v1/scan/preview:
     post:
       summary: Consultar vista previa de un reto QR
-      description: Obtiene informaciÃ³n del equipo antes de confirmar el acceso.
+      description: Obtiene información del equipo antes de confirmar el acceso.
       requestBody:
         required: true
         content:
@@ -236,6 +236,80 @@ paths:
         '410':
           $ref: '#/components/responses/Gone'
 
+  /api/v1/scan/claim:
+    post:
+      summary: Confirmar acceso escaneando el QR (Claim)
+      description: Reclama el reto QR y crea la sesión de acceso para el estudiante de forma atómica.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        '201':
+          description: Sesión creada exitosamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - session
+                properties:
+                  session:
+                    type: object
+                    required:
+                      - id
+                      - status
+                      - started_at
+                      - machine
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        example: "active"
+                      started_at:
+                        type: string
+                        format: date-time
+                      machine:
+                        type: object
+                        required:
+                          - id
+                          - code
+                          - lab
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          lab:
+                            type: string
+        '200':
+          description: Reintento idempotente exitoso (devuelve la sesión existente).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    type: object
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+
 components:
   schemas:
     ProblemDetails:
@@ -257,7 +331,7 @@ components:
           format: uri-reference
         code:
           type: string
-          description: CÃ³digo identificador del error.
+          description: Código identificador del error.
 
   responses:
     Unauthorized:
@@ -290,3 +364,4 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
+```

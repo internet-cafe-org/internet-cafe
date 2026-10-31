@@ -1,12 +1,15 @@
 import hashlib
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit import audit
 from app.models import (
     AccessSession,
+    AuditActorType,
     ChallengeStatus,
     Lab,
     LoginChallenge,
@@ -14,6 +17,7 @@ from app.models import (
     MachineStatus,
     SessionEndReason,
 )
+from app.services import events
 
 CHALLENGE_TTL_S = 60
 ROTATE_AFTER_S = 45
@@ -34,6 +38,10 @@ class ChallengeExpiredError(Exception):
 
 class ChallengeAlreadyUsedError(Exception):
     """El reto ya no está pendiente."""
+
+
+class MachineBusyError(Exception):
+    """El equipo ya tiene una sesión activa (RF-SES-03)."""
 
 
 def ahora() -> datetime:
@@ -170,3 +178,168 @@ async def obtener_vista_previa(db: AsyncSession, token: str, user_id) -> dict:
         "expires_at": reto.expires_at,
         "active_session": active_session_data
     }
+
+
+async def reclamar_reto_qr(
+    db: AsyncSession,
+    token: str,
+    user_id: uuid.UUID,
+    now: datetime | None = None,
+) -> tuple[AccessSession, Machine, str, bool]:
+    """Reclama un reto QR creando la sesión en una transacción atómica (SRS §8.1 / BE-07b).
+
+    1. SELECT ... FOR UPDATE del reto por token_hash.
+    2. Validar idempotencia: si ya fue aprobado por el mismo usuario, devuelve la sesión existente.
+    3. Validar estado pending y vigencia: si expiró o fue usado por otro, lanza error.
+    4. Validar que el equipo esté activo y no ocupado (MACHINE_BUSY).
+    5. Cerrar sesión activa previa del usuario en otro equipo (superseded).
+    6. Marcar reto como approved y cancelar otros retos pendientes del equipo.
+    7. Insertar nueva AccessSession y registrar en AuditLog.
+    8. Commit y despertar al equipo con events.notify().
+    """
+    now = now or ahora()
+    token_bytes = hash_token(token)
+
+    # 1. SELECT ... FOR UPDATE del reto para serializar reclamaciones simultáneas (SRS §8.1.1)
+    stmt = (
+        select(LoginChallenge)
+        .where(LoginChallenge.token_hash == token_bytes)
+        .with_for_update()
+    )
+    reto_res = await db.execute(stmt)
+    reto = reto_res.scalar_one_or_none()
+
+    if not reto:
+        raise ChallengeNotFoundError
+
+    # 2. Idempotencia: si ya fue aprobado por el mismo estudiante, devolver la misma sesión (SRS §8.1.2)
+    if reto.status == ChallengeStatus.approved:
+        if reto.approved_by == user_id:
+            sesion_res = await db.execute(
+                select(AccessSession).where(AccessSession.challenge_id == reto.id)
+            )
+            sesion = sesion_res.scalar_one_or_none()
+            if sesion:
+                machine_res = await db.execute(
+                    select(Machine).where(Machine.id == reto.machine_id)
+                )
+                machine = machine_res.scalar_one()
+                lab_name = "Sala sin asignar"
+                if machine.lab_id:
+                    lab_res = await db.execute(
+                        select(Lab).where(Lab.id == machine.lab_id)
+                    )
+                    lab = lab_res.scalar_one_or_none()
+                    if lab:
+                        lab_name = lab.name
+                return sesion, machine, lab_name, True
+        raise ChallengeAlreadyUsedError
+
+    if reto.status != ChallengeStatus.pending:
+        raise ChallengeAlreadyUsedError
+
+    # 3. Validar vigencia
+    if reto.expires_at <= now:
+        reto.status = ChallengeStatus.expired
+        await db.flush()
+        raise ChallengeExpiredError
+
+    # 4. Validar estado del equipo y MACHINE_BUSY (RF-SES-03 / RN-08)
+    machine_res = await db.execute(
+        select(Machine).where(Machine.id == reto.machine_id).with_for_update()
+    )
+    machine = machine_res.scalar_one()
+    if machine.status != MachineStatus.active:
+        raise MachineNotActiveError
+
+    # Comprobar si el equipo ya tiene una sesión activa
+    sesion_equipo_res = await db.execute(
+        select(AccessSession)
+        .where(AccessSession.machine_id == machine.id, AccessSession.ended_at.is_(None))
+    )
+    if sesion_equipo_res.first():
+        raise MachineBusyError
+
+    # 5. Cerrar sesión activa previa del usuario en otro equipo (superseded, SRS §8.1.3 / RF-SES-04)
+    sesiones_usuario_res = await db.execute(
+        select(AccessSession)
+        .where(
+            AccessSession.user_id == user_id,
+            AccessSession.ended_at.is_(None),
+            AccessSession.machine_id != machine.id,
+        )
+    )
+    for sesion_previa in sesiones_usuario_res.scalars().all():
+        close_session(sesion_previa, SessionEndReason.superseded, now)
+
+    # 6. Marcar reto como approved y cancelar retos residuales del equipo (SRS §8.1.4)
+    reto.status = ChallengeStatus.approved
+    reto.approved_by = user_id
+    reto.approved_at = now
+
+    otros_retos_res = await db.execute(
+        select(LoginChallenge)
+        .where(
+            LoginChallenge.machine_id == machine.id,
+            LoginChallenge.status == ChallengeStatus.pending,
+            LoginChallenge.id != reto.id,
+        )
+    )
+    for otro in otros_retos_res.scalars().all():
+        otro.status = ChallengeStatus.cancelled
+
+    # 7. Insertar la nueva AccessSession (SRS §8.1.5)
+    nueva_sesion = AccessSession(
+        user_id=user_id,
+        machine_id=machine.id,
+        challenge_id=reto.id,
+        started_at=now,
+        last_heartbeat_at=now,
+        ended_at=None,
+        end_reason=None,
+    )
+    db.add(nueva_sesion)
+    await db.flush()
+
+    # 8. Registrar en el log de auditoría (SRS §8.1.6)
+    await audit(
+        db=db,
+        actor_type=AuditActorType.user,
+        actor_id=user_id,
+        action="session_claimed",
+        target_type="access_session",
+        target_id=nueva_sesion.id,
+        metadata_info={
+            "machine_code": machine.code,
+            "challenge_id": str(reto.id),
+            "session_id": str(nueva_sesion.id),
+        },
+    )
+
+    # Confirmar transacción en BD
+    await db.commit()
+
+    # 9. Obtener nombre de la sala y notificar al equipo (SRS §8.1.7)
+    lab_name = "Sala sin asignar"
+    if machine.lab_id:
+        lab_res = await db.execute(select(Lab).where(Lab.id == machine.lab_id))
+        lab = lab_res.scalar_one_or_none()
+        if lab:
+            lab_name = lab.name
+
+    session_payload = {
+        "status": "approved",
+        "session": {
+            "id": str(nueva_sesion.id),
+            "status": "active",
+            "started_at": nueva_sesion.started_at.isoformat(),
+            "machine": {
+                "id": str(machine.id),
+                "code": machine.code,
+                "lab": lab_name,
+            },
+        },
+    }
+    events.notify(machine.id, session_payload)
+
+    return nueva_sesion, machine, lab_name, False
