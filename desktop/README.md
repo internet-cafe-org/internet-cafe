@@ -53,3 +53,15 @@ header) are conventions of the mock, because the contract only defines successfu
 mock never writes bodies, headers or query strings to its log. The code lives in
 `src/test/java/org/internetcafe/desktop/mock/`, and the happy-path JUnit test is
 `MockApiServerTest`, run with `gradle test`.
+## Espera del escaneo (DSK-05b)
+
+Después de mostrar el QR, el escritorio hace long-poll a `GET /api/v1/machine/challenges/wait` (cabecera `X-Machine-Code`, `timeout=25`) en un hilo virtual (`ChallengeWaitService`).
+
+| Estado | Significado |
+|---|---|
+| IDLE | Creado, todavía sin iniciar. |
+| WAITING | Hay una petición en curso. Si responde `waiting` se vuelve a consultar; si falla la red se reintenta con espera creciente (1 s hasta 10 s). |
+| APPROVED | El backend respondió `approved`: se detiene la rotación del QR y se muestra el tablero con el nombre y el código enmascarado. |
+| STOPPED | Se canceló desde la pantalla (por ejemplo, al volver). |
+
+Con la API simulada (`MockApiServer`) este endpoint todavía no existe, así que el escritorio reintentará en segundo plano.

@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.internetcafe.desktop.AppConfig;
 import org.internetcafe.desktop.contract.ChallengeResponse;
+import org.internetcafe.desktop.contract.ChallengeWaitResponse;
 import org.internetcafe.desktop.contract.EnrollmentRequest;
 import org.internetcafe.desktop.contract.EnrollmentResponse;
 import org.internetcafe.desktop.contract.HealthResponse;
@@ -21,6 +22,7 @@ import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
 
 public class ApiClient {
   static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(35);
+  static final int WAIT_TIMEOUT_SECONDS = 25;
   private static final String API_PATH = "/api/v1";
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -69,6 +71,20 @@ public class ApiClient {
             .POST(HttpRequest.BodyPublishers.noBody())
             .build();
     return send(request, ChallengeResponse.class);
+  }
+
+  /**
+   * Waits (long-poll) until a student claims the machine's QR challenge or the server timeout
+   * elapses. The status of the response is either "approved" or "waiting".
+   */
+  public ChallengeWaitResponse waitForChallenge(String machineCode)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        requestBuilder(API_PATH + "/machine/challenges/wait?timeout=" + WAIT_TIMEOUT_SECONDS)
+            .header("X-Machine-Code", machineCode)
+            .GET()
+            .build();
+    return send(request, ChallengeWaitResponse.class);
   }
 
   public LongPollResponse longPoll(String lastEventId) throws IOException, InterruptedException {

@@ -68,6 +68,12 @@ public class Main extends Application {
           stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
         });
 
+    qrScreen.setOnApproved(
+        (response, approvedAt) -> {
+          stage.setScene(new Scene(boardScreen.getRoot(), 1280, 800));
+          boardScreen.show(response.displayName(), response.maskedStudentCode(), approvedAt);
+        });
+
     dashboardScreen.setOnLogout(
         () -> {
           stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));

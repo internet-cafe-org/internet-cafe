@@ -1,6 +1,7 @@
 package org.internetcafe.desktop.screens;
 
 import com.google.zxing.common.BitMatrix;
+import java.time.Instant;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
@@ -19,6 +20,8 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.util.Duration;
+import org.internetcafe.desktop.contract.ChallengeWaitResponse;
+import org.internetcafe.desktop.qr.ChallengeWaitService;
 import org.internetcafe.desktop.qr.QrCountdown;
 import org.internetcafe.desktop.qr.QrGenerator;
 import org.internetcafe.desktop.qr.QrRotationService;
@@ -40,7 +43,9 @@ public class QrScreen {
   private final Button skipButton;
   private Runnable onBack;
   private Runnable onSkip;
-  private QrRotationService rotationService;
+  private volatile QrRotationService rotationService;
+  private ChallengeWaitService waitService;
+  private ChallengeWaitService.ApprovedListener onApproved;
   private Timeline countdownTimeline;
   private QrCountdown countdown;
 
@@ -130,6 +135,11 @@ public class QrScreen {
     this.onBack = onBack;
   }
 
+  /** Called on the JavaFX thread once the backend reports that the QR was claimed. */
+  public void setOnApproved(ChallengeWaitService.ApprovedListener onApproved) {
+    this.onApproved = onApproved;
+  }
+
   public void setOnSkip(Runnable onSkip) {
     this.onSkip = onSkip;
   }
@@ -140,6 +150,12 @@ public class QrScreen {
     rotationService =
         new QrRotationService(() -> apiClient.createChallenge(machineCode), this::onChallengeReady);
     rotationService.start();
+    waitService =
+        new ChallengeWaitService(
+            () -> apiClient.waitForChallenge(machineCode),
+            this::stopRotationService,
+            this::handleApproved);
+    waitService.start();
   }
 
   /** Stops the rotation thread and the countdown ticks. Safe to call more than once. */
@@ -149,10 +165,32 @@ public class QrScreen {
       countdownTimeline = null;
     }
     countdown = null;
+    if (waitService != null) {
+      waitService.stop();
+      waitService = null;
+    }
     if (rotationService != null) {
       rotationService.stop();
       rotationService = null;
     }
+  }
+
+  /** Stops only the QR rotation. Safe to call from any thread. */
+  private void stopRotationService() {
+    QrRotationService current = rotationService;
+    if (current != null) {
+      current.stop();
+    }
+  }
+
+  private void handleApproved(ChallengeWaitResponse response, Instant approvedAt) {
+    Platform.runLater(
+        () -> {
+          stopRotation();
+          if (onApproved != null) {
+            onApproved.onApproved(response, approvedAt);
+          }
+        });
   }
 
   private void onChallengeReady(BitMatrix qr, QrCountdown nextCountdown) {
