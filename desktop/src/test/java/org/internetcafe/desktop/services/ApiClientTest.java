@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.internetcafe.desktop.contract.ChallengeResponse;
 import org.internetcafe.desktop.contract.EnrollmentRequest;
 import org.internetcafe.desktop.contract.HealthResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
@@ -95,6 +96,16 @@ class ApiClientTest {
   }
 
   @Test
+  void createChallengeReturnsTypedResponse() throws Exception {
+    ChallengeResponse challenge = apiClient.createChallenge("PC-01");
+    assertEquals("challenge-test", challenge.challengeId());
+    assertEquals("https://front.example.invalid/s#sample", challenge.qrUrl());
+    assertEquals(45, challenge.rotateAfterSeconds());
+    assertEquals("PC-01", requestBodies.get("machine-code"));
+    assertEquals("POST", requestMethods.get("/api/v1/machine/challenges"));
+  }
+
+  @Test
   void nonSuccessfulResponseRaisesSanitizedApiException() {
     ApiException exception =
         assertThrows(
@@ -134,6 +145,16 @@ class ApiClientTest {
             exchange,
             200,
             "{\"credencial_temporal\":\"temporary-token\",\"expiracion_segundos\":300}");
+      }
+      case "/api/v1/machine/challenges" -> {
+        requestBodies.put("machine-code", exchange.getRequestHeaders().getFirst("X-Machine-Code"));
+        respond(
+            exchange,
+            201,
+            "{\"challenge_id\":\"challenge-test\","
+                + "\"qr_url\":\"https://front.example.invalid/s#sample\","
+                + "\"expires_at\":\"2026-10-19T14:05:00Z\","
+                + "\"rotate_after_s\":45}");
       }
       case "/api/v1/long-poll" -> {
         requestBodies.put("long-poll-query", exchange.getRequestURI().getRawQuery());

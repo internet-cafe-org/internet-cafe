@@ -8,7 +8,7 @@ Establecer el contrato técnico y de datos de la API REST del sistema Internet C
 ```yaml
 openapi: 3.0.3
 info:
-  title: Internet Cafe API - Contrato 
+  title: Internet Cafe API - Contrato
   version: 0.1.0
   description: Contrato de datos y endpoints para registro asíncrono, enrolamiento con JWK, credenciales provisionales y long-polling.
 
@@ -142,3 +142,309 @@ paths:
                   datos:
                     type: object
                     example: {"terminal": "PC-05", "tiempo_restante": 3600}
+
+
+  /api/v1/machine/challenges:
+    post:
+      summary: Generar un reto QR para una máquina
+      description: Crea un reto QR de un solo uso para el equipo identificado.
+      parameters:
+        - in: header
+          name: x-machine-code
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Reto QR creado correctamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - challenge_id
+                  - qr_url
+                  - expires_at
+                  - rotate_after_s
+                properties:
+                  challenge_id:
+                    type: string
+                    format: uuid
+                  qr_url:
+                    type: string
+                    format: uri
+                  expires_at:
+                    type: string
+                    format: date-time
+                  rotate_after_s:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/machine/challenges/wait:
+    get:
+      summary: Espera en long-poll de la aprobación de un reto QR
+      description: Mantiene la conexión abierta hasta que un estudiante reclame el reto QR del equipo o venza el timeout.
+      parameters:
+        - in: header
+          name: x-machine-code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: timeout
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 25
+            default: 25
+      responses:
+        '200':
+          description: Respuesta de long-poll (sesión aprobada o en espera).
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - approved
+                      - waiting
+                  session:
+                    type: object
+                    required:
+                      - id
+                      - status
+                      - started_at
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        example: "active"
+                      started_at:
+                        type: string
+                        format: date-time
+                  user:
+                    type: object
+                    required:
+                      - full_name
+                      - student_code_masked
+                    properties:
+                      full_name:
+                        type: string
+                        example: "Ana Pérez"
+                      student_code_masked:
+                        type: string
+                        example: "2021****34"
+                  recent_accesses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        machine_code:
+                          type: string
+                        lab:
+                          type: string
+                        started_at:
+                          type: string
+                          format: date-time
+                        ended_at:
+                          type: string
+                          format: date-time
+                        duration_s:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/scan/preview:
+    post:
+      summary: Consultar vista previa de un reto QR
+      description: Obtiene información del equipo antes de confirmar el acceso.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Vista previa obtenida correctamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - machine
+                  - expires_at
+                  - active_session
+                properties:
+                  machine:
+                    type: object
+                    required:
+                      - code
+                      - lab
+                    properties:
+                      code:
+                        type: string
+                      lab:
+                        type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  active_session:
+                    type: object
+                    nullable: true
+                    properties:
+                      machine_code:
+                        type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+
+  /api/v1/scan/claim:
+    post:
+      summary: Confirmar acceso escaneando el QR (Claim)
+      description: Reclama el reto QR y crea la sesión de acceso para el estudiante de forma atómica.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+      responses:
+        '201':
+          description: Sesión creada exitosamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - session
+                properties:
+                  session:
+                    type: object
+                    required:
+                      - id
+                      - status
+                      - started_at
+                      - machine
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        example: "active"
+                      started_at:
+                        type: string
+                        format: date-time
+                      machine:
+                        type: object
+                        required:
+                          - id
+                          - code
+                          - lab
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          lab:
+                            type: string
+        '200':
+          description: Reintento idempotente exitoso (devuelve la sesión existente).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    type: object
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+
+components:
+  schemas:
+    ProblemDetails:
+      type: object
+      description: Formato de error conforme a RFC 9457.
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          description: Código identificador del error.
+
+  responses:
+    Unauthorized:
+      description: No autorizado.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Forbidden:
+      description: Acceso prohibido.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    NotFound:
+      description: Recurso no encontrado.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Conflict:
+      description: Conflicto con el estado actual del recurso.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Gone:
+      description: Reto QR expirado.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+```

@@ -40,6 +40,12 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+tasks.register('mockApi', JavaExec) {
+    group = 'application'
+    description = 'Levanta la API simulada local (DSK-07) en http://localhost:8000'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.internetcafe.desktop.mock.MockApiServer'
+}
 spotless {
     java {
         googleJavaFormat()

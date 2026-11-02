@@ -6,3 +6,12 @@ alembic
 pydantic-settings
 psycopg2-binary
 greenlet
+pytest
+pytest-asyncio
+httpx
+freezegun
+argon2-cffi
+crytography>=42.0.0
+pyjwt[crypto]>=2.8.0
+
+
