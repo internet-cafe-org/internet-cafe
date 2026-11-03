@@ -988,6 +988,10 @@ Signature: sig1=:<firma r||s de 64 bytes en base64>:
 | `MACHINE_CLOCK_SKEW` | 401 | Reloj del equipo fuera de tolerancia. | Corrección automática (RF-EQU-08). |
 | `ENROLLMENT_CODE_INVALID` | 401 | Código de enrolamiento inexistente, usado o vencido. | Pedir un código nuevo al administrador. |
 | `SESSION_NOT_FOUND` | 404 | Sesión inexistente o ajena. | — |
+| `BAD_REQUEST` | 4xx | Petición inválida sin código específico. | — |
+| `NOT_FOUND` | 404 | Ruta inexistente. | — |
+| `METHOD_NOT_ALLOWED` | 405 | Método HTTP no admitido en la ruta. | — |
+| `INTERNAL_ERROR` | 500 | Error inesperado del servidor (sin traza en la respuesta). | Reintentar más tarde. |
 
 ## 10.6 Gestión del contrato
 
