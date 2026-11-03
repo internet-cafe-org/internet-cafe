@@ -11,7 +11,7 @@ pytest-asyncio
 httpx
 freezegun
 argon2-cffi
-crytography>=42.0.0
+cryptography>=42.0.0
 pyjwt[crypto]>=2.8.0
 
 
