@@ -1,6 +1,7 @@
 package org.internetcafe.desktop.screens;
 
 import com.google.zxing.common.BitMatrix;
+import java.io.IOException;
 import java.time.Instant;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -26,12 +27,19 @@ import org.internetcafe.desktop.qr.QrCountdown;
 import org.internetcafe.desktop.qr.QrGenerator;
 import org.internetcafe.desktop.qr.QrRotationService;
 import org.internetcafe.desktop.services.ApiClient;
+import org.internetcafe.desktop.services.ConnectivityErrors;
 
 /** Pantalla D-02: QR, código del equipo, sala, cuenta regresiva y estado de conexión. */
 public class QrScreen {
 
   private static final int QR_SIZE_PX = 320;
   private static final String[] CONNECTION_STYLE_CLASSES = {"online", "connecting", "offline"};
+
+  /** A request to the API that may fail with a network error. */
+  @FunctionalInterface
+  private interface NetworkCall<T> {
+    T run() throws IOException, InterruptedException;
+  }
 
   private final BorderPane root;
   private final QrScreenModel model;
@@ -43,6 +51,7 @@ public class QrScreen {
   private final Button skipButton;
   private Runnable onBack;
   private Runnable onSkip;
+  private volatile Runnable onConnectionLost;
   private volatile QrRotationService rotationService;
   private ChallengeWaitService waitService;
   private ChallengeWaitService.ApprovedListener onApproved;
@@ -144,15 +153,24 @@ public class QrScreen {
     this.onSkip = onSkip;
   }
 
+  /**
+   * Called (from a background thread) when a request to the API fails because the network or the
+   * API is down. The caller decides what to show.
+   */
+  public void setOnConnectionLost(Runnable onConnectionLost) {
+    this.onConnectionLost = onConnectionLost;
+  }
+
   /** Starts requesting challenges from the backend and keeps the QR and countdown up to date. */
   public void startRotation(ApiClient apiClient, String machineCode) {
     stopRotation();
     rotationService =
-        new QrRotationService(() -> apiClient.createChallenge(machineCode), this::onChallengeReady);
+        new QrRotationService(
+            () -> guarded(() -> apiClient.createChallenge(machineCode)), this::onChallengeReady);
     rotationService.start();
     waitService =
         new ChallengeWaitService(
-            () -> apiClient.waitForChallenge(machineCode),
+            () -> guarded(() -> apiClient.waitForChallenge(machineCode)),
             this::stopRotationService,
             this::handleApproved);
     waitService.start();
@@ -180,6 +198,21 @@ public class QrScreen {
     QrRotationService current = rotationService;
     if (current != null) {
       current.stop();
+    }
+  }
+
+  /** Runs a request and reports connection failures while the rotation is active. */
+  private <T> T guarded(NetworkCall<T> call) throws IOException, InterruptedException {
+    try {
+      return call.run();
+    } catch (IOException e) {
+      Runnable callback = onConnectionLost;
+      if (callback != null
+          && rotationService != null
+          && ConnectivityErrors.isConnectionFailure(e)) {
+        callback.run();
+      }
+      throw e;
     }
   }
 
