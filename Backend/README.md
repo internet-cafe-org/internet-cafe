@@ -1,27 +1,13 @@
-# Backend · Internet Café API
+# Internet Café — Backend (contrato v0.2)
 
-## Pruebas
+FastAPI + SQLAlchemy async + PostgreSQL (Neon). Errores RFC 9457 (`application/problem+json`) vía `app/error_handlers.py`:
+sin `input`, credenciales, tokens ni trazas en las respuestas.
 
-```bash
-cd Backend
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements-dev.txt   # en Linux/macOS: .venv/bin/python
-.venv/Scripts/python -m pytest
-```
+- Configuración: copia `.env.example` → `.env` (valores ficticios; nunca secretos reales).
+- Base de datos y roles: ver `db/README.md`.
+- Contrato: `openapi.yaml` / `Contrato.md` (v0.2.0).
+- Pruebas: `python -m pytest`.
 
-## Errores (RFC 9457)
-
-Todas las respuestas de error salen como `application/problem+json` con un `code` estable del catálogo (SRS §10.5). Los manejadores están en `app/error_handlers.py` y el catálogo en `app/errors.py`.
-
-Para devolver un error desde un router, lanza un `AppError` con un `ErrorCode`, nunca un `HTTPException`:
-
-```python
-from app.errors import AppError, ErrorCode
-
-raise AppError(ErrorCode.CHALLENGE_EXPIRED)
-raise AppError(ErrorCode.RATE_LIMITED, headers={"Retry-After": "30"})
-```
-
-Para agregar un código nuevo, añádelo a `ErrorCode` y a `CATALOGO` (status, título y detalle). La prueba `tests/unit/test_catalogo_errores.py` falla si falta alguno.
-
-Los 422 solo devuelven `field` y `message` por campo: nunca el valor enviado (`input`).
+## Concurrencia (BE-05 / BE-07b)
+Orden de bloqueos fijo: fila del equipo `FOR UPDATE` → retos → sesiones. Las cancelaciones de retos son `UPDATE` masivos con
+`WHERE status = 'pending'`, así un reto `approved` nunca se pisa.
