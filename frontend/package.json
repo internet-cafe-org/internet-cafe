@@ -14,7 +14,8 @@
     "format:check": "prettier --check src/",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen:api": "openapi-typescript ../Backend/openapi.yaml -o src/api/schema.d.ts"
   },
   "dependencies": {
     "@primeuix/themes": "^3.1.0",

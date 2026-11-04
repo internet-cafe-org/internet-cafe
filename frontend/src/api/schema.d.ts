@@ -4,406 +4,1338 @@
  */
 
 export interface paths {
-  '/api/v1/registro': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    get?: never
-    put?: never
-    /**
-     * Registro inicial de usuario o dispositivo
-     * @description Inicia el proceso de registro devolviendo un cÃ³digo 202 indicando aceptaciÃ³n para procesamiento asÃ­ncrono.
-     */
-    post: {
-      parameters: {
-        query?: never
-        header?: never
-        path?: never
-        cookie?: never
-      }
-      requestBody: {
-        content: {
-          'application/json': {
-            /** @example 123456789 */
-            identificacion: string
-            /**
-             * Format: email
-             * @example usuario@ejemplo.com
-             */
-            correo: string
-            /** @example cliente */
-            rol: string
-          }
-        }
-      }
-      responses: {
-        /** @description Solicitud aceptada y en proceso. */
-        202: {
-          headers: {
-            [name: string]: unknown
-          }
-          content: {
-            'application/json': {
-              /** @example procesando */
-              estado?: string
-              /** @example Registro aceptado para procesamiento en segundo plano */
-              mensaje?: string
-            }
-          }
-        }
-      }
-    }
-    delete?: never
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
-  '/api/v1/enroll': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    get?: never
-    put?: never
-    /**
-     * Enrolamiento con JWK y prueba de posesiÃ³n
-     * @description Valida la clave pÃºblica JSON Web Key y la prueba criptogrÃ¡fica de posesiÃ³n.
-     */
-    post: {
-      parameters: {
-        query?: never
-        header?: never
-        path?: never
-        cookie?: never
-      }
-      requestBody: {
-        content: {
-          'application/json': {
-            /**
-             * @description Estructura de clave pÃºblica JSON Web Key (RFC 7517).
-             * @example {
-             *       "kty": "RSA",
-             *       "n": "...",
-             *       "e": "AQAB"
-             *     }
-             */
-            jwk: Record<string, never>
-            /**
-             * @description Firma criptogrÃ¡fica firmada con la clave privada correspondiente.
-             * @example eyJhbGciOiJSUzI1NiIs...
-             */
-            prueba_posesion: string
-          }
-        }
-      }
-      responses: {
-        /** @description Enrolamiento completado con Ã©xito. */
-        200: {
-          headers: {
-            [name: string]: unknown
-          }
-          content: {
-            'application/json': {
-              /** @example enrolado */
-              estado?: string
-              /** @example dev-98765 */
-              dispositivo_id?: string
-            }
-          }
-        }
-      }
-    }
-    delete?: never
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
-  '/api/v1/credencial-provisional': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    /**
-     * EmisiÃ³n de credencial provisional
-     * @description Entrega una credencial temporal bajo validaciÃ³n de seguridad previa.
-     */
-    get: {
-      parameters: {
-        query?: never
-        header: {
-          'X-Device-ID': string
-        }
-        path?: never
-        cookie?: never
-      }
-      requestBody?: never
-      responses: {
-        /** @description Credencial provisional generada correctamente. */
-        200: {
-          headers: {
-            [name: string]: unknown
-          }
-          content: {
-            'application/json': {
-              /** @example temp-token-xyz-789 */
-              credencial_temporal?: string
-              /** @example 300 */
-              expiracion_segundos?: number
-            }
-          }
-        }
-      }
-    }
-    put?: never
-    post?: never
-    delete?: never
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
-  '/api/v1/long-poll': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    /**
-     * Canal de sondeo largo (Long-Poll)
-     * @description Mantiene la conexiÃ³n abierta hasta que ocurra un evento relevante para el cliente.
-     */
-    get: {
-      parameters: {
-        query?: {
-          ultimo_evento_id?: string
-        }
-        header?: never
-        path?: never
-        cookie?: never
-      }
-      requestBody?: never
-      responses: {
-        /** @description Evento recibido satisfactoriamente. */
-        200: {
-          headers: {
-            [name: string]: unknown
-          }
-          content: {
-            'application/json': {
-              /** @example evt-456 */
-              evento_id?: string
-              /** @example sesion_autorizada */
-              tipo?: string
-              /**
-               * @example {
-               *       "terminal": "PC-05",
-               *       "tiempo_restante": 3600
-               *     }
-               */
-              datos?: Record<string, never>
-            }
-          }
-        }
-      }
-    }
-    put?: never
-    post?: never
-    delete?: never
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
-  '/api/v1/machine/challenges': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    get?: never
-    put?: never
-    /**
-     * Generar un reto QR para una mÃ¡quina
-     * @description Crea un reto QR de un solo uso para el equipo identificado.
-     */
-    post: {
-      parameters: {
-        query?: never
-        header: {
-          'x-machine-code': string
-        }
-        path?: never
-        cookie?: never
-      }
-      requestBody?: never
-      responses: {
-        /** @description Reto QR creado correctamente. */
-        201: {
-          headers: {
-            [name: string]: unknown
-          }
-          content: {
-            'application/json': {
-              /** Format: uuid */
-              challenge_id: string
-              /** Format: uri */
-              qr_url: string
-              /** Format: date-time */
-              expires_at: string
-              rotate_after_s: number
-            }
-          }
-        }
-        401: components['responses']['Unauthorized']
-        403: components['responses']['Forbidden']
-      }
-    }
-    delete?: never
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
-  '/api/v1/scan/preview': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    get?: never
-    put?: never
-    /**
-     * Consultar vista previa de un reto QR
-     * @description Obtiene informaciÃ³n del equipo antes de confirmar el acceso.
-     */
-    post: {
-      parameters: {
-        query?: never
-        header?: never
-        path?: never
-        cookie?: never
-      }
-      requestBody: {
-        content: {
-          'application/json': {
-            token: string
-          }
-        }
-      }
-      responses: {
-        /** @description Vista previa obtenida correctamente. */
-        200: {
-          headers: {
-            [name: string]: unknown
-          }
-          content: {
-            'application/json': {
-              machine: {
-                code: string
-                lab: string
-              }
-              /** Format: date-time */
-              expires_at: string
-              active_session: {
-                machine_code?: string
-              } | null
-            }
-          }
-        }
-        404: components['responses']['NotFound']
-        409: components['responses']['Conflict']
-        410: components['responses']['Gone']
-      }
-    }
-    delete?: never
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
+    "/api/v1/registro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registro inicial de usuario o dispositivo
+         * @description Inicia el proceso de registro devolviendo un código 202 indicando aceptación para procesamiento asíncrono.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example 123456789 */
+                        identificacion: string;
+                        /**
+                         * Format: email
+                         * @example usuario@ejemplo.com
+                         */
+                        correo: string;
+                        /** @example cliente */
+                        rol: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Solicitud aceptada y en proceso. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example procesando */
+                            estado?: string;
+                            /** @example Registro aceptado para procesamiento en segundo plano */
+                            mensaje?: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enrolamiento con JWK y prueba de posesión
+         * @description Valida la clave pública JSON Web Key y la prueba criptográfica de posesión.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Estructura de clave pública JSON Web Key (RFC 7517).
+                         * @example {
+                         *       "kty": "RSA",
+                         *       "n": "...",
+                         *       "e": "AQAB"
+                         *     }
+                         */
+                        jwk: Record<string, never>;
+                        /**
+                         * @description Firma criptográfica firmada con la clave privada correspondiente.
+                         * @example eyJhbGciOiJSUzI1NiIs...
+                         */
+                        prueba_posesion: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Enrolamiento completado con éxito. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example enrolado */
+                            estado?: string;
+                            /** @example dev-98765 */
+                            dispositivo_id?: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credencial-provisional": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Emisión de credencial provisional
+         * @description Entrega una credencial temporal bajo validación de seguridad previa.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-Device-ID": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Credencial provisional generada correctamente. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example temp-token-xyz-789 */
+                            credencial_temporal?: string;
+                            /** @example 300 */
+                            expiracion_segundos?: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/long-poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Canal de sondeo largo (Long-Poll)
+         * @description Mantiene la conexión abierta hasta que ocurra un evento relevante para el cliente.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    ultimo_evento_id?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Evento recibido satisfactoriamente. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example evt-456 */
+                            evento_id?: string;
+                            /** @example sesion_autorizada */
+                            tipo?: string;
+                            /**
+                             * @example {
+                             *       "terminal": "PC-05",
+                             *       "tiempo_restante": 3600
+                             *     }
+                             */
+                            datos?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machine/challenges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generar un reto QR para una máquina
+         * @description Crea un reto QR de un solo uso para el equipo identificado. Máximo 2 retos vigentes por equipo (RN-06).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "x-machine-code": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reto QR creado correctamente. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            challenge_id: string;
+                            /** Format: uri */
+                            qr_url: string;
+                            /** Format: date-time */
+                            expires_at: string;
+                            rotate_after_s: number;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machine/challenges/wait": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Espera en long-poll de la aprobación de un reto QR
+         * @description Mantiene la conexión abierta hasta que un estudiante reclame el reto QR del equipo o venza el timeout.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    timeout?: number;
+                };
+                header: {
+                    "x-machine-code": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Respuesta de long-poll (sesión aprobada o en espera). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "approved" | "waiting";
+                            session?: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @example active */
+                                status: string;
+                                /** Format: date-time */
+                                started_at: string;
+                            };
+                            user?: components["schemas"]["StudentInfo"];
+                            recent_accesses?: components["schemas"]["RecentAccess"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scan/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consultar vista previa de un reto QR
+         * @description Obtiene información del equipo antes de confirmar el acceso. No consume el reto.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Vista previa obtenida correctamente. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            machine: {
+                                code: string;
+                                lab: string;
+                            };
+                            /** Format: date-time */
+                            expires_at: string;
+                            active_session: {
+                                machine_code?: string;
+                            } | null;
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                410: components["responses"]["Gone"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scan/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar acceso escaneando el QR (Claim)
+         * @description Reclama el reto QR y crea la sesión de acceso para el estudiante de forma atómica.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Reintento idempotente exitoso (devuelve la sesión existente). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @example active */
+                                status: string;
+                                /** Format: date-time */
+                                started_at: string;
+                                machine: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    code: string;
+                                    lab: string;
+                                };
+                            };
+                        };
+                    };
+                };
+                /** @description Sesión creada exitosamente. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @example active */
+                                status: string;
+                                /** Format: date-time */
+                                started_at: string;
+                                machine: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    code: string;
+                                    lab: string;
+                                };
+                            };
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                410: components["responses"]["Gone"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machine/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Latido del equipo (v0.2)
+         * @description El equipo lo envía cada 60 s. Devuelve la hora del servidor, el modo del equipo (`mode`) y el estado de su sesión. Es la vía por la que el equipo se entera de un cierre remoto (web, administrador o reemplazo): si no tiene sesión abierta y envía `session_id`, responde `ended` con `end_reason`. Solo equipos `active` pueden enviar latidos (RN-08). Toda marca de tiempo la fija el servidor (RN-01).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["HeartbeatRequest"];
+                };
+            };
+            responses: {
+                /** @description Latido registrado. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HeartbeatResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machine/sessions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sesión actual del equipo (v0.2)
+         * @description Sesión abierta del equipo con el estudiante enmascarado y sus últimos accesos. 204 si el equipo no tiene sesión abierta.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Sesión abierta. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CurrentSession"];
+                    };
+                };
+                /** @description El equipo no tiene sesión abierta. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machine/sessions/current/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar la sesión desde el equipo (v0.2)
+         * @description Cierra la sesión abierta del equipo con motivo `user_logout_pc` (por defecto) o `machine_shutdown` (apagado ordenado, mejor esfuerzo).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["EndSessionRequest"];
+                };
+            };
+            responses: {
+                /** @description Sesión cerrada. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EndedSession"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Perfil del usuario (v0.2)
+         * @description Perfil del usuario autenticado. El código de estudiante se devuelve enmascarado.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Perfil. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Profile"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historial de sesiones propias (v0.2)
+         * @description Historial paginado, de la más reciente a la más antigua.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Página de sesiones. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MySessionsPage"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sesión activa propia (v0.2)
+         * @description Sesión abierta del usuario o `{"session": null}`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Sesión activa o null. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: components["schemas"]["MySession"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar una sesión propia desde la web (v0.2)
+         * @description Cierra con motivo `user_logout_web`. Idempotente. El equipo se entera en su próximo latido (≤ 60 s). Una sesión ajena responde igual que una inexistente (404 `SESSION_NOT_FOUND`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Sesión (cerrada). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: components["schemas"]["MySession"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/labs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listar salas (v0.2) */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Página de salas. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LabsPage"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /** Crear una sala (v0.2) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LabCreate"];
+                };
+            };
+            responses: {
+                /** @description Sala creada. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Lab"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/machines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listar equipos (v0.2) */
+        get: {
+            parameters: {
+                query?: {
+                    lab_id?: string;
+                    status?: components["schemas"]["MachineStatus"];
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Página de equipos. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MachinesPage"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/machines/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Editar sala, modo o estado de un equipo (v0.2)
+         * @description Deshabilitar un equipo (`status: disabled`) cancela sus retos pendientes y cierra su sesión abierta con `admin_forced` (RN-08). Activar un equipo que no se enroló responde 409 `CONFLICT`.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MachinePatch"];
+                };
+            };
+            responses: {
+                /** @description Equipo actualizado. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Machine"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/admin/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Consultar accesos con filtros (v0.2) */
+        get: {
+            parameters: {
+                query?: {
+                    machine_code?: string;
+                    lab_id?: string;
+                    state?: "active" | "ended";
+                    /** @description Inclusivo. Sin zona horaria se interpreta como UTC. */
+                    started_from?: string;
+                    /** @description Exclusivo. Sin zona horaria se interpreta como UTC. */
+                    started_to?: string;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Página de sesiones. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminSessionsPage"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/sessions/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cierre forzado de una sesión (v0.2)
+         * @description Cierra con motivo `admin_forced`. Idempotente. El equipo se entera en su próximo latido (≤ 60 s).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Sesión (cerrada). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: components["schemas"]["AdminSession"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
-export type webhooks = Record<string, never>
+export type webhooks = Record<string, never>;
 export interface components {
-  schemas: {
-    /** @description Formato de error conforme a RFC 9457. */
-    ProblemDetails: {
-      /**
-       * Format: uri-reference
-       * @default about:blank
-       */
-      type: string
-      title?: string
-      status?: number
-      detail?: string
-      /** Format: uri-reference */
-      instance?: string
-      /** @description CÃ³digo identificador del error. */
-      code?: string
-    }
-  }
-  responses: {
-    /** @description No autorizado. */
-    Unauthorized: {
-      headers: {
-        [name: string]: unknown
-      }
-      content: {
-        'application/problem+json': components['schemas']['ProblemDetails']
-      }
-    }
-    /** @description Acceso prohibido. */
-    Forbidden: {
-      headers: {
-        [name: string]: unknown
-      }
-      content: {
-        'application/problem+json': components['schemas']['ProblemDetails']
-      }
-    }
-    /** @description Recurso no encontrado. */
-    NotFound: {
-      headers: {
-        [name: string]: unknown
-      }
-      content: {
-        'application/problem+json': components['schemas']['ProblemDetails']
-      }
-    }
-    /** @description Conflicto con el estado actual del recurso. */
-    Conflict: {
-      headers: {
-        [name: string]: unknown
-      }
-      content: {
-        'application/problem+json': components['schemas']['ProblemDetails']
-      }
-    }
-    /** @description Reto QR expirado. */
-    Gone: {
-      headers: {
-        [name: string]: unknown
-      }
-      content: {
-        'application/problem+json': components['schemas']['ProblemDetails']
-      }
-    }
-  }
-  parameters: never
-  requestBodies: never
-  headers: never
-  pathItems: never
+    schemas: {
+        /** @description Error RFC 9457. Toda respuesta 4xx/5xx usa este esquema con `application/problem+json`. Nunca incluye credenciales, tokens, el valor enviado (`input`) ni trazas. */
+        ProblemDetail: {
+            /**
+             * Format: uri
+             * @example https://errors.internet-cafe.example/challenge-expired
+             */
+            type: string;
+            /** @example El código QR expiró */
+            title: string;
+            /** @example 410 */
+            status: number;
+            /**
+             * @description Código estable del catálogo (SRS §10.5).
+             * @example CHALLENGE_EXPIRED
+             */
+            code: string;
+            /** @example Escanea el código nuevo del equipo. */
+            detail: string;
+            /**
+             * @description Ruta de la petición, sin query string.
+             * @example /api/v1/scan/claim
+             */
+            instance: string;
+            /** @description Solo en 422. */
+            errors?: components["schemas"]["FieldError"][];
+        };
+        FieldError: {
+            /** @example body.password */
+            field: string;
+            /** @example String should have at least 12 characters */
+            message: string;
+        };
+        StudentInfo: {
+            /** @example Ana Pérez */
+            full_name: string;
+            /** @example 2021****34 */
+            student_code_masked: string;
+        };
+        RecentAccess: {
+            machine_code: string;
+            lab: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ended_at: string;
+            duration_s: number;
+        };
+        /** @enum {string} */
+        SessionEndReason: "user_logout_pc" | "user_logout_web" | "superseded" | "heartbeat_timeout" | "admin_forced" | "machine_shutdown";
+        /** @enum {string} */
+        MachineStatus: "pending_enrollment" | "active" | "disabled";
+        /** @enum {string} */
+        MachineMode: "passive" | "kiosk";
+        HeartbeatRequest: {
+            /**
+             * Format: uuid
+             * @description Sesión que el equipo cree tener abierta. Permite informarle un cierre remoto.
+             */
+            session_id?: string | null;
+        };
+        HeartbeatResponse: {
+            /** Format: date-time */
+            server_time: string;
+            mode: components["schemas"]["MachineMode"];
+            /**
+             * @description `active`: hay sesión abierta. `ended`: la sesión indicada en la petición ya cerró (ver `end_reason`). `none`: no hay sesión.
+             * @enum {string}
+             */
+            session_status: "active" | "ended" | "none";
+            /**
+             * Format: uuid
+             * @description Sesión abierta actual (`active`) o la indicada en la petición (`ended`). Si difiere de la que el equipo tiene, debe resincronizar con GET /machine/sessions/current.
+             */
+            session_id?: string;
+            end_reason?: components["schemas"]["SessionEndReason"];
+        };
+        CurrentSession: {
+            session: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                status: "active";
+                /** Format: date-time */
+                started_at: string;
+            };
+            user: components["schemas"]["StudentInfo"];
+            recent_accesses: components["schemas"]["RecentAccess"][];
+        };
+        EndSessionRequest: {
+            /**
+             * @default user_logout_pc
+             * @enum {string}
+             */
+            reason: "user_logout_pc" | "machine_shutdown";
+        };
+        EndedSession: {
+            session: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                status: "closed";
+                /** Format: date-time */
+                ended_at: string;
+                end_reason: components["schemas"]["SessionEndReason"];
+            };
+        };
+        Profile: {
+            /** Format: uuid */
+            id: string;
+            full_name: string;
+            /** Format: email */
+            email: string;
+            student_code_masked: string;
+            /** @enum {string} */
+            role: "student" | "admin";
+            /** @enum {string} */
+            status: "pending_verification" | "active" | "blocked";
+        };
+        MySession: {
+            /** Format: uuid */
+            id: string;
+            machine_code: string;
+            lab: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ended_at?: string | null;
+            end_reason?: components["schemas"]["SessionEndReason"];
+            duration_s?: number | null;
+        };
+        MySessionsPage: {
+            items: components["schemas"]["MySession"][];
+            total: number;
+            limit: number;
+            offset: number;
+        };
+        LabCreate: {
+            name: string;
+            building?: string | null;
+        };
+        Lab: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            building?: string | null;
+        };
+        LabsPage: {
+            items: components["schemas"]["Lab"][];
+            total: number;
+            limit: number;
+            offset: number;
+        };
+        MachinePatch: {
+            /**
+             * Format: uuid
+             * @description null desasigna la sala.
+             */
+            lab_id?: string | null;
+            mode?: components["schemas"]["MachineMode"];
+            /** @enum {string} */
+            status?: "active" | "disabled";
+        };
+        Machine: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            hostname?: string | null;
+            /** Format: uuid */
+            lab_id?: string | null;
+            lab?: string | null;
+            status: components["schemas"]["MachineStatus"];
+            mode: components["schemas"]["MachineMode"];
+            app_version?: string | null;
+            /** Format: date-time */
+            enrolled_at?: string | null;
+            /** Format: date-time */
+            last_seen_at?: string | null;
+        };
+        MachinesPage: {
+            items: components["schemas"]["Machine"][];
+            total: number;
+            limit: number;
+            offset: number;
+        };
+        AdminSession: {
+            /** Format: uuid */
+            id: string;
+            user: {
+                /** Format: uuid */
+                id: string;
+                full_name: string;
+                student_code_masked: string;
+            };
+            machine_code: string;
+            lab: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            last_heartbeat_at: string;
+            /** Format: date-time */
+            ended_at?: string | null;
+            end_reason?: components["schemas"]["SessionEndReason"];
+            duration_s?: number | null;
+        };
+        AdminSessionsPage: {
+            items: components["schemas"]["AdminSession"][];
+            total: number;
+            limit: number;
+            offset: number;
+        };
+    };
+    responses: {
+        /** @description Petición inválida. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description No autorizado: token ausente o vencido, o firma/credencial del equipo inválida. */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description Acceso prohibido: sin permisos, o equipo deshabilitado. */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description Recurso no encontrado. */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description Conflicto con el estado actual del recurso. */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description Reto QR expirado. */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description 422 `VALIDATION_ERROR` con `errors[]` (`field` y `message`). Nunca devuelve el valor enviado. */
+        ValidationError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+    };
+    parameters: never;
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 }
-export type $defs = Record<string, never>
-export type operations = Record<string, never>
+export type $defs = Record<string, never>;
+export type operations = Record<string, never>;
