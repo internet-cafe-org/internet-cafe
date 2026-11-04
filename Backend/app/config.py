@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     blind_index_key: str | None = None
     # Base del campo `type` de los errores RFC 9457 (ver app/errors.py)
     errors_base_url: str = "https://errors.internet-cafe.example"
+    # Sesion web: refresh token en cookie (SEC-03a)
+    refresh_token_expire_days: int = 7
+    cookie_secure: bool = True
+    allowed_origin: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

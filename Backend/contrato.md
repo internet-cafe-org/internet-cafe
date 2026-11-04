@@ -497,3 +497,14 @@ components:
 - Los 422 llevan `code: VALIDATION_ERROR` y `errors[]` con `field` y `message`. No devuelven `input` ni `ctx`, para no repetir contraseñas u otros datos del cliente.
 - Además del catálogo del SRS §10.5 existen los códigos genéricos `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED` e `INTERNAL_ERROR`.
 - Un 500 no incluye la traza; el servidor registra un `request_id` que viaja en la cabecera `X-Request-ID`.
+
+## Sesion web: refresh y logout (SEC-03a)
+
+El refresh token viaja en la cookie `refresh_token` (HttpOnly, Secure, SameSite=Strict, Path=/api/v1/auth, 7 dias). Nunca se devuelve en el cuerpo. El access token se entrega en el cuerpo y el cliente lo guarda en memoria.
+
+| Metodo y ruta | Descripcion | Respuestas |
+|---|---|---|
+| POST /api/v1/auth/refresh | Rota el refresh token (revoca el usado y emite uno nuevo en la misma familia) y devuelve `{access_token, token_type, expires_in}` | 200; 401 `AUTH_INVALID_CREDENTIALS` (sin cookie, desconocido, revocado o reutilizado); 401 `AUTH_TOKEN_EXPIRED` (vencido); 403 `FORBIDDEN` (Origin no permitido) |
+| POST /api/v1/auth/logout | Revoca la familia del token y borra la cookie. Idempotente | 204; 403 `FORBIDDEN` (Origin no permitido) |
+
+Si se presenta un refresh token ya revocado se considera robo y se revoca toda la familia.
