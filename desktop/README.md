@@ -65,3 +65,13 @@ Después de mostrar el QR, el escritorio hace long-poll a `GET /api/v1/machine/c
 | STOPPED | Se canceló desde la pantalla (por ejemplo, al volver). |
 
 Con la API simulada (`MockApiServer`) este endpoint todavía no existe, así que el escritorio reintentará en segundo plano.
+
+## Conexión segura (DSK-13)
+
+El cliente HTTP del escritorio (`SecureHttpClient`) no usa el almacén de certificados del sistema:
+
+- Confía solo en las raíces de `src/main/resources/truststore/` (ISRG Root X1/X2 de Let's Encrypt y GTS Root R1-R4 de Google Trust Services, las autoridades que usa Render).
+- Ignora el proxy del sistema (conexión directa).
+- Solo negocia TLS 1.3.
+
+Si Render cambia de autoridad, agregar la nueva raíz pública (`.pem`) a esa carpeta y a la lista de `SecureHttpClient`.

@@ -30,8 +30,7 @@ public class ApiClient {
   private final String apiBaseUrl;
 
   public ApiClient() {
-    this(
-        HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build(), AppConfig.getApiBaseUrl());
+    this(SecureHttpClient.create(REQUEST_TIMEOUT), AppConfig.getApiBaseUrl());
   }
 
   ApiClient(HttpClient httpClient, String apiBaseUrl) {
