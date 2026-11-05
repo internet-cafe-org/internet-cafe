@@ -13,12 +13,19 @@ import org.internetcafe.desktop.screens.ConnectionStatus;
 import org.internetcafe.desktop.screens.DashboardScreen;
 import org.internetcafe.desktop.screens.EnrollScreen;
 import org.internetcafe.desktop.screens.LoginScreen;
+import org.internetcafe.desktop.screens.MachineMode;
 import org.internetcafe.desktop.screens.OfflineScreen;
+import org.internetcafe.desktop.screens.PassiveCard;
 import org.internetcafe.desktop.screens.QrScreen;
 import org.internetcafe.desktop.screens.QrScreenModel;
 import org.internetcafe.desktop.services.ApiClient;
 
 public class Main extends Application {
+
+  private TrayManager trayManager;
+  private PassiveModeController passiveMode;
+  private AppModeManager modeManager;
+
   @Override
   public void start(Stage stage) {
     LoginScreen loginScreen = new LoginScreen();
@@ -33,6 +40,9 @@ public class Main extends Application {
 
     Consumer<ConnectionMonitor.Status> onConnectionStatus =
         status -> {
+          if (passiveMode != null && passiveMode.isPassive()) {
+            return;
+          }
           offlineScreen.show(status);
           boolean offlineVisible = stage.getScene().getRoot() == offlineScreen.getRoot();
           if (status.phase() == ConnectionMonitor.Phase.RESTORED) {
@@ -97,6 +107,47 @@ public class Main extends Application {
 
     qrScreen.setOnConnectionLost(connectionMonitor::reportFailure);
 
+    PassiveCard passiveCard = new PassiveCard();
+    String passiveMachine = machineCode + " \u00b7 " + qrModel.labName();
+    String passiveStatus = "QR detenido (omitido)";
+    trayManager =
+        new TrayManager(
+            "Internet Caf\u00e9 - modo pasivo",
+            () -> Platform.runLater(() -> passiveCard.show(passiveMachine, passiveStatus)),
+            () -> Platform.runLater(() -> modeManager.applyMode(MachineMode.KIOSK)));
+    passiveMode =
+        new PassiveModeController(
+            () -> {
+              connectionMonitor.stop();
+              qrScreen.stopRotation();
+            },
+            () -> qrScreen.startRotation(apiClient, machineCode),
+            () -> {
+              Platform.setImplicitExit(false);
+              passiveCard.show(passiveMachine, passiveStatus);
+              if (trayManager.install()) {
+                stage.hide();
+              } else {
+                stage.setIconified(true);
+              }
+            },
+            () -> {
+              trayManager.remove();
+              stage.setIconified(false);
+              if (stage.getScene().getRoot() != qrScreen.getRoot()) {
+                stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
+              }
+              stage.show();
+              stage.toFront();
+              passiveCard.hide();
+              Platform.setImplicitExit(true);
+            });
+    modeManager =
+        new AppModeManager(
+            MachineMode.KIOSK, mode -> Platform.runLater(() -> passiveMode.applyMode(mode)));
+    passiveCard.setOnRegister(() -> modeManager.applyMode(MachineMode.KIOSK));
+    qrScreen.setOnSkip(() -> modeManager.applyMode(MachineMode.PASSIVE));
+
     offlineScreen.setOnRetry(connectionMonitor::retryNow);
     offlineScreen.setOnHome(
         () -> {
@@ -123,6 +174,13 @@ public class Main extends Application {
         () -> {
           stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
         });
+  }
+
+  @Override
+  public void stop() {
+    if (trayManager != null) {
+      trayManager.remove();
+    }
   }
 
   public static void main(String[] args) {

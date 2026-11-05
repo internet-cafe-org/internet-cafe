@@ -115,7 +115,13 @@ public class QrScreen {
           }
         });
 
-    VBox center = new VBox(16, qrFrame, countdownLabel, machineCodeLabel, labLabel, skipButton);
+    Label skipHint = new Label("Minimiza a la bandeja y detiene los QR hasta registrar acceso");
+    skipHint.getStyleClass().add("qr-skip-hint");
+    skipHint.visibleProperty().bind(skipButton.visibleProperty());
+    skipHint.managedProperty().bind(skipButton.managedProperty());
+
+    VBox center =
+        new VBox(16, qrFrame, countdownLabel, machineCodeLabel, labLabel, skipButton, skipHint);
     center.setAlignment(Pos.CENTER);
     center.getStyleClass().add("qr-body");
 
