@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[3]
 DOC = yaml.safe_load((RAIZ / "openapi.yaml").read_text(encoding="utf-8"))
 MD = (RAIZ / "Contrato.md").read_text(encoding="utf-8")
 
