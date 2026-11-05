@@ -49,6 +49,9 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "NOT_FOUND"
     METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    # Genérico del contrato v0.2 (BE-18): el recurso existe pero la operación choca
+    # con su estado (nombre de sala repetido, activar un equipo sin enrolar)
+    CONFLICT = "CONFLICT"
 
     @property
     def spec(self) -> ErrorSpec:
@@ -62,9 +65,7 @@ class ErrorCode(StrEnum):
 
 
 CATALOGO: dict[ErrorCode, ErrorSpec] = {
-    ErrorCode.VALIDATION_ERROR: ErrorSpec(
-        422, "Datos inválidos", "Corrige los campos indicados."
-    ),
+    ErrorCode.VALIDATION_ERROR: ErrorSpec(422, "Datos inválidos", "Corrige los campos indicados."),
     ErrorCode.AUTH_INVALID_CREDENTIALS: ErrorSpec(
         401,
         "Credenciales incorrectas",
@@ -80,12 +81,8 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
         "Cuenta bloqueada temporalmente",
         "Demasiados intentos fallidos. Espera 15 minutos.",
     ),
-    ErrorCode.AUTH_TOKEN_EXPIRED: ErrorSpec(
-        401, "Sesión vencida", "El token de acceso venció."
-    ),
-    ErrorCode.FORBIDDEN: ErrorSpec(
-        403, "Acceso denegado", "No tienes permisos para este recurso."
-    ),
+    ErrorCode.AUTH_TOKEN_EXPIRED: ErrorSpec(401, "Sesión vencida", "El token de acceso venció."),
+    ErrorCode.FORBIDDEN: ErrorSpec(403, "Acceso denegado", "No tienes permisos para este recurso."),
     ErrorCode.RATE_LIMITED: ErrorSpec(
         429,
         "Demasiadas peticiones",
@@ -105,9 +102,7 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
         "Equipo ocupado",
         "El equipo ya tiene una sesión activa. Ciérrala y reintenta.",
     ),
-    ErrorCode.MACHINE_DISABLED: ErrorSpec(
-        403, "Equipo deshabilitado", "Contacta a soporte."
-    ),
+    ErrorCode.MACHINE_DISABLED: ErrorSpec(403, "Equipo deshabilitado", "Contacta a soporte."),
     ErrorCode.MACHINE_SIGNATURE_INVALID: ErrorSpec(
         401,
         "Firma del equipo inválida",
@@ -129,9 +124,7 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
     ErrorCode.BAD_REQUEST: ErrorSpec(
         400, "Petición inválida", "El servidor no pudo procesar la petición."
     ),
-    ErrorCode.NOT_FOUND: ErrorSpec(
-        404, "Recurso no encontrado", "La ruta solicitada no existe."
-    ),
+    ErrorCode.NOT_FOUND: ErrorSpec(404, "Recurso no encontrado", "La ruta solicitada no existe."),
     ErrorCode.METHOD_NOT_ALLOWED: ErrorSpec(
         405, "Método no permitido", "La ruta no admite este método HTTP."
     ),
@@ -139,6 +132,9 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
         500,
         "Error interno",
         "Ocurrió un error inesperado. Inténtalo más tarde.",
+    ),
+    ErrorCode.CONFLICT: ErrorSpec(
+        409, "Conflicto", "La operación no es posible en el estado actual del recurso."
     ),
 }
 

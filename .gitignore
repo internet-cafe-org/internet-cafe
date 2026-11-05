@@ -18,3 +18,6 @@ tools/keys/
 .env
 **/tools/keys/
 *.pem
+
+# Raices publicas del truststore (DSK-13)
+!desktop/src/main/resources/truststore/*.pem
