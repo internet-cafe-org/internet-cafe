@@ -102,3 +102,8 @@
     -fx-background-color: #e2e8f0;
     -fx-text-fill: #0f172a;
 }
+
+.qr-skip-hint {
+  -fx-text-fill: #475569;
+  -fx-font-size: 13px;
+}
