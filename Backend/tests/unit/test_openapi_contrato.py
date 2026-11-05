@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-RAIZ = Path(__file__).resolve().parents[3]
+RAIZ = Path(__file__).resolve().parents[2]
 DOC = yaml.safe_load((RAIZ / "openapi.yaml").read_text(encoding="utf-8"))
-MD = (RAIZ / "Contrato.md").read_text(encoding="utf-8")
+MD = (RAIZ / "contrato.md").read_text(encoding="utf-8")
 
 NUEVAS = [
     ("/api/v1/machine/heartbeat", "post"),
