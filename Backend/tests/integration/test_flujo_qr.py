@@ -233,14 +233,6 @@ async def test_equipo_ocupado_responde_machine_busy(sesiones, datos):
     assert [s.user_id for s in activas] == [datos.ana.id]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug de BE-07b: cada claim bloquea su reto y el ganador intenta cancelar "
-        "el del otro, que espera el bloqueo del equipo; PostgreSQL responde "
-        "'deadlock detected' (500) en vez de MACHINE_BUSY"
-    ),
-)
 async def test_dos_estudiantes_confirman_los_dos_qr_vigentes_a_la_vez(sesiones, datos):
     token_1 = await crear_qr(sesiones, datos.pc01, T0)
     token_2 = await crear_qr(sesiones, datos.pc01, seg(45))
@@ -360,14 +352,6 @@ async def test_rotacion_antes_de_confirmar_el_qr_cancelado(sesiones, datos):
     assert await sesiones_activas(sesiones, datos.pc01) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug de BE-05: crear_reto cancela los retos viejos sin volver a mirar su "
-        "estado, así que pisa el 'approved' que dejó el claim y la sesión queda "
-        "con su reto 'cancelled'"
-    ),
-)
 async def test_rotacion_durante_la_confirmacion_no_cancela_el_reto_aprobado(
     sesiones, datos, monkeypatch
 ):
