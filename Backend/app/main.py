@@ -4,7 +4,11 @@ Inicializa la instancia del servidor, integra las configuraciones de entorno,
 y expone los endpoints de salud (/healthz) y disponibilidad de base de datos (/readyz).
 """
 
+
+from app.routers import auth, machine, scan
+
 from app.routers import admin, machine, me, scan
+
 from app.config import settings
 from app.database import obtener_base_datos
 from app.error_handlers import registrar_manejadores
@@ -51,8 +55,12 @@ registrar_manejadores(app)
 # Registra las rutas de la API
 app.include_router(machine.router, prefix="/api/v1")
 app.include_router(scan.router, prefix="/api/v1")
+
+app.include_router(auth.router, prefix="/api/v1")
+
 app.include_router(me.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+
 
 
 @app.get("/healthz")
