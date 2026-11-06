@@ -1,2 +1,23 @@
 # Exportaciones del SRS (Word y PDF): no se versionan
 entregables/
+desktop/.gradle/
+desktop/build/
+
+# Secretos locales: nunca se suben
+.env
+.env.*
+!.env.example
+
+# Entorno virtual y cache de Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tools/keys/
+.env
+**/tools/keys/
+*.pem
+
+# Raices publicas del truststore (DSK-13)
+!desktop/src/main/resources/truststore/*.pem

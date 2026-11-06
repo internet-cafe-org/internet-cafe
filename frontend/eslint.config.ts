@@ -13,6 +13,13 @@ export default defineConfigWithVueTs(
   ...pluginVue.configs['flat/recommended'],
   vueTsConfigs.recommendedTypeChecked,
   ...pluginA11y.configs['flat/recommended'],
+  {
+    // Basta con `for`/`id` o con anidar el campo (ambas formas cumplen WCAG).
+    name: 'app/a11y-label',
+    rules: {
+      'vuejs-accessibility/label-has-for': ['error', { required: { some: ['nesting', 'id'] } }],
+    },
+  },
 
   {
     ...pluginVitest.configs.recommended,

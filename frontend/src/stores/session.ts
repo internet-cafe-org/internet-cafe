@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 
+import { clearAccessToken } from '@/api/client'
+
 export type UserRole = 'student' | 'admin'
 
 /**
@@ -23,6 +25,10 @@ export const useSessionStore = defineStore('session', {
     clear() {
       this.fullName = null
       this.role = null
+      clearAccessToken()
+    },
+    logout() {
+      this.clear()
     },
   },
 })

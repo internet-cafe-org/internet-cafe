@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic-settings
+psycopg2-binary
+greenlet
+pytest
+pytest-asyncio
+httpx
+freezegun
+argon2-cffi
+cryptography>=42.0.0
+pyjwt[crypto]>=2.8.0
+
+

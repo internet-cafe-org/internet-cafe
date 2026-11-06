@@ -1,0 +1,38 @@
+.passive-card {
+    -fx-background-color: white;
+    -fx-background-radius: 14;
+    -fx-border-color: #475569;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+    -fx-font-family: "Segoe UI", sans-serif;
+  }
+  
+  .passive-machine {
+    -fx-text-fill: #475569;
+    -fx-font-size: 13px;
+  }
+  
+  .passive-title {
+    -fx-text-fill: #111827;
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+  }
+  
+  .passive-status {
+    -fx-text-fill: #1f2937;
+    -fx-font-size: 15px;
+  }
+  
+  .passive-register {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: white;
+    -fx-font-size: 15px;
+    -fx-background-radius: 8;
+    -fx-padding: 12 16 12 16;
+    -fx-cursor: hand;
+  }
+  
+  .passive-register:hover {
+    -fx-background-color: #1d4ed8;
+  }

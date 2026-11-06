@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type RouterHistory } from 'vue-router'
 
+import { setPendingScanToken } from '@/services/pendingScan'
 import { useSessionStore } from '@/stores/session'
 
 declare module 'vue-router' {
@@ -33,6 +34,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'forgot-password',
     component: () => import('@/views/ForgotPasswordView.vue'),
     meta: { access: 'public' },
+  },
+  {
+    path: '/redirigiendo',
+    name: 'redirecting',
+    component: () => import('@/views/RedirectingView.vue'),
+    meta: { access: 'user' },
   },
   {
     path: '/',
@@ -105,7 +112,11 @@ export function createAppRouter(history: RouterHistory) {
     const access = to.meta.access ?? 'public'
 
     if (access === 'public') return true
-    if (!session.isAuthenticated) return { name: 'login' }
+    if (!session.isAuthenticated) {
+      // Conserva el token del QR en memoria para continuar tras el login (RF-QR-05).
+      if (to.name === 'confirm' && to.hash.length > 1) setPendingScanToken(to.hash.slice(1))
+      return { name: 'login' }
+    }
     if (access === 'admin' && !session.isAdmin) return { name: 'home' }
     return true
   })
