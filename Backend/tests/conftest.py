@@ -5,7 +5,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from freezegun import freeze_time
 from app.main import app
 
@@ -13,7 +13,7 @@ from app.main import app
 @pytest.fixture
 async def async_client():
     """Cliente HTTP asíncrono para pruebas de integración."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
 
 
