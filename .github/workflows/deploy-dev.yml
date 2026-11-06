@@ -1,0 +1,110 @@
+name: deploy-dev
+
+# OPS-11: cada push a main despliega la API en dev.
+# Cabeza única de Alembic → migración con svc_migrator → deploy hook de Render → humo.
+# Secretos y variables del environment `dev`: ver docs/ops/despliegue-dev.md.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: despliegue en dev
+    runs-on: ubuntu-latest
+    environment: dev
+    # Mismo grupo que dev-seed y dev-reset: uno a la vez sobre la base de dev,
+    # sin cancelar el que está corriendo (nunca cortar una migración a la mitad)
+    concurrency:
+      group: dev-db
+      cancel-in-progress: false
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Backend
+    env:
+      APP_ENV: dev
+      # Settings exige SECRET_KEY al importarse; ni Alembic ni el humo la usan
+      SECRET_KEY: no-se-usa-en-el-despliegue
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Verificar una sola cabeza de Alembic
+        env:
+          # `alembic heads` no se conecta; la URL solo satisface a Settings
+          DATABASE_URL: postgresql+asyncpg://sin-conexion@localhost/no_se_usa
+        run: |
+          heads="$(alembic heads)"
+          echo "$heads"
+          n="$(echo "$heads" | grep -c '(head)')"
+          if [ "$n" -ne 1 ]; then
+            echo "::error::Hay $n cabezas de Alembic; debe haber exactamente 1."
+            exit 1
+          fi
+
+      - name: Migrar con el rol migrador
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_MIGRATOR }}
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+        run: |
+          if [ -z "$DATABASE_URL_MIGRATOR" ]; then
+            echo "::error::Falta el secret DATABASE_URL_MIGRATOR en el environment dev."
+            exit 1
+          fi
+          alembic upgrade head
+
+      - name: Disparar el deploy hook de Render
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Falta el secret RENDER_DEPLOY_HOOK_URL en el environment dev."
+            exit 1
+          fi
+          curl -fsS -o /dev/null -X POST "$RENDER_DEPLOY_HOOK_URL"
+          echo "Deploy solicitado a Render."
+
+      - name: Prueba de humo
+        env:
+          DEV_API_URL: ${{ vars.DEV_API_URL }}
+          DEV_WEB_URL: ${{ vars.DEV_WEB_URL }}
+          # El hook responde al instante y la versión anterior sigue en línea mientras
+          # Render construye; se espera antes de probar para no validar la versión vieja.
+          ESPERA_DEPLOY_S: ${{ vars.DEV_ESPERA_DEPLOY_S || '420' }}
+        run: |
+          if [ -z "$DEV_API_URL" ]; then
+            echo "::error::Falta la variable DEV_API_URL en el environment dev."
+            exit 1
+          fi
+          echo "Esperando ${ESPERA_DEPLOY_S}s a que Render publique la versión nueva..."
+          sleep "$ESPERA_DEPLOY_S"
+
+          probar() { # $1 = URL; hasta 10 intentos, 30 s entre cada uno (arranque en frío)
+            for i in $(seq 1 10); do
+              codigo="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$1" || true)"
+              if [ "$codigo" = "200" ]; then
+                echo "OK  $1"
+                return 0
+              fi
+              echo "Intento $i: $1 respondió $codigo"
+              sleep 30
+            done
+            echo "::error::$1 no respondió 200."
+            return 1
+          }
+
+          probar "$DEV_API_URL/healthz"
+          probar "$DEV_API_URL/readyz"
+          if [ -n "$DEV_WEB_URL" ]; then
+            probar "$DEV_WEB_URL/"
+          fi
