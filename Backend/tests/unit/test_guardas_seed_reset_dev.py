@@ -44,7 +44,7 @@ def test_codigos_sin_archivo_de_salida_se_rechazan(monkeypatch, capsys) -> None:
 )
 def test_reset_exige_dev_y_confirmacion(entorno: str, confirmacion: str, monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", entorno)
-    monkeypatch.setenv("DATABASE_URL_MIGRATOR", "postgresql://x:y@localhost/no_existe")
+    monkeypatch.setenv("DATABASE_URL_MIGRATOR", "postgresql://localhost/no_existe")
     assert reset_dev.main(["--confirmar", confirmacion]) == 2
 
 
