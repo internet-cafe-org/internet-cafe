@@ -1,0 +1,87 @@
+name: dev-seed
+
+# OPS-11 / QA-02a: siembra dev (administrador, salas, equipos y códigos a pedido).
+# Es idempotente. También lo llama dev-reset después de migrar.
+# Los códigos de enrolamiento salen como artefacto cifrado con la contraseña del
+# administrador de dev (1 día de retención); nunca se imprimen en el log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      codigos:
+        description: Códigos de enrolamiento a generar (0 a 50)
+        type: number
+        default: 0
+  workflow_call:
+    inputs:
+      codigos:
+        type: number
+        default: 0
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    name: semilla de dev
+    runs-on: ubuntu-latest
+    environment: dev
+    # A nivel de job (no de workflow): dev-reset llama a este workflow y con el mismo
+    # grupo a nivel de workflow los dos se esperarían entre sí
+    concurrency:
+      group: dev-db
+      cancel-in-progress: false
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Backend
+    env:
+      APP_ENV: dev
+      SECRET_KEY: no-se-usa-en-la-semilla
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Sembrar
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_MIGRATOR }}
+          BLIND_INDEX_KEY: ${{ secrets.DEV_BLIND_INDEX_KEY }}
+          SEED_ADMIN_PASSWORD: ${{ secrets.DEV_ADMIN_PASSWORD }}
+          SEED_ADMIN_EMAIL: ${{ vars.DEV_ADMIN_EMAIL }}
+          CODIGOS: ${{ inputs.codigos }}
+        run: |
+          for nombre in DATABASE_URL BLIND_INDEX_KEY SEED_ADMIN_PASSWORD; do
+            if [ -z "${!nombre}" ]; then
+              echo "::error::Falta $nombre (secret del environment dev, ver docs/ops/despliegue-dev.md)."
+              exit 1
+            fi
+          done
+          if [ "${CODIGOS:-0}" -gt 0 ]; then
+            python -m tools.seed_dev --codigos "$CODIGOS" --salida-codigos "$RUNNER_TEMP/codigos.txt"
+          else
+            python -m tools.seed_dev
+          fi
+
+      - name: Cifrar los códigos de enrolamiento
+        if: inputs.codigos > 0
+        env:
+          DEV_ADMIN_PASSWORD: ${{ secrets.DEV_ADMIN_PASSWORD }}
+        run: |
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -in "$RUNNER_TEMP/codigos.txt" -out "$RUNNER_TEMP/codigos.txt.enc" \
+            -pass env:DEV_ADMIN_PASSWORD
+          shred -u "$RUNNER_TEMP/codigos.txt"
+
+      - name: Publicar los códigos cifrados
+        if: inputs.codigos > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: codigos-enrolamiento-dev
+          path: ${{ runner.temp }}/codigos.txt.enc
+          retention-days: 1

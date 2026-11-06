@@ -1,0 +1,78 @@
+name: dev-reset
+
+# OPS-11: borra los datos de dev y lo deja recién migrado y sembrado.
+# Vacía el esquema `app` (tools.reset_dev) → alembic upgrade head → dev-seed.
+# Destructivo: pide escribir "dev" para confirmar.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: Escribe "dev" para borrar todos los datos de dev
+        type: string
+        required: true
+      codigos:
+        description: Códigos de enrolamiento a generar después del reset (0 a 50)
+        type: number
+        default: 0
+
+permissions:
+  contents: read
+
+jobs:
+  reset:
+    name: reset de dev
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: dev-db
+      cancel-in-progress: false
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Backend
+    env:
+      APP_ENV: dev
+      SECRET_KEY: no-se-usa-en-el-reset
+    steps:
+      - name: Confirmar
+        working-directory: .
+        env:
+          CONFIRMAR: ${{ inputs.confirmar }}
+        run: |
+          if [ "$CONFIRMAR" != "dev" ]; then
+            echo "::error::Confirmación incorrecta: escribe exactamente dev."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Vaciar el esquema app
+        env:
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+          CONFIRMAR: ${{ inputs.confirmar }}
+        run: |
+          if [ -z "$DATABASE_URL_MIGRATOR" ]; then
+            echo "::error::Falta el secret DATABASE_URL_MIGRATOR en el environment dev."
+            exit 1
+          fi
+          python -m tools.reset_dev --confirmar "$CONFIRMAR"
+
+      - name: Migrar con el rol migrador
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_MIGRATOR }}
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+        run: alembic upgrade head
+
+  seed:
+    needs: reset
+    uses: ./.github/workflows/dev-seed.yml
+    with:
+      codigos: ${{ inputs.codigos }}
+    secrets: inherit
