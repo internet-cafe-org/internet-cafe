@@ -1,34 +1,157 @@
 name: ci
-
+ 
 on:
   pull_request:
     branches: [main, develop]
   push:
     branches: [main, develop]
-
+ 
 permissions:
   contents: read
-
+ 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+ 
 jobs:
-  ci-ok:
-    name: ci-ok
+  # ---------------------------------------------------------------- Secretos
+  secretos:
+    name: secretos (gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Configurar Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Configurar Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.14.3'
-      - name: Probar identidad del escritorio
-        run: gradle -p desktop test
       - name: Instalar gitleaks
         run: curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | tar -xz gitleaks
       - name: Escanear secretos
         run: ./gitleaks git --redact --verbose
+ 
+  # ----------------------------------------------------------------- Backend
+  backend:
+    name: backend (lint + pruebas)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: internet_cafe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      SECRET_KEY: clave-ficticia-solo-para-ci
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/internet_cafe_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/internet_cafe_test
+      TEST_ROLES_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/internet_cafe_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            Backend/requirements.txt
+            Backend/requirements-dev.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt pyyaml
+      - name: Lint (ruff, errores de sintaxis y nombres indefinidos)
+        # Línea base: el código actual tiene deuda de estilo (B008, UP017, I001...).
+        # Se endurece por etapas; hoy solo bloquea lo que rompe en ejecución.
+        run: ruff check . --select E9,F63,F7,F82
+      - name: Pruebas (unitarias + integración con PostgreSQL de servicio y roles)
+        run: python -m pytest -q
+ 
+  # --------------------------------------------------------- Cabeza de Alembic
+  alembic-cabeza-unica:
+    name: alembic (una sola cabeza)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    env:
+      SECRET_KEY: clave-ficticia-solo-para-ci
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/internet_cafe_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Verificar una sola cabeza
+        run: |
+          heads="$(alembic heads)"
+          echo "$heads"
+          n="$(echo "$heads" | grep -c '(head)')"
+          if [ "$n" -ne 1 ]; then
+            echo "::error::Hay $n cabezas de Alembic; haz rebase del down_revision (debe haber exactamente 1)."
+            exit 1
+          fi
+ 
+  # --------------------------------------------------------------------- Web
+  frontend:
+    name: frontend (lint + pruebas)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Formato (sin el esquema generado)
+        run: npx prettier --check "src/**/*" "!src/api/schema.d.ts"
+      - name: Tipos
+        run: npm run type-check
+      - name: Pruebas (Vitest)
+        run: npm test
+ 
+  # ---------------------------------------------------------------- Escritorio
+  escritorio:
+    name: escritorio (JUnit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Pruebas del escritorio
+        run: gradle -p desktop test
+ 
+  # --------------------------------------------------------------- Agregador
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [secretos, backend, alembic-cabeza-unica, frontend, escritorio]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Todos los jobs deben estar en verde
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "::error::Algún job de CI falló, se canceló o se saltó."
+            exit 1
+          fi
+ 
