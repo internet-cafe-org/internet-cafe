@@ -448,3 +448,224 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
 ```
+
+
+---
+
+## Endpoints del Estudiante — BE-11 (Sprint 2)
+
+Los siguientes endpoints están disponibles bajo el prefijo `/api/v1` y requieren un
+Bearer token ES256 válido en el header `Authorization`.
+
+```yaml
+paths:
+  /me:
+    get:
+      summary: Perfil del estudiante autenticado
+      tags: [estudiante]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Datos del perfil. El código de estudiante aparece enmascarado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  full_name:
+                    type: string
+                    example: "Juan Pérez"
+                  student_code_masked:
+                    type: string
+                    example: "2021*****34"
+                    description: >
+                      Código de estudiante con los dígitos centrales ocultos
+                      (SRS §9.1 / RNF-PRI-02). Nunca se devuelve el código completo.
+                  role:
+                    type: string
+                    enum: [student, admin]
+                  status:
+                    type: string
+                    enum: [pending_verification, active, blocked]
+                  created_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/sessions:
+    get:
+      summary: Historial de sesiones del estudiante (paginado)
+      tags: [estudiante]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Lista paginada de sesiones.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        machine:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            code:
+                              type: string
+                            lab:
+                              type: string
+                              nullable: true
+                        started_at:
+                          type: string
+                          format: date-time
+                        ended_at:
+                          type: string
+                          format: date-time
+                          nullable: true
+                        end_reason:
+                          type: string
+                          nullable: true
+                          enum:
+                            - user_logout_pc
+                            - user_logout_web
+                            - superseded
+                            - heartbeat_timeout
+                            - admin_forced
+                            - machine_shutdown
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/sessions/active:
+    get:
+      summary: Sesión de acceso activa del estudiante
+      tags: [estudiante]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Sesión activa en curso.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  machine:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      code:
+                        type: string
+                      lab:
+                        type: string
+                        nullable: true
+                  started_at:
+                    type: string
+                    format: date-time
+                  last_heartbeat_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: El estudiante no tiene ninguna sesión activa en este momento.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                code: NO_ACTIVE_SESSION
+                detail: El estudiante no tiene ninguna sesión activa.
+
+  /me/sessions/{session_id}/end:
+    post:
+      summary: Cerrar sesión desde el portal web
+      tags: [estudiante]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Sesión cerrada correctamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  ended_at:
+                    type: string
+                    format: date-time
+                  end_reason:
+                    type: string
+                    example: "user_logout_web"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La sesión pertenece a otro usuario.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                code: SESSION_FORBIDDEN
+                detail: No puedes cerrar la sesión de otro usuario.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La sesión ya fue cerrada antes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                code: SESSION_ALREADY_ENDED
+                detail: La sesión ya fue cerrada anteriormente.
+```
