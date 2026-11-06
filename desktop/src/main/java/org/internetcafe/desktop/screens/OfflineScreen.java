@@ -29,6 +29,8 @@ public class OfflineScreen {
   private final Hyperlink homeLink = new Hyperlink("Volver al inicio");
   private Runnable onRetry;
   private Runnable onHome;
+  private OfflineScreenModel model;
+  private boolean failOpen;
 
   public OfflineScreen() {
     icon.getStyleClass().add("offline-icon");
@@ -95,15 +97,37 @@ public class OfflineScreen {
 
   /** Shows the given connection status. Safe to call from any thread. */
   public void show(ConnectionMonitor.Status status) {
-    OfflineScreenModel model = OfflineScreenModel.from(status);
+    OfflineScreenModel nextModel = OfflineScreenModel.from(status);
     if (Platform.isFxApplicationThread()) {
+      model = nextModel;
       apply(model);
     } else {
-      Platform.runLater(() -> apply(model));
+      Platform.runLater(
+          () -> {
+            model = nextModel;
+            apply(model);
+          });
+    }
+  }
+
+  /** Shows whether the kiosk was released after the API remained unavailable for three minutes. */
+  public void setFailOpen(boolean failOpen) {
+    Runnable update =
+        () -> {
+          this.failOpen = failOpen;
+          apply(model);
+        };
+    if (Platform.isFxApplicationThread()) {
+      update.run();
+    } else {
+      Platform.runLater(update);
     }
   }
 
   private void apply(OfflineScreenModel model) {
+    if (model == null) {
+      return;
+    }
     icon.setText(model.icon());
     title.setText(model.title());
     subtitle.setText(model.subtitle());
@@ -119,6 +143,14 @@ public class OfflineScreen {
     bannerText.setText(model.bannerText());
     setShown(banner, !model.bannerTitle().isBlank());
     setShown(bannerText, !model.bannerText().isBlank());
+    if (failOpen) {
+      title.setText("Equipo liberado");
+      subtitle.setText("La API lleva 3 minutos sin responder. Puede usar el equipo.");
+      bannerTitle.setText("Modo de emergencia");
+      bannerText.setText("El equipo volverá al modo kiosco cuando se recupere la conexión.");
+      setShown(banner, true);
+      setShown(bannerText, true);
+    }
 
     retryButton.setText(model.retryLabel());
     retryButton.setDisable(!model.retryEnabled());

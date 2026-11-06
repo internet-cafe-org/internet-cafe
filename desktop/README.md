@@ -75,3 +75,15 @@ El cliente HTTP del escritorio (`SecureHttpClient`) no usa el almacén de certif
 - Solo negocia TLS 1.3.
 
 Si Render cambia de autoridad, agregar la nueva raíz pública (`.pem`) a esa carpeta y a la lista de `SecureHttpClient`.
+
+## Modo kiosco (DSK-11)
+
+En modo kiosco, la ventana ocupa toda la pantalla, permanece encima y no acepta solicitudes para
+cerrarse. Los intentos de minimizarla se revierten mientras está bloqueada. El bloqueo se libera
+mientras hay una sesión activa, tras tres minutos sin respuesta de la API o mientras el equipo está
+en modo pasivo. Cuando la API responde de nuevo, el kiosco vuelve a bloquear la ventana si no hay
+una sesión activa.
+
+Windows no permite que JavaFX bloquee de forma confiable atajos seguros como `Ctrl+Alt+Supr`, la
+tecla Windows o el cambio a otra aplicación. Esta limitación está aceptada para el MVP; el kiosco
+no instala interceptores de teclado ni intenta eludir controles de seguridad del sistema operativo.

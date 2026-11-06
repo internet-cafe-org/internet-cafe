@@ -1,10 +1,13 @@
 package org.internetcafe.desktop;
 
 import java.util.function.Consumer;
+import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.internetcafe.desktop.qr.ConnectionMonitor;
@@ -25,6 +28,7 @@ public class Main extends Application {
   private TrayManager trayManager;
   private PassiveModeController passiveMode;
   private AppModeManager modeManager;
+  private Timeline kioskFailOpenTicker;
 
   @Override
   public void start(Stage stage) {
@@ -37,12 +41,31 @@ public class Main extends Application {
     OfflineScreen offlineScreen = new OfflineScreen();
     ApiClient apiClient = new ApiClient();
     String machineCode = System.getProperty("machine.code", qrModel.machineCode());
+    Scene scene = new Scene(loginScreen.getRoot(), 1280, 800);
+    scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+
+    stage.setTitle("Internet Cafe Desktop");
+    stage.setScene(scene);
+    stage.setMinWidth(900);
+    stage.setMinHeight(700);
+    KioskController kioskController =
+        new KioskController(
+            locked -> applyKioskWindow(stage, locked),
+            failOpen -> {
+              offlineScreen.setFailOpen(failOpen);
+              if (failOpen && stage.getScene().getRoot() != offlineScreen.getRoot()) {
+                qrScreen.stopRotation();
+                stage.setScene(new Scene(offlineScreen.getRoot(), 1280, 800));
+              }
+            },
+            System::nanoTime);
 
     Consumer<ConnectionMonitor.Status> onConnectionStatus =
         status -> {
           if (passiveMode != null && passiveMode.isPassive()) {
             return;
           }
+          kioskController.onConnectionStatus(status);
           offlineScreen.show(status);
           boolean offlineVisible = stage.getScene().getRoot() == offlineScreen.getRoot();
           if (status.phase() == ConnectionMonitor.Phase.RESTORED) {
@@ -66,15 +89,32 @@ public class Main extends Application {
         new ConnectionMonitor(
             apiClient::getHealth,
             status -> Platform.runLater(() -> onConnectionStatus.accept(status)));
-
-    Scene scene = new Scene(loginScreen.getRoot(), 1280, 800);
-    scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
-
-    stage.setTitle("Internet Cafe Desktop");
-    stage.setScene(scene);
-    stage.setMinWidth(900);
-    stage.setMinHeight(700);
+    stage.setOnCloseRequest(
+        event -> {
+          if (kioskController.isLocked()) {
+            event.consume();
+          }
+        });
+    stage
+        .iconifiedProperty()
+        .addListener(
+            (observable, wasIconified, iconified) -> {
+              if (iconified && kioskController.isLocked()) {
+                Platform.runLater(
+                    () -> {
+                      if (kioskController.isLocked() && stage.isShowing()) {
+                        stage.setIconified(false);
+                        stage.setFullScreen(true);
+                        stage.toFront();
+                      }
+                    });
+              }
+            });
     stage.show();
+    kioskFailOpenTicker =
+        new Timeline(new KeyFrame(Duration.seconds(1), event -> kioskController.tick()));
+    kioskFailOpenTicker.setCycleCount(Timeline.INDEFINITE);
+    kioskFailOpenTicker.play();
 
     loginScreen.setOnLoginSuccess(
         () -> {
@@ -144,7 +184,13 @@ public class Main extends Application {
             });
     modeManager =
         new AppModeManager(
-            MachineMode.KIOSK, mode -> Platform.runLater(() -> passiveMode.applyMode(mode)));
+            MachineMode.KIOSK,
+            mode ->
+                Platform.runLater(
+                    () -> {
+                      kioskController.setMode(mode);
+                      passiveMode.applyMode(mode);
+                    }));
     passiveCard.setOnRegister(() -> modeManager.applyMode(MachineMode.KIOSK));
     qrScreen.setOnSkip(() -> modeManager.applyMode(MachineMode.PASSIVE));
 
@@ -159,6 +205,7 @@ public class Main extends Application {
     boardScreen.setOnBackToQr(
         () -> {
           boardScreen.stop();
+          kioskController.setSessionActive(false);
           qrScreen.startRotation(apiClient, machineCode);
           stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
         });
@@ -166,6 +213,7 @@ public class Main extends Application {
     qrScreen.setOnApproved(
         (response, approvedAt) -> {
           connectionMonitor.stop();
+          kioskController.setSessionActive(true);
           stage.setScene(new Scene(boardScreen.getRoot(), 1280, 800));
           boardScreen.show(response.displayName(), response.maskedStudentCode(), approvedAt);
         });
@@ -178,9 +226,22 @@ public class Main extends Application {
 
   @Override
   public void stop() {
+    if (kioskFailOpenTicker != null) {
+      kioskFailOpenTicker.stop();
+    }
     if (trayManager != null) {
       trayManager.remove();
     }
+  }
+
+  private static void applyKioskWindow(Stage stage, boolean locked) {
+    stage.setAlwaysOnTop(locked);
+    stage.setResizable(!locked);
+    if (locked) {
+      stage.setFullScreenExitHint("");
+      stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
+    }
+    stage.setFullScreen(locked);
   }
 
   public static void main(String[] args) {
