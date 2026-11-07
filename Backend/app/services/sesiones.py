@@ -135,7 +135,8 @@ async def cerrar_sesiones_inactivas(
 ) -> int:
     """RN-07: cierra las sesiones sin latido en `timeout_s` con ended_at = last_heartbeat_at.
 
-    Pensada para la tarea periódica (rol de jobs). No hace commit: lo hace quien la llama.
+    Todavía no la llama nadie: la tarea periódica que la usará es BE-09b (se programa en
+    el `lifespan` de la API). No hace commit: lo hace quien la llama.
     """
     now = now or ahora()
     limite = now - timedelta(seconds=timeout_s or settings.heartbeat_timeout_s)
@@ -170,30 +171,24 @@ async def registrar_latido(
 ) -> dict[str, Any]:
     """Registra el latido del equipo y responde el estado de su sesión (SRS §8.3).
 
-    Esta función es el corazón del endpoint `POST /machine/heartbeat` (BE-08).
-    Su lógica cumple con las siguientes reglas de negocio:
-    
-    - RN-01: Usa el `now` (hora del servidor) que recibe por parámetro, nunca la hora
-      del cliente.
-    
-    - RN-07: Si el equipo deja de enviar latidos, la tarea periódica usará el campo
-      `last_heartbeat_at` para cerrar la sesión por inactividad.
-    
-    - RN-08: Solo los equipos en estado `active` pueden enviar latidos (esto se valida
-      antes de llamar a esta función).
+    Lógica de `POST /machine/heartbeat` (BE-08), implementada en BE-18.
 
-    Parámetros:
-        db: Sesión asíncrona de la base de datos.
-        machine_id: UUID del equipo que envía el latido.
-        now: Fecha y hora del servidor (timezone UTC).
-        session_id: (Opcional) UUID de la sesión que el equipo cree tener abierta.
-            Se usa para informarle de un cierre remoto en su próximo latido.
+    - RN-01: usa el `now` del servidor que recibe por parámetro, nunca una hora del cliente.
+    - RN-07: `last_heartbeat_at` es lo que usará la tarea periódica (BE-09b) para
+      cerrar por inactividad.
+    - RN-08: solo un equipo `active` envía latidos; el router lo valida antes de llamar
+      a esta función (responde MACHINE_DISABLED).
 
-    Retorna un diccionario con:
-        - `session_status`: "active" (si hay sesión), "ended" (si se cerró remotamente)
-           o "none" (si no hay sesión).
-        - `session_id`: El UUID de la sesión (si existe).
-        - `end_reason`: El motivo del cierre (si la sesión terminó).
+    `session_id` es la sesión que el equipo cree tener abierta. Solo se busca entre las
+    sesiones de ESTE equipo (regla de seguridad): la de otro equipo se trata como si no
+    existiera y no se expone ningún dato.
+
+    Devuelve:
+        - `session_status: "active"` y `session_id`: hay una sesión abierta (se actualiza
+          su `last_heartbeat_at`).
+        - `session_status: "ended"`, `session_id` y `end_reason`: así se entera el equipo
+          de un cierre remoto (web, administrador o reemplazo).
+        - `session_status: "none"`: no hay sesión abierta ni una previa cerrada de este equipo.
     """
     await db.execute(
         update(Machine)
@@ -229,6 +224,7 @@ async def registrar_latido(
                 "end_reason": previa.end_reason,
             }
     return {"session_status": "none"}
+
 
 # ------------------------------------------------------------------------ consultas
 async def accesos_recientes(
