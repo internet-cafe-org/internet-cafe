@@ -1,0 +1,69 @@
+# =============================================================================
+# render.yaml — Configuración del servicio backend en Render (entorno dev)
+#
+# OPS-03: Render dev
+# Historia: HU-36 · Sprint 2
+#
+# Decisiones clave:
+#   - Un solo worker (--workers 1) para mantenernos dentro de la cuota gratuita
+#     y evitar problemas de concurrencia en SQLite de Neon dev.
+#   - Auto-deploy desactivado: los despliegues los dispara manualmente el líder
+#     de Backend para evitar deploys rotos a media tarea.
+#   - Las variables de entorno con valores reales (llaves JWT, cifrado, BD) van
+#     en el dashboard de Render > Environment, NO aquí. Este archivo solo define
+#     la forma del servicio.
+#   - El Dockerfile ya está en Backend/; Render lo detecta con `dockerfilePath`.
+# =============================================================================
+
+services:
+  - type: web
+    name: internet-cafe-backend-dev
+
+    # Usamos el Dockerfile del Backend en lugar del buildpack
+    runtime: docker
+    dockerfilePath: ./Backend/Dockerfile
+    dockerContext: ./Backend
+
+    # Región más cercana para el equipo (Colombia → Miami)
+    region: ohio
+
+    # Plan gratuito para dev; cambiar a "starter" en producción
+    plan: free
+
+    # Auto-deploy desactivado según OPS-03.
+    # Para desplegar, ir a Render dashboard > Manual Deploy.
+    autoDeploy: false
+
+    # Uvicorn con un solo worker para el entorno dev.
+    # En producción usaremos gunicorn con múltiples workers (OPS-08).
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    # Variables de entorno que NO son secretas y aplican en dev.
+    # Los secretos (llaves JWT, cifrado, BD) van en Render > Environment > Secret Files.
+    envVars:
+      - key: APP_NAME
+        value: Internet Cafe API (dev)
+
+      - key: FRONTEND_BASE_URL
+        # Vercel preview URL del entorno dev; actualizar tras OPS-04
+        value: https://internet-cafe-dev.vercel.app
+
+      - key: JWT_ISSUER
+        value: internet-cafe-api
+
+      - key: JWT_AUDIENCE
+        value: web
+
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "10"
+
+      # Las siguientes variables DEBEN cargarse como secretos en el dashboard:
+      #   DATABASE_URL        → URL de Neon dev (OPS-02)
+      #   SECRET_KEY          → generada con: python -c "import secrets; print(secrets.token_hex(32))"
+      #   JWT_PRIVATE_KEY     → contenido de tools/keys/jwt_es256_private.pem (en una sola línea con \n)
+      #   JWT_PUBLIC_KEY      → contenido de tools/keys/jwt_es256_public.pem  (en una sola línea con \n)
+      #   DATA_ENC_KEYS       → JSON del anillo de llaves, ej. {"1": "<64 hex chars>"}
+      #   BLIND_INDEX_KEY     → 64 hex chars de tools/keys/blind_index_key.txt
+
+    # Ruta de salud que Render usa para saber si el servicio arrancó bien
+    healthCheckPath: /healthz
