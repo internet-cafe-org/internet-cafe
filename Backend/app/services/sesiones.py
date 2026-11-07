@@ -170,12 +170,30 @@ async def registrar_latido(
 ) -> dict[str, Any]:
     """Registra el latido del equipo y responde el estado de su sesión (SRS §8.3).
 
-    - Con sesión abierta: actualiza `last_heartbeat_at` y responde `active` (con su id).
-    - Sin sesión abierta y con `session_id` (la que el equipo cree tener): si esa sesión
-      ya cerró, responde `ended` con el motivo, que es como el equipo se entera de un
-      cierre remoto (web, administrador o reemplazo) en su próximo latido.
-    - En cualquier otro caso responde `none`.
-    El `session_id` solo se consulta dentro de las sesiones de ESTE equipo.
+    Esta función es el corazón del endpoint `POST /machine/heartbeat` (BE-08).
+    Su lógica cumple con las siguientes reglas de negocio:
+    
+    - RN-01: Usa el `now` (hora del servidor) que recibe por parámetro, nunca la hora
+      del cliente.
+    
+    - RN-07: Si el equipo deja de enviar latidos, la tarea periódica usará el campo
+      `last_heartbeat_at` para cerrar la sesión por inactividad.
+    
+    - RN-08: Solo los equipos en estado `active` pueden enviar latidos (esto se valida
+      antes de llamar a esta función).
+
+    Parámetros:
+        db: Sesión asíncrona de la base de datos.
+        machine_id: UUID del equipo que envía el latido.
+        now: Fecha y hora del servidor (timezone UTC).
+        session_id: (Opcional) UUID de la sesión que el equipo cree tener abierta.
+            Se usa para informarle de un cierre remoto en su próximo latido.
+
+    Retorna un diccionario con:
+        - `session_status`: "active" (si hay sesión), "ended" (si se cerró remotamente)
+           o "none" (si no hay sesión).
+        - `session_id`: El UUID de la sesión (si existe).
+        - `end_reason`: El motivo del cierre (si la sesión terminó).
     """
     await db.execute(
         update(Machine)
@@ -211,7 +229,6 @@ async def registrar_latido(
                 "end_reason": previa.end_reason,
             }
     return {"session_status": "none"}
-
 
 # ------------------------------------------------------------------------ consultas
 async def accesos_recientes(
