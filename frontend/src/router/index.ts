@@ -73,6 +73,12 @@ export const routes: RouteRecordRaw[] = [
     meta: { access: 'user' },
   },
   {
+    path: '/admin/labs',
+    name: 'admin-labs',
+    component: () => import('@/views/admin/LabsView.vue'),
+    meta: { access: 'admin' },
+  },
+  {
     path: '/admin/machines',
     name: 'admin-machines',
     component: () => import('@/views/admin/MachinesView.vue'),
@@ -103,6 +109,7 @@ export const routes: RouteRecordRaw[] = [
     meta: { access: 'public' },
   },
 ]
+
 
 export function createAppRouter(history: RouterHistory) {
   const router = createRouter({ history, routes })
