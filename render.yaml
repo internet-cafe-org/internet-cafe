@@ -4,15 +4,20 @@
 # OPS-03: Render dev
 # Historia: HU-36 · Sprint 2
 #
+# Uso:
+#   Este archivo se aplica creando un Blueprint en Render (New → Blueprint),
+#   NO un Web Service individual. Los cambios manuales en el dashboard se
+#   sobrescriben en el siguiente sync del Blueprint.
+#
 # Decisiones clave:
-#   - Un solo worker (--workers 1) para mantenernos dentro de la cuota gratuita
-#     y evitar problemas de concurrencia en SQLite de Neon dev.
-#   - Auto-deploy desactivado: los despliegues los dispara manualmente el líder
-#     de Backend para evitar deploys rotos a media tarea.
-#   - Las variables de entorno con valores reales (llaves JWT, cifrado, BD) van
-#     en el dashboard de Render > Environment, NO aquí. Este archivo solo define
-#     la forma del servicio.
-#   - El Dockerfile ya está en Backend/; Render lo detecta con `dockerfilePath`.
+#   - CMD en el Dockerfile arranca uvicorn; dockerCommand aquí lo sobreescribe
+#     explícitamente para que quede documentado en el repositorio.
+#   - Un solo worker (--workers 1) por la limitación de memoria del plan free.
+#   - Auto-deploy desactivado: el pipeline deploy-dev dispara el despliegue
+#     mediante el deploy hook RENDER_DEPLOY_HOOK_URL después de migrar la BD.
+#   - Rama Render: main (alineado con despliegue-dev.md y deploy-dev.yml).
+#   - Los secretos se declaran con sync: false para que Render los marque
+#     como requeridos pero no los sobreescriba con valores en blanco.
 # =============================================================================
 
 services:
@@ -24,28 +29,32 @@ services:
     dockerfilePath: ./Backend/Dockerfile
     dockerContext: ./Backend
 
-    # Región más cercana para el equipo (Colombia → Miami)
+    # Comando que arranca la API dentro del contenedor.
+    # Render ignora startCommand cuando runtime es docker; se usa dockerCommand.
+    # (El Dockerfile también tiene un CMD equivalente como respaldo.)
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    # Rama que Render despliega. Debe coincidir con la rama raíz del Blueprint.
+    # El pipeline deploy-dev.yml dispara el hook después de merge a main.
+    branch: main
+
+    # Región más cercana al proyecto Neon dev. Ajustar si el proyecto Neon
+    # se creó en otra región (consultar Neon dashboard → Project settings).
     region: ohio
 
-    # Plan gratuito para dev; cambiar a "starter" en producción
+    # Plan gratuito para dev; cambiar a "starter" en producción (OPS-08)
     plan: free
 
-    # Auto-deploy desactivado según OPS-03.
-    # Para desplegar, ir a Render dashboard > Manual Deploy.
+    # Auto-deploy desactivado: el despliegue lo hace el pipeline deploy-dev
+    # a través del deploy hook, no Render directamente al hacer push.
     autoDeploy: false
 
-    # Uvicorn con un solo worker para el entorno dev.
-    # En producción usaremos gunicorn con múltiples workers (OPS-08).
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
-
-    # Variables de entorno que NO son secretas y aplican en dev.
-    # Los secretos (llaves JWT, cifrado, BD) van en Render > Environment > Secret Files.
+    # Variables de entorno no sensibles que se pueden versionar
     envVars:
       - key: APP_NAME
         value: Internet Cafe API (dev)
 
       - key: FRONTEND_BASE_URL
-        # Vercel preview URL del entorno dev; actualizar tras OPS-04
         value: https://internet-cafe-dev.vercel.app
 
       - key: JWT_ISSUER
@@ -57,13 +66,42 @@ services:
       - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         value: "10"
 
-      # Las siguientes variables DEBEN cargarse como secretos en el dashboard:
-      #   DATABASE_URL        → URL de Neon dev (OPS-02)
-      #   SECRET_KEY          → generada con: python -c "import secrets; print(secrets.token_hex(32))"
-      #   JWT_PRIVATE_KEY     → contenido de tools/keys/jwt_es256_private.pem (en una sola línea con \n)
-      #   JWT_PUBLIC_KEY      → contenido de tools/keys/jwt_es256_public.pem  (en una sola línea con \n)
-      #   DATA_ENC_KEYS       → JSON del anillo de llaves, ej. {"1": "<64 hex chars>"}
-      #   BLIND_INDEX_KEY     → 64 hex chars de tools/keys/blind_index_key.txt
+      # -----------------------------------------------------------------------
+      # Secretos: sync: false → Render los marca como requeridos pero NO los
+      # sobrescribe con valores en blanco en cada sync del Blueprint.
+      # Cargar los valores reales en el dashboard antes del primer deploy.
+      # -----------------------------------------------------------------------
 
-    # Ruta de salud que Render usa para saber si el servicio arrancó bien
+      # URL de conexión de Neon dev. Debe usar el rol svc_app (OPS-02),
+      # NO el rol dueño del proyecto, para respetar el principio de mínimo privilegio.
+      # Formato: postgresql://svc_app:<password>@<host>/<db>?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+
+      # Generada con: python -c "import secrets; print(secrets.token_hex(32))"
+      # Render puede generarla automáticamente con generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
+        sync: false
+
+      # Contenido completo de jwt_es256_private.pem.
+      # IMPORTANTE: pegar el PEM con saltos de línea REALES en el campo de Render,
+      # no con \n escapados. Ver §3 del runbook.
+      - key: JWT_PRIVATE_KEY
+        sync: false
+
+      # Contenido completo de jwt_es256_public.pem (saltos de línea reales)
+      - key: JWT_PUBLIC_KEY
+        sync: false
+
+      # JSON del anillo de llaves AES-256-GCM. Ejemplo: {"1": "<64 hex chars>"}
+      - key: DATA_ENC_KEYS
+        sync: false
+
+      # 64 hex chars de blind_index_key.txt (sin salto de línea al final)
+      - key: BLIND_INDEX_KEY
+        sync: false
+
+    # Render llama a este endpoint para confirmar que el contenedor arrancó bien.
+    # Solo /healthz es el healthCheckPath; /readyz lo verifica el pipeline deploy-dev.
     healthCheckPath: /healthz
