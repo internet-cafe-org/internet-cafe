@@ -37,7 +37,7 @@ def _load_key_content(key_or_path: str | bytes | None) -> str:
         key_or_path: PEM string, bytes, or file path to a PEM file.
 
     Returns:
-        PEM formatted string content.
+        PEM formatted string content with real newlines (not escaped \\n).
 
     Raises:
         ValueError: If key is not provided or file cannot be read.
@@ -50,7 +50,12 @@ def _load_key_content(key_or_path: str | bytes | None) -> str:
 
     key_str = key_or_path.strip()
     if "-----BEGIN" in key_str:
-        return key_str
+        # Variables de entorno en Render (y otros CI/CD) suelen almacenar el PEM
+        # con \n literales (dos caracteres: backslash + n) en vez de saltos de
+        # línea reales. PyJWT necesita saltos reales para parsear la clave ES256.
+        # Esta normalización es segura: si ya tiene saltos reales, replace() no
+        # cambia nada porque la secuencia \\ + n no aparece.
+        return key_str.replace("\\n", "\n")
 
     if os.path.exists(key_str):
         with open(key_str, "r", encoding="utf-8") as f:

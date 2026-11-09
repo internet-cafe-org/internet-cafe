@@ -17,3 +17,7 @@ COPY . .
 
 # Establecer PYTHONPATH para que Python reconozca 'app' desde cualquier ruta
 ENV PYTHONPATH=/backend
+
+# Comando de arranque: un solo worker para el plan free de Render dev.
+# El puerto lo inyecta Render mediante la variable de entorno $PORT.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
