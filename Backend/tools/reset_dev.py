@@ -74,21 +74,29 @@ async def _ejecutar(url: str) -> tuple[int, int]:
         await motor.dispose()
 
 
+def _info(mensaje: str) -> None:
+    sys.stdout.write(f"{mensaje}\n")
+
+
+def _error(mensaje: str) -> None:
+    sys.stderr.write(f"ERROR: {mensaje}\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Vacía el esquema app de dev.")
     parser.add_argument("--confirmar", required=True, help='Escribe "dev" para confirmar.')
     args = parser.parse_args(argv)
 
     if os.environ.get("APP_ENV") != "dev" or args.confirmar != "dev":
-        print('ERROR: el reset solo corre con APP_ENV=dev y --confirmar dev.', file=sys.stderr)
+        _error("el reset solo corre con APP_ENV=dev y --confirmar dev.")
         return 2
     url = os.environ.get("DATABASE_URL_MIGRATOR")
     if not url:
-        print("ERROR: define DATABASE_URL_MIGRATOR en el entorno.", file=sys.stderr)
+        _error("define DATABASE_URL_MIGRATOR en el entorno.")
         return 2
 
     tablas, tipos = asyncio.run(_ejecutar(url))
-    print(f"Esquema {ESQUEMA} vaciado: {tablas} tablas y {tipos} tipos borrados.")
+    _info(f"Esquema {ESQUEMA} vaciado: {tablas} tablas y {tipos} tipos borrados.")
     return 0
 
 

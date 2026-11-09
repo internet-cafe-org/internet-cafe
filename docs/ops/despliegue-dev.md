@@ -21,7 +21,7 @@ repo ni en `.env` versionados, y los workflows no los imprimen.
 | Nombre | Tipo | Valor |
 |---|---|---|
 | `DATABASE_URL_MIGRATOR` | secret | URL de Neon dev con el rol `svc_migrator` (OPS-02) |
-| `RENDER_DEPLOY_HOOK_URL` | secret | Deploy hook del servicio de Render dev (OPS-03) |
+| `RENDER_DEPLOY_HOOK` | secret | Deploy hook del servicio de Render dev (OPS-03) |
 | `DEV_BLIND_INDEX_KEY` | secret | La misma `BLIND_INDEX_KEY` que tiene el servicio de Render dev |
 | `DEV_ADMIN_PASSWORD` | secret | Contraseña del administrador de dev (de 10 a 128 caracteres) |
 | `DEV_API_URL` | variable | URL pública de la API en Render, sin `/` final |

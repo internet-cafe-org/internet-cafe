@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: Backend/requirements.txt
       - name: Instalar dependencias
@@ -65,13 +65,13 @@ jobs:
 
       - name: Disparar el deploy hook de Render
         env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
-          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "::error::Falta el secret RENDER_DEPLOY_HOOK_URL en el environment dev."
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "::error::Falta el secret RENDER_DEPLOY_HOOK en el environment dev."
             exit 1
           fi
-          curl -fsS -o /dev/null -X POST "$RENDER_DEPLOY_HOOK_URL"
+          curl -fsS -o /dev/null -X POST "$RENDER_DEPLOY_HOOK"
           echo "Deploy solicitado a Render."
 
       - name: Prueba de humo
