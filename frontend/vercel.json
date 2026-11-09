@@ -32,7 +32,5 @@
     }
   ],
 
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':!*.md' ':!docs/'",
-
-  "public": true
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':!*.md' ':!docs/'"
 }
