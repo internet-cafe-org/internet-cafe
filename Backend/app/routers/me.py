@@ -32,6 +32,8 @@ router = APIRouter(prefix="/me", tags=["me"])
 
 
 class ProfileResponse(BaseModel):
+    """Perfil del estudiante (``GET /me``), con el código enmascarado."""
+
     id: uuid.UUID
     full_name: str
     email: str
@@ -41,6 +43,8 @@ class ProfileResponse(BaseModel):
 
 
 class MySessionItem(BaseModel):
+    """Sesión del historial del estudiante."""
+
     id: uuid.UUID
     machine_code: str
     lab: str
@@ -51,6 +55,8 @@ class MySessionItem(BaseModel):
 
 
 class MySessionsPage(BaseModel):
+    """Página del historial del estudiante."""
+
     items: list[MySessionItem]
     total: int
     limit: int
@@ -58,10 +64,14 @@ class MySessionsPage(BaseModel):
 
 
 class ActiveSessionResponse(BaseModel):
+    """Sesión activa del estudiante, o ``null`` si no tiene."""
+
     session: MySessionItem | None
 
 
 class MySessionResponse(BaseModel):
+    """Respuesta del cierre web de la propia sesión."""
+
     session: MySessionItem
 
 

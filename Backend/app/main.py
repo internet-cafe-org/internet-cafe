@@ -1,92 +1,111 @@
-"""Punto de entrada principal para la aplicación FastAPI.
+"""Punto de entrada de la API FastAPI.
 
-Inicializa la instancia del servidor, integra las configuraciones de entorno,
-y expone los endpoints de salud (/healthz) y disponibilidad de base de datos (/readyz).
+Crea la aplicación, comprueba las llaves al arrancar, registra los manejadores
+de errores RFC 9457 (``app.error_handlers``) y los routers, y expone los
+endpoints de salud ``/healthz`` (liveness) y ``/readyz`` (base de datos).
 """
 
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from app.routers import auth, machine, scan
-
-from app.routers import admin, machine, me, scan
+from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import obtener_base_datos
+from app.database import SesionLocalAsync, obtener_base_datos
 from app.error_handlers import registrar_manejadores
+from app.errors import AppError, ErrorCode
 from app.logger import configurar_logger
-from app.problem_details import (
-    manejar_error_http,
-    manejar_error_validacion,
-    manejar_error_general,
-)
-from fastapi import Depends, FastAPI
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from app.routers import admin, auth, machine, me, scan
+from app.security.arranque import verificar_llaves
+from app.services import inactividad
 
-# Inicializa el sistema de registros JSON
 logger = configurar_logger()
 
-# Inicializa la aplicación FastAPI
+
+@asynccontextmanager
+async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
+    """Valida la configuración y arranca la tarea de inactividad.
+
+    Args:
+        _app: La aplicación que arranca.
+
+    Yields:
+        Control a FastAPI mientras la API está en marcha.
+
+    Raises:
+        LlavesInvalidas: Si faltan las llaves JWT o la del índice ciego; la
+            API no arranca (HU-07).
+    """
+    verificar_llaves()
+    tarea = None
+    if settings.tarea_inactividad_activa:
+        # BE-09b: la actividad en memoria se pierde al reiniciar, así que se barre la base.
+        await inactividad.barrido_inicial(SesionLocalAsync)
+        tarea = asyncio.create_task(inactividad.tarea_periodica(SesionLocalAsync))
+    logger.info("API lista", extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}})
+    try:
+        yield
+    finally:
+        if tarea is not None:
+            tarea.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await tarea
+
+
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.2.1",
     description="Servidor API REST para la gestión del sistema de internet café.",
+    lifespan=ciclo_de_vida,
 )
 
-# Registra los manejadores globales de errores RFC 9457
-app.add_exception_handler(
-    StarletteHTTPException,
-    manejar_error_http,
-)
-app.add_exception_handler(
-    RequestValidationError,
-    manejar_error_validacion,
-)
-app.add_exception_handler(
-    Exception,
-    manejar_error_general,
-)
-
-# Manejador RFC 9457 completo (QA-03); se registra al final para que prevalezca
 registrar_manejadores(app)
 
-# Registra las rutas de la API
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(machine.router, prefix="/api/v1")
 app.include_router(scan.router, prefix="/api/v1")
-
-app.include_router(auth.router, prefix="/api/v1")
-
 app.include_router(me.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 
 
-
 @app.get("/healthz")
 def verificar_salud() -> dict:
-    """Verifica el estado operativo básico del servidor backend."""
-    logger.info("Verificación de salud (/healthz) ejecutada con éxito.")
+    """Liveness: responde sin tocar la base de datos ni escribir en el log.
+
+    Returns:
+        ``{"status": "ok", "service": "backend"}``.
+    """
     return {"status": "ok", "service": "backend"}
 
 
 @app.get("/readyz")
 async def verificar_listo(db: AsyncSession = Depends(obtener_base_datos)) -> dict:
-    """Verifica la disponibilidad del sistema y la conexión a la BD."""
+    """Readiness: comprueba la conexión a la base de datos.
+
+    Args:
+        db: Sesión de base de datos.
+
+    Returns:
+        ``{"status": "ready", "database": "connected"}``.
+
+    Raises:
+        AppError: 503 ``INTERNAL_ERROR`` si la base no responde.
+    """
     try:
         await db.execute(text("SELECT 1"))
-        logger.info("Verificación de disponibilidad (/readyz) exitosa.")
-        return {"status": "ready", "database": "connected"}
-    except Exception:
-        logger.error("Fallo en la conexión a la base de datos.")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "type": "about:blank",
-                "title": "Servicio no disponible",
-                "status": 503,
-                "detail": "La base de datos no está disponible.",
-                "code": "DATABASE_UNAVAILABLE",
-            },
-            media_type="application/problem+json",
+    except Exception as exc:
+        logger.error(
+            "La base de datos no responde",
+            extra={"datos": {"evento": "readyz.fallo", "excepcion": type(exc).__name__}},
         )
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR,
+            "La base de datos no está disponible.",
+            status=503,
+            title="Servicio no disponible",
+        ) from None
+    return {"status": "ready", "database": "connected"}

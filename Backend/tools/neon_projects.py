@@ -77,6 +77,14 @@ def crear_proyecto(payload: dict[str, Any], api_key: str) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Punto de entrada de la línea de comandos.
+
+    Args:
+        argv: Argumentos; por defecto, los del proceso.
+
+    Returns:
+        Código de salida del proceso.
+    """
     parser = argparse.ArgumentParser(description="Crea proyectos de Neon con tope de 0,25 CU.")
     parser.add_argument("--env", choices=ENTORNOS, required=True)
     parser.add_argument("--region", default=REGION_POR_DEFECTO)

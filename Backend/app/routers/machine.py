@@ -1,11 +1,18 @@
+"""Endpoints del equipo (``/machine/*``): enrolamiento, QR, long-poll, latido y cierre.
+
+Salvo ``/machine/enroll``, que se autentica con el código de un solo uso, todos
+exigen ``require_machine``: hoy la credencial provisional (``X-Machine-Code`` +
+``X-Machine-Key``); con SEC-07, la firma RFC 9421. Los routers no cambian al
+pasar de una a otra.
+"""
+
 import asyncio
 import uuid
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -18,13 +25,16 @@ from app.models import (
     MachineStatus,
     SessionEndReason,
 )
-from app.security.dependencies import require_machine
-from app.services import challenges, events, sesiones
+from app.security import limites
+from app.security.dependencies import require_machine, require_machine_retos
+from app.services import challenges, enrolamiento, events, inactividad, sesiones
 
 router = APIRouter(prefix="/machine", tags=["machine"])
 
 
 class ChallengeResponse(BaseModel):
+    """Respuesta de ``POST /machine/challenges``."""
+
     challenge_id: uuid.UUID
     qr_url: str
     expires_at: datetime
@@ -32,17 +42,23 @@ class ChallengeResponse(BaseModel):
 
 
 class SessionInfo(BaseModel):
+    """Sesión aprobada que recibe el equipo en el long-poll."""
+
     id: uuid.UUID
     status: str = "active"
     started_at: datetime
 
 
 class UserInfo(BaseModel):
+    """Estudiante de la sesión, con el código enmascarado."""
+
     full_name: str
     student_code_masked: str
 
 
 class RecentAccessInfo(BaseModel):
+    """Acceso reciente del estudiante, para el tablero del equipo."""
+
     machine_code: str
     lab: str
     started_at: datetime
@@ -51,39 +67,147 @@ class RecentAccessInfo(BaseModel):
 
 
 class ChallengeWaitResponse(BaseModel):
+    """Respuesta de ``GET /machine/challenges/wait``: ``approved`` o ``waiting``."""
+
     status: str
     session: SessionInfo | None = None
     user: UserInfo | None = None
     recent_accesses: list[RecentAccessInfo] | None = None
 
 
-async def get_current_machine(
-    x_machine_code: str = Header(...),
-    db: AsyncSession = Depends(obtener_base_datos),
-) -> Machine:
-    """TEMPORAL (hasta SEC-04): busca el equipo por su código.
+# =====================================================================================
+# SEC-05: enrolamiento con prueba de posesión (SRS §8.4 y §12.4). Ruta pública: el
+# equipo todavía no tiene credencial; se autentica con el código de un solo uso.
+# =====================================================================================
+class JwkP256(BaseModel):
+    """Clave pública EC P-256 del equipo (RFC 7517), sin la parte privada."""
 
-    Solo la usan `POST /challenges` y `GET /challenges/wait` (contrato v0.1). Los
-    endpoints nuevos del contrato v0.2 ya usan `require_machine`.
+    model_config = ConfigDict(extra="forbid")
+
+    kty: Literal["EC"]
+    crv: Literal["P-256"]
+    x: str = Field(min_length=43, max_length=44)
+    y: str = Field(min_length=43, max_length=44)
+
+
+class EnrollRequest(BaseModel):
+    """Cuerpo de ``POST /machine/enroll``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enrollment_code: str = Field(min_length=8, max_length=64)
+    jwk: JwkP256
+    proof: str = Field(min_length=86, max_length=88)
+    hostname: str | None = Field(default=None, max_length=63)
+    app_version: str | None = Field(default=None, max_length=20)
+
+    @field_validator("jwk")
+    @classmethod
+    def _punto_en_la_curva(cls, jwk: JwkP256) -> JwkP256:
+        """Comprueba que las coordenadas formen un punto válido de P-256.
+
+        Args:
+            jwk: JWK con la forma correcta.
+
+        Returns:
+            El mismo JWK si es una clave pública válida.
+
+        Raises:
+            ValueError: Si las coordenadas no son base64url de 32 bytes o el
+                punto no está en la curva (422 ``VALIDATION_ERROR``).
+        """
+        enrolamiento.clave_publica_desde_jwk(jwk.model_dump())
+        return jwk
+
+
+class EnrollResponse(BaseModel):
+    """Respuesta de ``POST /machine/enroll``. La credencial se muestra una sola vez."""
+
+    machine_id: uuid.UUID
+    code: str
+    lab: str | None
+    mode: MachineMode
+    keyid: str
+    provisional_credential: str
+
+
+@router.post("/enroll", response_model=EnrollResponse, status_code=201)
+async def enrolar_equipo(
+    body: EnrollRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> EnrollResponse:
+    """Registra la clave pública del equipo y le entrega su credencial (SEC-05).
+
+    Args:
+        body: Código, JWK y prueba de posesión.
+        request: Petición, para el rate limit (SEC-09).
+        response: Respuesta, para marcarla como no cacheable.
+        db: Sesión de base de datos.
+
+    Returns:
+        Equipo, sala, modo, ``keyid`` y la credencial provisional.
+
+    Raises:
+        AppError: ``ENROLLMENT_CODE_INVALID`` si el código no existe, se usó o
+            venció; ``MACHINE_SIGNATURE_INVALID`` si la prueba no es válida;
+            ``MACHINE_DISABLED`` si el equipo está deshabilitado; ``CONFLICT`` si
+            otro equipo ya registró la misma clave; ``RATE_LIMITED`` si se
+            superó el límite.
     """
-    machine = (
-        await db.execute(select(Machine).where(Machine.code == x_machine_code))
-    ).scalar_one_or_none()
-    if machine is None:
-        raise HTTPException(401, detail={"code": "MACHINE_SIGNATURE_INVALID"})
-    return machine
+    limites.limitar(request, "machine.enroll", cuenta=body.enrollment_code, origen=limites.Origen.EQUIPO)
+    try:
+        resultado = await enrolamiento.enrolar(
+            db,
+            codigo=body.enrollment_code,
+            jwk=body.jwk.model_dump(),
+            prueba=body.proof,
+            hostname=body.hostname,
+            app_version=body.app_version,
+        )
+    except enrolamiento.CodigoInvalido:
+        raise AppError(ErrorCode.ENROLLMENT_CODE_INVALID) from None
+    except enrolamiento.FirmaInvalida:
+        raise AppError(ErrorCode.MACHINE_SIGNATURE_INVALID) from None
+    except enrolamiento.EquipoDeshabilitado:
+        raise AppError(ErrorCode.MACHINE_DISABLED) from None
+    except enrolamiento.ClaveEnUso:
+        raise AppError(ErrorCode.CONFLICT, "Esa clave ya está registrada por otro equipo.") from None
+
+    response.headers["Cache-Control"] = "no-store"
+    return EnrollResponse(
+        machine_id=resultado.machine_id,
+        code=resultado.code,
+        lab=resultado.lab,
+        mode=resultado.mode,
+        keyid=resultado.keyid,
+        provisional_credential=resultado.provisional_credential,
+    )
 
 
 @router.post("/challenges", response_model=ChallengeResponse, status_code=201)
 async def crear_reto(
-    machine: Machine = Depends(get_current_machine),
+    machine: Machine = Depends(require_machine_retos),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> ChallengeResponse:
-    """Crea un reto QR de un solo uso para el equipo."""
+    """Crea un reto QR de un solo uso para el equipo (máximo 2 vigentes, RN-06).
+
+    Args:
+        machine: Equipo autenticado por ``require_machine``.
+        db: Sesión de base de datos.
+
+    Returns:
+        Id del reto, URL del QR con el token en el fragmento, vencimiento y
+        segundos hasta la rotación.
+
+    Raises:
+        AppError: ``MACHINE_DISABLED`` si el equipo no está activo.
+    """
     try:
         reto, token = await challenges.crear_reto(db, machine.id)
     except challenges.MachineNotActiveError:
-        raise HTTPException(403, detail={"code": "MACHINE_DISABLED"})
+        raise AppError(ErrorCode.MACHINE_DISABLED) from None
     await db.commit()
     return ChallengeResponse(
         challenge_id=reto.id,
@@ -100,7 +224,7 @@ async def crear_reto(
 )
 async def esperar_reto(
     timeout: int = Query(default=25, ge=1, le=25),
-    machine: Machine = Depends(get_current_machine),
+    machine: Machine = Depends(require_machine_retos),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> ChallengeWaitResponse:
     """Espera en long-poll la confirmación de un reto QR para el equipo (SRS §8.1 / BE-06).
@@ -111,9 +235,21 @@ async def esperar_reto(
     4. Esperar hasta timeout segundos a que se notifique el claim en POST /scan/claim.
     5. Responder con 'approved' y los datos de la sesión o 'waiting' por timeout.
     6. En finally, desuscribirse del dispatcher de eventos para evitar fugas de memoria.
+
+    Args:
+        timeout: Segundos máximos de espera (1 a 25).
+        machine: Equipo autenticado por ``require_machine``.
+        db: Sesión de base de datos; se cierra antes de esperar.
+
+    Returns:
+        ``approved`` con la sesión, el estudiante y sus accesos recientes, o
+        ``waiting`` si venció el tiempo.
+
+    Raises:
+        AppError: ``MACHINE_DISABLED`` si el equipo no está activo.
     """
     if machine.status != MachineStatus.active:
-        raise HTTPException(403, detail={"code": "MACHINE_DISABLED"})
+        raise AppError(ErrorCode.MACHINE_DISABLED)
 
     # 1. Suscribirse al evento en memoria antes de leer la BD (SRS §8.1)
     event = events.subscribe(machine.id)
@@ -163,6 +299,8 @@ class HeartbeatRequest(BaseModel):
 
 
 class HeartbeatResponse(BaseModel):
+    """Respuesta del latido: hora del servidor, modo y estado de la sesión."""
+
     server_time: datetime
     mode: MachineMode
     session_status: Literal["active", "ended", "none"]
@@ -171,12 +309,16 @@ class HeartbeatResponse(BaseModel):
 
 
 class CurrentSessionInfo(BaseModel):
+    """Sesión abierta del equipo."""
+
     id: uuid.UUID
     status: Literal["active"] = "active"
     started_at: datetime
 
 
 class CurrentSessionResponse(BaseModel):
+    """Respuesta de ``GET /machine/sessions/current``."""
+
     session: CurrentSessionInfo
     user: UserInfo
     recent_accesses: list[RecentAccessInfo]
@@ -191,6 +333,8 @@ class EndSessionRequest(BaseModel):
 
 
 class EndedSessionInfo(BaseModel):
+    """Sesión cerrada desde el equipo."""
+
     id: uuid.UUID
     status: Literal["closed"] = "closed"
     ended_at: datetime
@@ -198,6 +342,8 @@ class EndedSessionInfo(BaseModel):
 
 
 class EndedSessionResponse(BaseModel):
+    """Respuesta de ``POST /machine/sessions/current/end``."""
+
     session: EndedSessionInfo
 
 
@@ -223,6 +369,8 @@ async def latido(
         db, machine.id, ahora, body.session_id if body else None
     )
     await db.commit()
+    if estado.get("session_status") == "active":
+        inactividad.marcar_actividad()
     return HeartbeatResponse(server_time=ahora, mode=machine.mode, **estado)
 
 

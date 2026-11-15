@@ -25,6 +25,16 @@ def frozen_clock():
 
 
 @pytest.fixture(autouse=True)
+def limites_en_cero():
+    """Reinicia el rate limit en memoria (SEC-09) para que cada prueba empiece de cero."""
+    from app.security.limites import limitador
+
+    limitador.reiniciar()
+    yield
+    limitador.reiniciar()
+
+
+@pytest.fixture(autouse=True)
 def db_cleanup():
     """Limpieza de base de datos usando TRUNCATE."""
     yield

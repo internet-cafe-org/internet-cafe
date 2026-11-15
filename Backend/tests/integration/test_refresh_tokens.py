@@ -113,6 +113,15 @@ async def test_reutilizar_token_revoca_la_familia(cliente, sesiones, datos):
     ok = await _post(cliente, "/refresh", viejo)
     nuevo = _cookie(ok)
 
+    # Fuera de la gracia de 10 s (SEC-03b): se simula que la rotación fue hace 11 s.
+    async with sesiones() as db:
+        await db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.token_hash == refresh_tokens.hash_token(viejo))
+            .values(revoked_at=datetime.now(UTC) - timedelta(seconds=11))
+        )
+        await db.commit()
+
     reuso = await _post(cliente, "/refresh", viejo)
     assert reuso.status_code == 401
     assert reuso.json()["code"] == "AUTH_INVALID_CREDENTIALS"
@@ -168,3 +177,56 @@ async def test_origen_no_permitido(cliente, sesiones, datos, monkeypatch):
 
     bueno = await _post(cliente, "/refresh", token, {"Origin": "https://app.test"})
     assert bueno.status_code == 200
+
+
+# ---------------------------------------------------------------- SEC-03b
+
+
+async def test_dos_pestanas_dentro_de_la_gracia(cliente, sesiones, datos):
+    """La segunda pestaña presenta el token recién rotado y también renueva."""
+    viejo = await _sesion(sesiones, datos.ana.id)
+
+    pestana_a = await _post(cliente, "/refresh", viejo)
+    pestana_b = await _post(cliente, "/refresh", viejo)
+
+    assert pestana_a.status_code == pestana_b.status_code == 200
+    # La familia sigue viva: los dos tokens nuevos sirven.
+    assert (await _post(cliente, "/refresh", _cookie(pestana_a))).status_code == 200
+    assert (await _post(cliente, "/refresh", _cookie(pestana_b))).status_code == 200
+
+
+async def test_sin_gracia_despues_de_un_logout(cliente, sesiones, datos):
+    """Tras el logout, ni siquiera dentro de los 10 s se acepta el token rotado."""
+    viejo = await _sesion(sesiones, datos.ana.id)
+    nuevo = _cookie(await _post(cliente, "/refresh", viejo))
+    assert (await _post(cliente, "/logout", nuevo)).status_code == 204
+
+    resp = await _post(cliente, "/refresh", viejo)
+
+    assert resp.status_code == 401
+
+
+async def test_frontend_base_url_siempre_se_permite(cliente, sesiones, datos, monkeypatch):
+    """Sin ALLOWED_ORIGIN, el origen de FRONTEND_BASE_URL pasa y uno ajeno no."""
+    monkeypatch.setattr(settings, "allowed_origin", None)
+    monkeypatch.setattr(settings, "frontend_base_url", "https://web.test/")
+    token = await _sesion(sesiones, datos.ana.id)
+
+    ajeno = await _post(cliente, "/refresh", token, {"Origin": "https://evil.test"})
+    propio = await _post(cliente, "/refresh", token, {"Origin": "https://web.test"})
+
+    assert ajeno.status_code == 403
+    assert ajeno.json()["code"] == "FORBIDDEN"
+    assert propio.status_code == 200
+
+
+@pytest.mark.parametrize(("entorno", "esperado"), [("dev", 200), ("prod", 403)])
+async def test_previews_de_vercel_solo_en_dev(cliente, sesiones, datos, monkeypatch, entorno, esperado):
+    """Los previews se aceptan con APP_ENV=dev y se rechazan en producción."""
+    monkeypatch.setattr(settings, "app_env", entorno)
+    monkeypatch.setattr(settings, "origen_preview_regex", r"^https://internet-cafe-[a-z0-9-]+\.vercel\.app$")
+    token = await _sesion(sesiones, datos.ana.id)
+
+    resp = await _post(cliente, "/refresh", token, {"Origin": "https://internet-cafe-git-pr-12-equipo.vercel.app"})
+
+    assert resp.status_code == esperado

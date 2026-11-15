@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient, ASGITransport
 
-from app.database import obtener_base_datos
 from app.main import app
 from app.models import (
     AccessSession,
@@ -15,6 +14,8 @@ from app.models import (
     MachineStatus,
     SessionEndReason,
 )
+from app.models import UserRole
+from app.security.dependencies import CurrentUser, require_user
 from app.services import challenges, events
 
 
@@ -311,8 +312,59 @@ async def test_servicio_claim_superseded():
 # 2. PRUEBAS DE INTEGRACIÓN HTTP DE LA API (scan.py / RFC 9457)
 # =====================================================================
 
+ESTUDIANTE = CurrentUser(id=uuid.uuid4(), role=UserRole.student)
+
+
+@pytest.fixture
+def estudiante_autenticado():
+    """Simula un access token válido: ``require_user`` devuelve un estudiante fijo."""
+    app.dependency_overrides[require_user] = lambda: ESTUDIANTE
+    yield ESTUDIANTE
+    app.dependency_overrides.pop(require_user, None)
+
+
 @pytest.mark.asyncio
-async def test_api_claim_201_creado():
+@pytest.mark.parametrize("ruta", ["/api/v1/scan/preview", "/api/v1/scan/claim"])
+async def test_api_scan_sin_token_responde_401(ruta):
+    """Sin Authorization no se llega al servicio, aunque venga X-User-Id."""
+    with patch("app.services.challenges.reclamar_reto_qr", new_callable=AsyncMock) as mock_claim,             patch("app.services.challenges.obtener_vista_previa", new_callable=AsyncMock) as mock_preview:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            res = await ac.post(ruta, json={"token": "tok123"}, headers={"x-user-id": str(uuid.uuid4())})
+
+    assert res.status_code == 401
+    assert res.json()["code"] == "AUTH_INVALID_CREDENTIALS"
+    mock_claim.assert_not_called()
+    mock_preview.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_claim_usa_el_usuario_del_token(estudiante_autenticado):
+    """El servicio recibe el id del token, no uno de una cabecera ni uno fijo."""
+    sesion_mock = AccessSession(id=uuid.uuid4(), started_at=datetime(2026, 10, 28, 14, tzinfo=timezone.utc))
+    machine_mock = Machine(id=uuid.uuid4(), code="LAB1-PC05")
+
+    with patch("app.services.challenges.reclamar_reto_qr", new_callable=AsyncMock) as mock_claim:
+        mock_claim.return_value = (sesion_mock, machine_mock, "Sala de Prueba", False)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            res = await ac.post(
+                "/api/v1/scan/claim", json={"token": "tok123"}, headers={"x-user-id": str(uuid.uuid4())}
+            )
+
+    assert res.status_code == 201
+    assert mock_claim.await_args.kwargs["user_id"] == estudiante_autenticado.id
+
+
+@pytest.mark.asyncio
+async def test_api_claim_rechaza_campos_desconocidos(estudiante_autenticado):
+    """El cuerpo solo admite ``token`` (contrato v0.2.1)."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        res = await ac.post("/api/v1/scan/claim", json={"token": "tok123", "user_id": "x"})
+
+    assert res.status_code == 422
+    assert res.json()["code"] == "VALIDATION_ERROR"
+
+@pytest.mark.asyncio
+async def test_api_claim_201_creado(estudiante_autenticado):
     """POST /scan/claim crea la sesión y retorna 201 Created."""
     sesion_mock = AccessSession(
         id=uuid.uuid4(),
@@ -335,7 +387,7 @@ async def test_api_claim_201_creado():
 
 
 @pytest.mark.asyncio
-async def test_api_claim_200_idempotente():
+async def test_api_claim_200_idempotente(estudiante_autenticado):
     """POST /scan/claim reintentado por el mismo usuario retorna 200 OK."""
     sesion_mock = AccessSession(
         id=uuid.uuid4(),
@@ -354,7 +406,7 @@ async def test_api_claim_200_idempotente():
 
 
 @pytest.mark.asyncio
-async def test_api_claim_errores_rfc9457():
+async def test_api_claim_errores_rfc9457(estudiante_autenticado):
     """POST /scan/claim valida el catálogo de errores RFC 9457."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

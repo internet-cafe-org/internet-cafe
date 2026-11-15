@@ -1,3 +1,11 @@
+"""Retos QR y confirmación del acceso (BE-07a, BE-07b y BE-06, SRS §8.1 y §12.5).
+
+Crea los retos de un solo uso del equipo (máximo 2 vigentes, RN-06), resuelve
+la vista previa y confirma el acceso con ``FOR UPDATE`` (idempotente para el
+mismo estudiante, ``superseded`` y ``MACHINE_BUSY``). Solo guarda el SHA-256
+del token.
+"""
+
 import hashlib
 import secrets
 import uuid

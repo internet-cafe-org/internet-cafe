@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "perfil": {
+    "estandar": [
+      "RFC 9421",
+      "RFC 9530",
+      "RFC 7638"
+    ],
+    "algoritmo": "ecdsa-p256-sha256",
+    "etiqueta": "sig1"
+  },
+  "claves_solo_de_prueba": {
+    "normal": {
+      "jwk_privada": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "qSfd4upF0lkLgfDLlrFD_8OFHCNslOwQHRA4bX9UPF8",
+        "y": "D79yoiWRNjsdsLTuQaJy2_a8pVwqtn1fTD5Rp4VGA9M",
+        "d": "qAjEI6sJr-UB7lCZu0E4g-MvWUZ8vkfLK2dqu1IS5W8"
+      },
+      "jwk_publica": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "qSfd4upF0lkLgfDLlrFD_8OFHCNslOwQHRA4bX9UPF8",
+        "y": "D79yoiWRNjsdsLTuQaJy2_a8pVwqtn1fTD5Rp4VGA9M"
+      },
+      "huella_rfc7638": "m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA"
+    },
+    "cero_inicial": {
+      "jwk_privada": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "AO4i7UHhMqeZt5hrFtieIaTDJ-dbKX41cTW5DjjpuI0",
+        "y": "37d_bmx2GMwM75T9JTBdIcgiDGUq05js9WBSH5-36Zc",
+        "d": "7Dg1t-eYROoTyl5pUmYOei6ePNvagaHvkicJ3wJQBvc"
+      },
+      "jwk_publica": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "AO4i7UHhMqeZt5hrFtieIaTDJ-dbKX41cTW5DjjpuI0",
+        "y": "37d_bmx2GMwM75T9JTBdIcgiDGUq05js9WBSH5-36Zc"
+      },
+      "huella_rfc7638": "OUQT37e25k3pB68jATDMcUrpRMoNNsosm2InHieolT4"
+    }
+  },
+  "casos": [
+    {
+      "nombre": "post_con_cuerpo_json",
+      "clave": "normal",
+      "peticion": {
+        "metodo": "POST",
+        "base_publica": "https://api.internet-cafe.example",
+        "ruta": "/api/v1/machine/challenges",
+        "cuerpo_utf8": "{\"machine_code\":\"LAB-01-PC01\"}"
+      },
+      "parametros": {
+        "created": 1793750000,
+        "nonce": "dGVzdC1ub25jZS0wMDAx"
+      },
+      "esperado": {
+        "componentes": [
+          "@method",
+          "@target-uri",
+          "content-digest"
+        ],
+        "content_digest": "sha-256=:mp5Sx8Td8MlUoeXpyAx8iSv66drVmwn+WGT7kCEOFsE=:",
+        "base_de_firma": "\"@method\": POST\n\"@target-uri\": https://api.internet-cafe.example/api/v1/machine/challenges\n\"content-digest\": sha-256=:mp5Sx8Td8MlUoeXpyAx8iSv66drVmwn+WGT7kCEOFsE=:\n\"@signature-params\": (\"@method\" \"@target-uri\" \"content-digest\");created=1793750000;keyid=\"m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "signature_input": "sig1=(\"@method\" \"@target-uri\" \"content-digest\");created=1793750000;keyid=\"m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "keyid": "m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA"
+      },
+      "firma_de_ejemplo": "LYy9k24Km6ensc41o9kG62WpzTOhGTk5exF92m5D94mrM4GPwpL1uMF6Ij7x5cqHShzqtzpkB196UXLyvxNMcw=="
+    },
+    {
+      "nombre": "post_con_cuerpo_unicode",
+      "clave": "normal",
+      "peticion": {
+        "metodo": "POST",
+        "base_publica": "https://api.internet-cafe.example",
+        "ruta": "/api/v1/machine/events",
+        "cuerpo_utf8": "{\"nota\":\"sesión ñandú ✓\"}"
+      },
+      "parametros": {
+        "created": 1793750000,
+        "nonce": "dGVzdC1ub25jZS0wMDAx"
+      },
+      "esperado": {
+        "componentes": [
+          "@method",
+          "@target-uri",
+          "content-digest"
+        ],
+        "content_digest": "sha-256=:V6oZDPLeeBqkR2On1heADQQ+3EtCaSzS5TXP7rk3tME=:",
+        "base_de_firma": "\"@method\": POST\n\"@target-uri\": https://api.internet-cafe.example/api/v1/machine/events\n\"content-digest\": sha-256=:V6oZDPLeeBqkR2On1heADQQ+3EtCaSzS5TXP7rk3tME=:\n\"@signature-params\": (\"@method\" \"@target-uri\" \"content-digest\");created=1793750000;keyid=\"m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "signature_input": "sig1=(\"@method\" \"@target-uri\" \"content-digest\");created=1793750000;keyid=\"m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "keyid": "m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA"
+      },
+      "firma_de_ejemplo": "uRfetFhjCdNhGlXvaBVxBR4avHJgLbOcZMNXfj63bE+0c9i+oVwQW4x3wUaCaziTTX4ftOouNkz3Lg9yAVhRFA=="
+    },
+    {
+      "nombre": "get_sin_cuerpo",
+      "clave": "normal",
+      "peticion": {
+        "metodo": "GET",
+        "base_publica": "https://api.internet-cafe.example",
+        "ruta": "/api/v1/machine/challenges/current?wait=25",
+        "cuerpo_utf8": null
+      },
+      "parametros": {
+        "created": 1793750000,
+        "nonce": "dGVzdC1ub25jZS0wMDAx"
+      },
+      "esperado": {
+        "componentes": [
+          "@method",
+          "@target-uri"
+        ],
+        "content_digest": null,
+        "base_de_firma": "\"@method\": GET\n\"@target-uri\": https://api.internet-cafe.example/api/v1/machine/challenges/current?wait=25\n\"@signature-params\": (\"@method\" \"@target-uri\");created=1793750000;keyid=\"m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "signature_input": "sig1=(\"@method\" \"@target-uri\");created=1793750000;keyid=\"m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "keyid": "m4dGePQmtzGmm2BprFvbe11tCXLulHKCwTO9fx9rokA"
+      },
+      "firma_de_ejemplo": "gBuqVnEsdcBnvCqNCXI04JSzyK2SqOvAMDfjYF+n80ly5FrYyMP4UvIzyvitKiPDeIA+JaZ80YSYHCyAv3i9+g=="
+    },
+    {
+      "nombre": "clave_con_cero_inicial",
+      "clave": "cero_inicial",
+      "peticion": {
+        "metodo": "POST",
+        "base_publica": "https://api.internet-cafe.example",
+        "ruta": "/api/v1/machine/challenges",
+        "cuerpo_utf8": "{\"machine_code\":\"LAB-01-PC02\"}"
+      },
+      "parametros": {
+        "created": 1793750000,
+        "nonce": "dGVzdC1ub25jZS0wMDAx"
+      },
+      "esperado": {
+        "componentes": [
+          "@method",
+          "@target-uri",
+          "content-digest"
+        ],
+        "content_digest": "sha-256=:rMabCBMU+kfSB0sUmTD2mqjNslPM1P8fPEhBTkSCYMI=:",
+        "base_de_firma": "\"@method\": POST\n\"@target-uri\": https://api.internet-cafe.example/api/v1/machine/challenges\n\"content-digest\": sha-256=:rMabCBMU+kfSB0sUmTD2mqjNslPM1P8fPEhBTkSCYMI=:\n\"@signature-params\": (\"@method\" \"@target-uri\" \"content-digest\");created=1793750000;keyid=\"OUQT37e25k3pB68jATDMcUrpRMoNNsosm2InHieolT4\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "signature_input": "sig1=(\"@method\" \"@target-uri\" \"content-digest\");created=1793750000;keyid=\"OUQT37e25k3pB68jATDMcUrpRMoNNsosm2InHieolT4\";alg=\"ecdsa-p256-sha256\";nonce=\"dGVzdC1ub25jZS0wMDAx\"",
+        "keyid": "OUQT37e25k3pB68jATDMcUrpRMoNNsosm2InHieolT4"
+      },
+      "firma_de_ejemplo": "9/Ug3lH0eCpTzUZgUSFEVsjIfPTOZTQG64hCUxbUtDPM9BJRngzVgP7VXqlYrIg1r0iMc+4sTI/JXZTTxCFAwg=="
+    }
+  ]
+}

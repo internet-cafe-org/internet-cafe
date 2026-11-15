@@ -17,8 +17,16 @@ async def audit(
     target_id: uuid.UUID = None, 
     metadata_info: dict = None
 ):
-    """
-    Helper para registrar una acción en el log de auditoría.
+    """Agrega una entrada al log de auditoría; no hace commit.
+
+    Args:
+        db: Sesión de base de datos.
+        actor_type: Quién actúa: usuario, equipo o sistema.
+        action: Nombre de la acción (p. ej. ``auth.login``).
+        actor_id: Id del actor, si lo tiene.
+        target_type: Tipo del objeto afectado.
+        target_id: Id del objeto afectado.
+        metadata_info: Datos extra, nunca personales ni secretos.
     """
     log_entry = AuditLog(
         actor_type=actor_type,

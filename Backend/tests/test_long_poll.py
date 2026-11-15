@@ -13,10 +13,26 @@ from app.models import (
     Machine,
     MachineStatus,
     User,
-    UserRole,
-    UserStatus,
 )
+from app.security.dependencies import hash_machine_credential
 from app.services import challenges, events
+
+# Credencial provisional de los equipos simulados (require_machine compara su hash).
+CLAVE = "credencial-de-prueba"
+HASH_CLAVE = hash_machine_credential(CLAVE)
+
+
+def cab(codigo: str, clave: str = CLAVE) -> dict[str, str]:
+    """Cabeceras de la credencial provisional del equipo.
+
+    Args:
+        codigo: Código del equipo (``X-Machine-Code``).
+        clave: Credencial provisional (``X-Machine-Key``).
+
+    Returns:
+        Diccionario con las dos cabeceras.
+    """
+    return {"X-Machine-Code": codigo, "X-Machine-Key": clave}
 
 
 @pytest.fixture(autouse=True)
@@ -43,12 +59,12 @@ async def test_long_poll_despierta_con_evento_approved():
     machine = Machine(
         id=machine_id,
         code="LAB1-PC01",
-        status=MachineStatus.active,
+        status=MachineStatus.active, credential_hash=HASH_CLAVE,
     )
 
     mock_db = AsyncMock()
 
-    # Primera llamada a execute: get_current_machine -> devuelve machine
+    # Primera llamada a execute: require_machine -> devuelve machine
     # Segunda llamada: obtener_sesion_activa_equipo -> no hay sesión previa
     def mock_execute(stmt):
         mock_res = MagicMock()
@@ -90,7 +106,7 @@ async def test_long_poll_despierta_con_evento_approved():
         async def do_request():
             return await client.get(
                 "/api/v1/machine/challenges/wait?timeout=2",
-                headers={"x-machine-code": "LAB1-PC01"},
+                headers=cab("LAB1-PC01"),
             )
 
         wait_task = asyncio.create_task(do_request())
@@ -134,7 +150,7 @@ async def test_long_poll_sesion_activa_inmediata():
     machine = Machine(
         id=machine_id,
         code="LAB1-PC02",
-        status=MachineStatus.active,
+        status=MachineStatus.active, credential_hash=HASH_CLAVE,
     )
     sesion = AccessSession(
         id=uuid.uuid4(),
@@ -180,7 +196,7 @@ async def test_long_poll_sesion_activa_inmediata():
         start_time = asyncio.get_event_loop().time()
         response = await client.get(
             "/api/v1/machine/challenges/wait?timeout=25",
-            headers={"x-machine-code": "LAB1-PC02"},
+            headers=cab("LAB1-PC02"),
         )
         elapsed = asyncio.get_event_loop().time() - start_time
 
@@ -208,7 +224,7 @@ async def test_long_poll_timeout_waiting():
     machine = Machine(
         id=machine_id,
         code="LAB1-PC03",
-        status=MachineStatus.active,
+        status=MachineStatus.active, credential_hash=HASH_CLAVE,
     )
 
     mock_db = AsyncMock()
@@ -236,7 +252,7 @@ async def test_long_poll_timeout_waiting():
         # Timeout corto de 1 segundo para la prueba
         response = await client.get(
             "/api/v1/machine/challenges/wait?timeout=1",
-            headers={"x-machine-code": "LAB1-PC03"},
+            headers=cab("LAB1-PC03"),
         )
 
     app.dependency_overrides.clear()
@@ -257,8 +273,8 @@ async def test_long_poll_errores_autenticacion_y_estado():
     machine_active_id = uuid.uuid4()
     machine_disabled_id = uuid.uuid4()
 
-    machine_active = Machine(id=machine_active_id, code="PC-ACTIVE", status=MachineStatus.active)
-    machine_disabled = Machine(id=machine_disabled_id, code="PC-DISABLED", status=MachineStatus.disabled)
+    machine_active = Machine(id=machine_active_id, code="PC-ACTIVE", status=MachineStatus.active, credential_hash=HASH_CLAVE)
+    machine_disabled = Machine(id=machine_disabled_id, code="PC-DISABLED", status=MachineStatus.disabled, credential_hash=HASH_CLAVE)
 
     mock_db = AsyncMock()
 
@@ -287,14 +303,31 @@ async def test_long_poll_errores_autenticacion_y_estado():
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Sin header x-machine-code -> 422
+        # 1. Sin cabeceras del equipo -> 401 MACHINE_SIGNATURE_INVALID
         res_no_header = await client.get("/api/v1/machine/challenges/wait")
-        assert res_no_header.status_code == 422
+        assert res_no_header.status_code == 401
+        assert res_no_header.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+
+        # 1b. Solo X-Machine-Code, como antes de SEC-04 -> 401
+        res_solo_codigo = await client.get(
+            "/api/v1/machine/challenges/wait",
+            headers={"X-Machine-Code": "PC-ACTIVE"},
+        )
+        assert res_solo_codigo.status_code == 401
+        assert res_solo_codigo.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+
+        # 1c. Credencial equivocada -> 401
+        res_clave_mala = await client.get(
+            "/api/v1/machine/challenges/wait",
+            headers=cab("PC-ACTIVE", "otra-credencial"),
+        )
+        assert res_clave_mala.status_code == 401
+        assert res_clave_mala.json()["code"] == "MACHINE_SIGNATURE_INVALID"
 
         # 2. Máquina no existe -> 401 MACHINE_SIGNATURE_INVALID
         res_401 = await client.get(
             "/api/v1/machine/challenges/wait",
-            headers={"x-machine-code": "PC-NO-EXISTE"},
+            headers=cab("PC-NO-EXISTE"),
         )
         assert res_401.status_code == 401
         assert res_401.json()["code"] == "MACHINE_SIGNATURE_INVALID"
@@ -302,7 +335,7 @@ async def test_long_poll_errores_autenticacion_y_estado():
         # 3. Máquina deshabilitada -> 403 MACHINE_DISABLED (RN-08)
         res_403 = await client.get(
             "/api/v1/machine/challenges/wait",
-            headers={"x-machine-code": "PC-DISABLED"},
+            headers=cab("PC-DISABLED"),
         )
         assert res_403.status_code == 403
         assert res_403.json()["code"] == "MACHINE_DISABLED"
@@ -310,14 +343,14 @@ async def test_long_poll_errores_autenticacion_y_estado():
         # 4. Timeout fuera de rango (> 25) -> 422
         res_422_timeout_high = await client.get(
             "/api/v1/machine/challenges/wait?timeout=50",
-            headers={"x-machine-code": "PC-ACTIVE"},
+            headers=cab("PC-ACTIVE"),
         )
         assert res_422_timeout_high.status_code == 422
 
         # 5. Timeout fuera de rango (< 1) -> 422
         res_422_timeout_low = await client.get(
             "/api/v1/machine/challenges/wait?timeout=0",
-            headers={"x-machine-code": "PC-ACTIVE"},
+            headers=cab("PC-ACTIVE"),
         )
         assert res_422_timeout_low.status_code == 422
 
@@ -330,8 +363,8 @@ async def test_long_poll_aislamiento_entre_equipos():
     machine1_id = uuid.uuid4()
     machine2_id = uuid.uuid4()
 
-    machine1 = Machine(id=machine1_id, code="PC-01", status=MachineStatus.active)
-    machine2 = Machine(id=machine2_id, code="PC-02", status=MachineStatus.active)
+    machine1 = Machine(id=machine1_id, code="PC-01", status=MachineStatus.active, credential_hash=HASH_CLAVE)
+    machine2 = Machine(id=machine2_id, code="PC-02", status=MachineStatus.active, credential_hash=HASH_CLAVE)
 
     mock_db = AsyncMock()
 
@@ -376,10 +409,10 @@ async def test_long_poll_aislamiento_entre_equipos():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Lanzamos espera para ambos equipos
         task1 = asyncio.create_task(
-            client.get("/api/v1/machine/challenges/wait?timeout=2", headers={"x-machine-code": "PC-01"})
+            client.get("/api/v1/machine/challenges/wait?timeout=2", headers=cab("PC-01"))
         )
         task2 = asyncio.create_task(
-            client.get("/api/v1/machine/challenges/wait?timeout=1", headers={"x-machine-code": "PC-02"})
+            client.get("/api/v1/machine/challenges/wait?timeout=1", headers=cab("PC-02"))
         )
 
         await asyncio.sleep(0.05)
@@ -410,7 +443,7 @@ async def test_long_poll_aislamiento_entre_equipos():
 async def test_long_poll_fallback_db_al_despertar():
     """Si al despertar el payload no está en memoria, consulta la BD como respaldo seguro."""
     machine_id = uuid.uuid4()
-    machine = Machine(id=machine_id, code="PC-FALLBACK", status=MachineStatus.active)
+    machine = Machine(id=machine_id, code="PC-FALLBACK", status=MachineStatus.active, credential_hash=HASH_CLAVE)
     sesion = AccessSession(
         id=uuid.uuid4(),
         machine_id=machine_id,
@@ -461,7 +494,7 @@ async def test_long_poll_fallback_db_al_despertar():
             mock_session_local.return_value.__aenter__.return_value = mock_fallback_session
 
             task = asyncio.create_task(
-                client.get("/api/v1/machine/challenges/wait?timeout=2", headers={"x-machine-code": "PC-FALLBACK"})
+                client.get("/api/v1/machine/challenges/wait?timeout=2", headers=cab("PC-FALLBACK"))
             )
             await asyncio.sleep(0.05)
 

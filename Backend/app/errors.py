@@ -55,6 +55,7 @@ class ErrorCode(StrEnum):
 
     @property
     def spec(self) -> ErrorSpec:
+        """Status HTTP, título y detalle por defecto del código."""
         return CATALOGO[self]
 
     @property
@@ -166,8 +167,23 @@ class AppError(Exception):
         code: ErrorCode,
         detail: str | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        status: int | None = None,
+        title: str | None = None,
     ) -> None:
+        """Crea el error con un código del catálogo.
+
+        Args:
+            code: Código estable del catálogo.
+            detail: Detalle para el usuario; por defecto, el del catálogo.
+            headers: Cabeceras extra de la respuesta (p. ej. ``Set-Cookie``).
+            status: Status HTTP distinto del del catálogo (p. ej. 503 con
+                ``INTERNAL_ERROR`` cuando la base no responde).
+            title: Título distinto del del catálogo.
+        """
         self.code = code
         self.detail = detail or code.spec.detail
         self.headers = headers
+        self.status = status
+        self.title = title
         super().__init__(code.value)
