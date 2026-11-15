@@ -31,7 +31,7 @@ class InvalidTokenError(JWTError):
 
 
 def _load_key_content(key_or_path: str | bytes | None) -> str:
-    """Load PEM key content from a string or file path.
+    r"""Load PEM key content from a string or file path.
 
     Args:
         key_or_path: PEM string, bytes, or file path to a PEM file.

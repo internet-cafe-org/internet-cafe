@@ -83,6 +83,14 @@ def _error(mensaje: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Punto de entrada de la línea de comandos.
+
+    Args:
+        argv: Argumentos; por defecto, los del proceso.
+
+    Returns:
+        Código de salida del proceso.
+    """
     parser = argparse.ArgumentParser(description="Vacía el esquema app de dev.")
     parser.add_argument("--confirmar", required=True, help='Escribe "dev" para confirmar.')
     args = parser.parse_args(argv)

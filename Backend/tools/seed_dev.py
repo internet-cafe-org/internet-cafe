@@ -39,6 +39,8 @@ MAX_CODIGOS = 50
 
 @dataclass
 class Resumen:
+    """Lo que creó o encontró la semilla."""
+
     admin_creado: bool
     salas_creadas: int
     equipos_creados: int
@@ -46,10 +48,27 @@ class Resumen:
 
 
 def nombre_sala(n: int) -> str:
+    """Nombre de la sala de dev número ``n``.
+
+    Args:
+        n: Número de la sala.
+
+    Returns:
+        El nombre de la sala.
+    """
     return f"Sala Dev {n}"
 
 
 def codigo_equipo(sala: int, equipo: int) -> str:
+    """Código del equipo de dev.
+
+    Args:
+        sala: Número de la sala.
+        equipo: Número del equipo en la sala.
+
+    Returns:
+        El código del equipo.
+    """
     return f"DEV-S{sala}-PC{equipo:02d}"
 
 
@@ -59,6 +78,14 @@ def generar_codigo_enrolamiento() -> str:
 
 
 def validar_entorno(app_env: str) -> None:
+    """Impide correr la semilla fuera de dev.
+
+    Args:
+        app_env: Valor de ``APP_ENV``.
+
+    Raises:
+        ValueError: Si el entorno no es ``dev``.
+    """
     if app_env != "dev":
         raise ValueError("La semilla de dev solo corre con APP_ENV=dev.")
 
@@ -198,6 +225,14 @@ def _error(mensaje: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Punto de entrada de la línea de comandos.
+
+    Args:
+        argv: Argumentos; por defecto, los del proceso.
+
+    Returns:
+        Código de salida del proceso.
+    """
     parser = argparse.ArgumentParser(description="Semilla idempotente del entorno dev.")
     parser.add_argument("--salas", type=int, default=1)
     parser.add_argument("--equipos-por-sala", type=int, default=3)
