@@ -68,7 +68,7 @@ async def cliente(sesiones, datos, reloj):
             await db.execute(
                 update(Machine)
                 .where(Machine.id == equipo.id)
-                .values(key_thumbprint=hash_machine_credential(f"{CREDENCIAL_PC}-{equipo.code}"))
+                .values(credential_hash=hash_machine_credential(f"{CREDENCIAL_PC}-{equipo.code}"))
             )
         await db.commit()
 
