@@ -19,30 +19,42 @@ SCHEMA_NAME = "app"
 # 1. TIPOS ENUMERADOS (SRS Sección 11.3)
 # ==========================================
 class UserRole(str, enum.Enum):
+    """Rol del usuario: estudiante o administrador."""
+
     student = "student"
     admin = "admin"
 
 class UserStatus(str, enum.Enum):
+    """Estado de la cuenta (SRS §11.3)."""
+
     pending_verification = "pending_verification"
     active = "active"
     blocked = "blocked"
 
 class MachineStatus(str, enum.Enum):
+    """Estado del equipo: pendiente de enrolar, activo o deshabilitado."""
+
     pending_enrollment = "pending_enrollment"
     active = "active"
     disabled = "disabled"
 
 class MachineMode(str, enum.Enum):
+    """Modo del equipo: pasivo o kiosco."""
+
     passive = "passive"
     kiosk = "kiosk"
 
 class ChallengeStatus(str, enum.Enum):
+    """Estado de un reto QR."""
+
     pending = "pending"
     approved = "approved"
     expired = "expired"
     cancelled = "cancelled"
 
 class SessionEndReason(str, enum.Enum):
+    """Motivo de cierre de una sesión de acceso (SRS §11.3)."""
+
     user_logout_pc = "user_logout_pc"
     user_logout_web = "user_logout_web"
     superseded = "superseded"
@@ -51,6 +63,8 @@ class SessionEndReason(str, enum.Enum):
     machine_shutdown = "machine_shutdown"
 
 class AuditActorType(str, enum.Enum):
+    """Tipo de actor de una entrada de auditoría."""
+
     user = "user"
     machine = "machine"
     system = "system"
@@ -60,6 +74,7 @@ class AuditActorType(str, enum.Enum):
 # ==========================================
 
 class User(Base):
+    """Cuenta de usuario; los datos personales van en ``*_ct`` y se buscan por ``*_bidx``."""
     __tablename__ = "users"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -82,6 +97,7 @@ class User(Base):
 
 
 class Lab(Base):
+    """Sala de cómputo."""
     __tablename__ = "labs"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -92,6 +108,7 @@ class Lab(Base):
 
 
 class Machine(Base):
+    """Equipo (PC) de una sala, con su clave pública enrolada."""
     __tablename__ = "machines"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -102,7 +119,12 @@ class Machine(Base):
     status: Mapped[MachineStatus] = mapped_column(Enum(MachineStatus), default=MachineStatus.pending_enrollment, nullable=False)
     mode: Mapped[MachineMode] = mapped_column(Enum(MachineMode), default=MachineMode.passive, nullable=False)
     public_key_jwk: Mapped[dict] = mapped_column(JSONB, nullable=True)
+    # Huella RFC 7638 del JWK (base64url de SHA-256): es el `keyid` de la firma.
     key_thumbprint: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
+    # TRANSITORIO hasta SEC-14: SHA-256 (hex) de la credencial provisional (X-Machine-Key).
+    credential_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=True
+    )
     app_version: Mapped[str] = mapped_column(String(20), nullable=True)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -111,6 +133,7 @@ class Machine(Base):
 
 
 class LoginChallenge(Base):
+    """Reto QR de un solo uso; solo se guarda el hash del token."""
     __tablename__ = "login_challenges"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -125,6 +148,7 @@ class LoginChallenge(Base):
 
 
 class AccessSession(Base):
+    """Sesión de acceso de un estudiante en un equipo."""
     __tablename__ = "access_sessions"
     
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -146,6 +170,7 @@ class AccessSession(Base):
 
 
 class AuditLog(Base):
+    """Entrada de auditoría, sin datos personales."""
     __tablename__ = "audit_log"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -160,6 +185,7 @@ class AuditLog(Base):
 
 
 class RefreshToken(Base):
+    """Refresh token rotativo; solo se guarda su hash y su familia."""
     __tablename__ = "refresh_tokens"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -175,6 +201,7 @@ class RefreshToken(Base):
 
 
 class EnrollmentCode(Base):
+    """Código de enrolamiento de un solo uso; solo se guarda su hash."""
     __tablename__ = "enrollment_codes"
     __table_args__ = {"schema": SCHEMA_NAME}
 
@@ -188,6 +215,7 @@ class EnrollmentCode(Base):
 
 
 class EmailOutbox(Base):
+    """Correo pendiente de envío (outbox para HU-24)."""
     __tablename__ = "email_outbox"
     __table_args__ = {"schema": SCHEMA_NAME}
 

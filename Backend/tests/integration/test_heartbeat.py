@@ -58,7 +58,7 @@ async def cabecera_pc01(sesiones, datos) -> dict[str, str]:
         await db.execute(
             update(Machine)
             .where(Machine.id == datos.pc01.id)
-            .values(key_thumbprint=hash_machine_credential(CREDENCIAL_PC01))
+            .values(credential_hash=hash_machine_credential(CREDENCIAL_PC01))
         )
         await db.commit()
     return {"X-Machine-Code": datos.pc01.code, "X-Machine-Key": CREDENCIAL_PC01}

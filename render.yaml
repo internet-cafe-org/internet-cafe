@@ -66,6 +66,29 @@ services:
       - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         value: "10"
 
+      - key: APP_ENV
+        value: dev
+
+      # Firma del equipo (SEC-07): dual hasta que Desktop firme; OPS-16 la pasa a signature.
+      - key: MACHINE_AUTH_MODE
+        value: dual
+
+      # TRANSITORIO: el escritorio actual pide QR solo con X-Machine-Code. Poner en
+      # false cuando Desktop envíe X-Machine-Key o firma (OPS-16); se ignora en prod.
+      - key: RETOS_ACEPTAN_SOLO_CODIGO
+        value: "true"
+
+      # Base con la que el equipo firma @target-uri (no la URL interna del proxy).
+      - key: PUBLIC_API_BASE_URL
+        value: https://internet-cafe-backend-dev.onrender.com
+
+      # Previews de Vercel aceptados en /auth/refresh y /auth/logout (solo con APP_ENV=dev).
+      - key: ORIGEN_PREVIEW_REGEX
+        value: ^https://internet-cafe-[a-z0-9-]+\.vercel\.app$
+
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+
       # -----------------------------------------------------------------------
       # Secretos: sync: false → Render los marca como requeridos pero NO los
       # sobrescribe con valores en blanco en cada sync del Blueprint.

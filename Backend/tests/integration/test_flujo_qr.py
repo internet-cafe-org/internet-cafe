@@ -14,13 +14,18 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.config import settings
 from app.database import obtener_base_datos
+from app.jwt import create_access_token
 from app.main import app
-from app.models import AccessSession, ChallengeStatus, LoginChallenge, SessionEndReason
+from app.models import AccessSession, ChallengeStatus, LoginChallenge, Machine, SessionEndReason
+from app.security.dependencies import hash_machine_credential
 from app.services import challenges
 
 T0 = datetime(2026, 10, 29, 10, 0, 0, tzinfo=UTC)
@@ -393,7 +398,38 @@ async def test_rotacion_durante_la_confirmacion_no_cancela_el_reto_aprobado(
 
 
 @pytest.fixture
-async def cliente(sesiones) -> AsyncIterator[AsyncClient]:
+def claves(monkeypatch) -> None:
+    """Configura un par ES256 efímero para firmar y verificar access tokens."""
+    clave = ec.generate_private_key(ec.SECP256R1())
+    privada = clave.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    publica = (
+        clave.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+    monkeypatch.setattr(settings, "jwt_private_key", privada)
+    monkeypatch.setattr(settings, "jwt_public_key", publica)
+
+
+def bearer(usuario) -> dict[str, str]:
+    """Cabecera Authorization con un access token válido del estudiante.
+
+    Args:
+        usuario: Estudiante de las fixtures.
+
+    Returns:
+        Diccionario con la cabecera ``Authorization: Bearer <token>``.
+    """
+    token = create_access_token(subject=str(usuario.id), role="student")
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def cliente(sesiones, claves) -> AsyncIterator[AsyncClient]:
     async def base_de_prueba():
         async with sesiones() as db:
             yield db
@@ -408,12 +444,22 @@ def fijar_hora(monkeypatch, momento: datetime) -> None:
     monkeypatch.setattr(challenges, "ahora", lambda: momento)
 
 
-async def test_http_claim_camino_feliz_y_repeticion(cliente, datos, monkeypatch):
+async def test_http_claim_camino_feliz_y_repeticion(cliente, sesiones, datos, monkeypatch):
     fijar_hora(monkeypatch, T0)
-    r = await cliente.post("/api/v1/machine/challenges", headers={"x-machine-code": "LAB-TEST-PC01"})
+    async with sesiones() as db:
+        (await db.get(Machine, datos.pc01.id)).credential_hash = hash_machine_credential("clave-pc01")
+        await db.commit()
+    sin_clave = await cliente.post("/api/v1/machine/challenges", headers={"X-Machine-Code": "LAB-TEST-PC01"})
+    assert sin_clave.status_code == 401
+    assert sin_clave.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+
+    r = await cliente.post(
+        "/api/v1/machine/challenges",
+        headers={"X-Machine-Code": "LAB-TEST-PC01", "X-Machine-Key": "clave-pc01"},
+    )
     assert r.status_code == 201
     token = r.json()["qr_url"].split("#", 1)[1]
-    cabecera = {"x-user-id": str(datos.ana.id)}
+    cabecera = bearer(datos.ana)
 
     r = await cliente.post("/api/v1/scan/preview", json={"token": token}, headers=cabecera)
     assert r.status_code == 200
@@ -450,10 +496,22 @@ async def test_http_claim_errores(cliente, sesiones, datos, monkeypatch, escenar
     r = await cliente.post(
         "/api/v1/scan/claim",
         json={"token": token},
-        headers={"x-user-id": str(datos.beto.id)},
+        headers=bearer(datos.beto),
     )
 
     assert r.status_code == status
     assert r.headers["content-type"].startswith("application/problem+json")
     assert r.json()["code"] == code
     assert token not in r.text
+
+
+@pytest.mark.parametrize("ruta", ["/api/v1/scan/preview", "/api/v1/scan/claim"])
+async def test_http_scan_sin_access_token_responde_401(cliente, sesiones, datos, ruta):
+    """Sin access token no hay escaneo, aunque llegue la cabecera X-User-Id de antes."""
+    token = await crear_qr(sesiones, datos.pc01, T0)
+
+    r = await cliente.post(ruta, json={"token": token}, headers={"x-user-id": str(datos.ana.id)})
+
+    assert r.status_code == 401
+    assert r.json()["code"] == "AUTH_INVALID_CREDENTIALS"
+    assert await sesiones_activas(sesiones, datos.pc01) == []
