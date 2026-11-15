@@ -135,7 +135,8 @@ async def cerrar_sesiones_inactivas(
 ) -> int:
     """RN-07: cierra las sesiones sin latido en `timeout_s` con ended_at = last_heartbeat_at.
 
-    Pensada para la tarea periódica (rol de jobs). No hace commit: lo hace quien la llama.
+    Todavía no la llama nadie: la tarea periódica que la usará es BE-09b (se programa en
+    el `lifespan` de la API). No hace commit: lo hace quien la llama.
     """
     now = now or ahora()
     limite = now - timedelta(seconds=timeout_s or settings.heartbeat_timeout_s)
@@ -170,12 +171,24 @@ async def registrar_latido(
 ) -> dict[str, Any]:
     """Registra el latido del equipo y responde el estado de su sesión (SRS §8.3).
 
-    - Con sesión abierta: actualiza `last_heartbeat_at` y responde `active` (con su id).
-    - Sin sesión abierta y con `session_id` (la que el equipo cree tener): si esa sesión
-      ya cerró, responde `ended` con el motivo, que es como el equipo se entera de un
-      cierre remoto (web, administrador o reemplazo) en su próximo latido.
-    - En cualquier otro caso responde `none`.
-    El `session_id` solo se consulta dentro de las sesiones de ESTE equipo.
+    Lógica de `POST /machine/heartbeat` (BE-08), implementada en BE-18.
+
+    - RN-01: usa el `now` del servidor que recibe por parámetro, nunca una hora del cliente.
+    - RN-07: `last_heartbeat_at` es lo que usará la tarea periódica (BE-09b) para
+      cerrar por inactividad.
+    - RN-08: solo un equipo `active` envía latidos; el router lo valida antes de llamar
+      a esta función (responde MACHINE_DISABLED).
+
+    `session_id` es la sesión que el equipo cree tener abierta. Solo se busca entre las
+    sesiones de ESTE equipo (regla de seguridad): la de otro equipo se trata como si no
+    existiera y no se expone ningún dato.
+
+    Devuelve:
+        - `session_status: "active"` y `session_id`: hay una sesión abierta (se actualiza
+          su `last_heartbeat_at`).
+        - `session_status: "ended"`, `session_id` y `end_reason`: así se entera el equipo
+          de un cierre remoto (web, administrador o reemplazo).
+        - `session_status: "none"`: no hay sesión abierta ni una previa cerrada de este equipo.
     """
     await db.execute(
         update(Machine)
