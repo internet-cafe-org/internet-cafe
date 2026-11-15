@@ -189,39 +189,51 @@ async def _ejecutar(args: argparse.Namespace, admin_email: str, admin_password: 
     return resumen
 
 
+def _info(mensaje: str) -> None:
+    sys.stdout.write(f"{mensaje}\n")
+
+
+def _error(mensaje: str) -> None:
+    sys.stderr.write(f"ERROR: {mensaje}\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Semilla idempotente del entorno dev.")
     parser.add_argument("--salas", type=int, default=1)
     parser.add_argument("--equipos-por-sala", type=int, default=3)
-    parser.add_argument("--codigos", type=int, default=0, help=f"Códigos de enrolamiento (0 a {MAX_CODIGOS}).")
+    parser.add_argument(
+        "--codigos", type=int, default=0, help=f"Códigos de enrolamiento (0 a {MAX_CODIGOS})."
+    )
     parser.add_argument("--vigencia-horas", type=int, default=24)
-    parser.add_argument("--salida-codigos", type=Path, help="Archivo donde escribir los códigos en claro.")
+    parser.add_argument(
+        "--salida-codigos", type=Path, help="Archivo donde escribir los códigos en claro."
+    )
     args = parser.parse_args(argv)
 
     try:
         validar_entorno(os.environ.get("APP_ENV", ""))
     except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _error(str(exc))
         return 2
     admin_password = os.environ.get("SEED_ADMIN_PASSWORD")
     if not admin_password:
-        print("ERROR: define SEED_ADMIN_PASSWORD en el entorno.", file=sys.stderr)
+        _error("define SEED_ADMIN_PASSWORD en el entorno.")
         return 2
     if args.codigos and not args.salida_codigos:
-        print("ERROR: con --codigos hay que indicar --salida-codigos.", file=sys.stderr)
+        _error("con --codigos hay que indicar --salida-codigos.")
         return 2
     admin_email = os.environ.get("SEED_ADMIN_EMAIL") or ADMIN_EMAIL_POR_DEFECTO
 
     try:
         resumen = asyncio.run(_ejecutar(args, admin_email, admin_password))
     except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _error(str(exc))
         return 1
 
     if resumen.codigos:
         lineas = [f"{equipo}\t{codigo}" for equipo, codigo in resumen.codigos]
         args.salida_codigos.write_text("\n".join(lineas) + "\n", encoding="utf-8")
-    print(
+    _info(
         f"Semilla aplicada: administrador {'creado' if resumen.admin_creado else 'actualizado'}, "
         f"{resumen.salas_creadas} salas nuevas, {resumen.equipos_creados} equipos nuevos, "
         f"{len(resumen.codigos)} códigos de enrolamiento."
