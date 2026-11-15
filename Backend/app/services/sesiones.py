@@ -135,8 +135,8 @@ async def cerrar_sesiones_inactivas(
 ) -> int:
     """RN-07: cierra las sesiones sin latido en `timeout_s` con ended_at = last_heartbeat_at.
 
-    Todavía no la llama nadie: la tarea periódica que la usará es BE-09b (se programa en
-    el `lifespan` de la API). No hace commit: lo hace quien la llama.
+    La llama la tarea periódica de inactividad (`app.services.inactividad`, BE-09b).
+    No hace commit: lo hace quien la llama.
     """
     now = now or ahora()
     limite = now - timedelta(seconds=timeout_s or settings.heartbeat_timeout_s)
