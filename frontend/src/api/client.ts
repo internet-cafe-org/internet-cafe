@@ -22,9 +22,14 @@ export function getAuthHeader(): Record<string, string> {
 
 /**
  * Cliente HTTP generado a partir del contrato OpenAPI.
+ *
+ * En desarrollo local apunta a http://localhost:8000 (Uvicorn corriendo localmente).
+ * En Vercel no se define VITE_API_URL: el cliente apunta a '' (cadena vacía = mismo
+ * origen) y el rewrite /api/* → Render dev del vercel.json enruta las peticiones.
+ * Así nunca hardcodeamos la URL del backend en el código.
  */
 export const api = createClient<paths>({
-  baseUrl: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseUrl: import.meta.env.VITE_API_URL ?? '',
   fetch: (...args) => globalThis.fetch(...args),
   headers: {
     Accept: 'application/json, application/problem+json',

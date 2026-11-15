@@ -7,9 +7,15 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: 'jsdom',
-	setupFiles: ['./src/__tests__/setup.ts'],
+      setupFiles: ['./src/__tests__/setup.ts'],
       exclude: [...configDefaults.exclude, 'e2e/**'],
       root: fileURLToPath(new URL('./', import.meta.url)),
+      // En tests usamos localhost:8000 para que los handlers de MSW intercepten
+      // correctamente. En Vercel no se define esta variable y el cliente usa ''
+      // (mismo origen), que el rewrite del vercel.json redirige a Render.
+      env: {
+        VITE_API_URL: 'http://localhost:8000',
+      },
       coverage: {
         provider: 'v8',
         include: ['src/**/*.{ts,vue}'],
