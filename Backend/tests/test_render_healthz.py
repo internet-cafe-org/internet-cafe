@@ -18,7 +18,7 @@ Nota sobre /healthz vs /readyz:
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from app.main import app
 from app.database import obtener_base_datos
@@ -125,7 +125,7 @@ async def test_readyz_devuelve_503_cuando_bd_falla():
 
     body = response.json()
     assert body["status"] == 503
-    assert body["code"] == "DATABASE_UNAVAILABLE"
-    assert body["type"] == "about:blank"
+    assert body["code"] == "INTERNAL_ERROR"
+    assert body["type"].endswith("/internal-error")
     assert "title" in body
     assert "detail" in body

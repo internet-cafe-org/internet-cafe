@@ -1,3 +1,5 @@
+"""Entorno de Alembic: corre las migraciones con asyncpg sobre el esquema ``app``."""
+
 import asyncio
 import sys
 from pathlib import Path
@@ -36,12 +38,35 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _solo_esquema_app(name, type_, parent_names) -> bool:
+    """Limita el autogenerate al esquema ``app`` de los modelos.
+
+    Sin ``include_schemas`` Alembic solo mira el esquema por defecto y cree que
+    faltan todas las tablas (``alembic check`` falla aunque todo esté al día).
+
+    Args:
+        name: Nombre del objeto que Alembic está comparando.
+        type_: Tipo de objeto (``schema``, ``table``, ``column``...).
+        parent_names: Nombres de los objetos padre.
+
+    Returns:
+        ``True`` si el objeto se debe comparar.
+    """
+    if type_ == "schema":
+        return name == "app"
+    return True
+
+
+_OPCIONES_COMPARACION = {"include_schemas": True, "include_name": _solo_esquema_app}
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        **_OPCIONES_COMPARACION,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -69,7 +94,14 @@ _REVOCAR_ALEMBIC_VERSION_A_SVC_APP = text(
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    """Corre las migraciones y quita a ``svc_app`` el acceso a ``alembic_version``.
+
+    Args:
+        connection: Conexión síncrona que entrega ``run_sync``.
+    """
+    context.configure(
+        connection=connection, target_metadata=target_metadata, **_OPCIONES_COMPARACION
+    )
 
     with context.begin_transaction():
         context.run_migrations()
@@ -92,6 +124,7 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
+    """Corre las migraciones en modo online con el motor asíncrono."""
     asyncio.run(run_async_migrations())
 
 

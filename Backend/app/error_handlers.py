@@ -68,7 +68,14 @@ def _problema(
 
 async def _manejar_app_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)
-    return _problema(request, exc.code, detail=exc.detail, headers=exc.headers)
+    return _problema(
+        request,
+        exc.code,
+        status=exc.status,
+        title=exc.title,
+        detail=exc.detail,
+        headers=exc.headers,
+    )
 
 
 async def _manejar_validacion(request: Request, exc: Exception) -> JSONResponse:
