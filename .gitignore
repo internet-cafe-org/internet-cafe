@@ -21,3 +21,11 @@ tools/keys/
 
 # Raices publicas del truststore (DSK-13)
 !desktop/src/main/resources/truststore/*.pem
+
+# Clon viejo del repo que entro como submodulo huerfano (cf8dafb); no se versiona
+/internet-cafe/
+
+# Reportes de cobertura de pytest-cov (OPS-05b)
+.coverage
+.coverage.*
+htmlcov/

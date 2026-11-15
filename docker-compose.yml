@@ -17,6 +17,9 @@ services:
     build: ./backend
     container_name: internet_cafe_migrador
     command: alembic upgrade head
+    env_file:
+      - path: ./Backend/.env
+        required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:password123@db:5432/internet_cafe
       - SECRET_KEY=tu-llave-secreta-super-segura-123
@@ -31,6 +34,11 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
+    # La API no arranca sin JWT_PRIVATE_KEY, JWT_PUBLIC_KEY y BLIND_INDEX_KEY (HU-07):
+    # ponlas en Backend/.env (ver Backend/.env.example y tools/generate_keys.py).
+    env_file:
+      - path: ./Backend/.env
+        required: false
     environment:
       - SECRET_KEY=tu-llave-secreta-super-segura-123
       - DATABASE_URL=postgresql+asyncpg://postgres:password123@db:5432/internet_cafe
