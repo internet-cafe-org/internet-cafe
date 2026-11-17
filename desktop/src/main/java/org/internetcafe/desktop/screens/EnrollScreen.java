@@ -1,65 +1,117 @@
 package org.internetcafe.desktop.screens;
 
+import java.util.function.Consumer;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
-import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import org.internetcafe.desktop.contract.EnrollmentResponse;
 
 public class EnrollScreen {
-    private final VBox root;
-    private Runnable onBack;
-    private Runnable onEnrollSuccess;
+  private final VBox root;
+  private final TextField codeField;
+  private final Button enrollButton;
+  private final Label statusLabel;
+  private final VBox resultBox;
+  private Consumer<String> onEnroll;
+  private Runnable onClose;
 
-    public EnrollScreen() {
-        Label title = new Label("Enrolar equipo");
-        title.setStyle("-fx-font-size: 26px; -fx-font-weight: 700;");
+  public EnrollScreen() {
+    Label title = new Label("Enrolar equipo");
+    title.setStyle("-fx-font-size: 26px; -fx-font-weight: 700;");
 
-        TextField codeField = new TextField();
-        codeField.setPromptText("Código de enrolamiento");
+    codeField = new TextField();
+    codeField.setPromptText("Código de enrolamiento");
+    codeField.setMaxWidth(420);
 
-        TextField roomField = new TextField();
-        roomField.setPromptText("Sala");
+    enrollButton = new Button("Enrolar");
+    enrollButton.setOnAction(
+        event -> {
+          if (onEnroll != null) {
+            onEnroll.accept(codeField.getText());
+          }
+        });
 
-        HBox actions = new HBox(10);
-        actions.setAlignment(Pos.CENTER);
+    Button closeButton = new Button("Cerrar");
+    closeButton.setOnAction(
+        event -> {
+          if (onClose != null) {
+            onClose.run();
+          }
+        });
 
-        Button backButton = new Button("Volver");
-        Button enrollButton = new Button("Enrolar");
+    statusLabel = new Label();
+    statusLabel.setWrapText(true);
+    resultBox = new VBox(8);
+    resultBox.setAlignment(Pos.CENTER);
+    resultBox.setVisible(false);
+    resultBox.setManaged(false);
 
-        backButton.setOnAction(
-                event -> {
-                    if (onBack != null) {
-                        onBack.run();
-                    }
-                });
+    root = new VBox(16, title, codeField, enrollButton, statusLabel, resultBox, closeButton);
+    root.setPadding(new Insets(32));
+    root.setAlignment(Pos.CENTER);
+  }
 
-        enrollButton.setOnAction(
-                event -> {
-                    if (onEnrollSuccess != null) {
-                        onEnrollSuccess.run();
-                    }
-                });
+  public VBox getRoot() {
+    return root;
+  }
 
-        actions.getChildren().addAll(backButton, enrollButton);
+  public void setOnEnroll(Consumer<String> onEnroll) {
+    this.onEnroll = onEnroll;
+  }
 
-        root = new VBox(16);
-        root.setPadding(new Insets(32));
-        root.setAlignment(Pos.CENTER);
-        root.getChildren().addAll(title, codeField, roomField, actions);
-    }
+  public void setOnClose(Runnable onClose) {
+    this.onClose = onClose;
+  }
 
-    public VBox getRoot() {
-        return root;
-    }
+  public void setAvailable(boolean available, String message) {
+    enrollButton.setDisable(!available);
+    codeField.setDisable(!available);
+    statusLabel.setText(message);
+  }
 
-    public void setOnBack(Runnable onBack) {
-        this.onBack = onBack;
-    }
+  public void setBusy() {
+    enrollButton.setDisable(true);
+    codeField.setDisable(true);
+    statusLabel.setText("Enrolando equipo...");
+    resultBox.getChildren().clear();
+    resultBox.setVisible(false);
+    resultBox.setManaged(false);
+  }
 
-    public void setOnEnrollSuccess(Runnable onEnrollSuccess) {
-        this.onEnrollSuccess = onEnrollSuccess;
-    }
+  public void showFailure(String message) {
+    enrollButton.setDisable(false);
+    codeField.setDisable(false);
+    statusLabel.setText(message);
+    resultBox.getChildren().clear();
+    resultBox.setVisible(false);
+    resultBox.setManaged(false);
+  }
+
+  public void showFinalFailure(String message) {
+    enrollButton.setDisable(true);
+    codeField.setDisable(true);
+    statusLabel.setText(message);
+    resultBox.getChildren().clear();
+    resultBox.setVisible(false);
+    resultBox.setManaged(false);
+  }
+
+  public void showSuccess(EnrollmentResponse response) {
+    codeField.clear();
+    enrollButton.setDisable(true);
+    codeField.setDisable(true);
+    statusLabel.setText("Equipo enrolado. La credencial se guardó de forma segura.");
+    resultBox
+        .getChildren()
+        .setAll(
+            new Label("Código del equipo: " + response.code()),
+            new Label("Sala: " + (response.lab() == null ? "Sin asignar" : response.lab())),
+            new Label("Modo: " + response.mode()),
+            new Label("Identificador de clave: " + response.keyid()));
+    resultBox.setVisible(true);
+    resultBox.setManaged(true);
+  }
 }

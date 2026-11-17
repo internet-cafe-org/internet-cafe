@@ -1,5 +1,8 @@
 package org.internetcafe.desktop;
 
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.util.Arrays;
 import java.util.function.Consumer;
 import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
@@ -10,6 +13,11 @@ import javafx.scene.Scene;
 import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import org.internetcafe.desktop.contract.EnrollmentResponse;
+import org.internetcafe.desktop.identity.EnrollmentStore;
+import org.internetcafe.desktop.identity.MachineIdentityPasswordStore;
+import org.internetcafe.desktop.identity.MachineIdentityStore;
+import org.internetcafe.desktop.identity.WindowsDpapiProtector;
 import org.internetcafe.desktop.qr.ConnectionMonitor;
 import org.internetcafe.desktop.screens.BoardScreen;
 import org.internetcafe.desktop.screens.ConnectionStatus;
@@ -22,6 +30,9 @@ import org.internetcafe.desktop.screens.PassiveCard;
 import org.internetcafe.desktop.screens.QrScreen;
 import org.internetcafe.desktop.screens.QrScreenModel;
 import org.internetcafe.desktop.services.ApiClient;
+import org.internetcafe.desktop.services.ApiException;
+import org.internetcafe.desktop.services.EnrollmentCommitException;
+import org.internetcafe.desktop.services.EnrollmentService;
 
 public class Main extends Application {
 
@@ -32,8 +43,15 @@ public class Main extends Application {
 
   @Override
   public void start(Stage stage) {
+    stage.setTitle("Internet Cafe Desktop");
+    stage.setMinWidth(900);
+    stage.setMinHeight(700);
+    if (getParameters().getRaw().contains("--enroll")) {
+      startEnrollment(stage);
+      return;
+    }
+
     LoginScreen loginScreen = new LoginScreen();
-    EnrollScreen enrollScreen = new EnrollScreen();
     QrScreenModel qrModel = new QrScreenModel("LAB1-PC03", "Sala 1", ConnectionStatus.ONLINE, 45);
     QrScreen qrScreen = new QrScreen(qrModel);
     DashboardScreen dashboardScreen = new DashboardScreen();
@@ -44,10 +62,7 @@ public class Main extends Application {
     Scene scene = new Scene(loginScreen.getRoot(), 1280, 800);
     scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
 
-    stage.setTitle("Internet Cafe Desktop");
     stage.setScene(scene);
-    stage.setMinWidth(900);
-    stage.setMinHeight(700);
     KioskController kioskController =
         new KioskController(
             locked -> applyKioskWindow(stage, locked),
@@ -120,22 +135,6 @@ public class Main extends Application {
         () -> {
           stage.setScene(new Scene(dashboardScreen.getRoot(), 1280, 800));
           dashboardScreen.setStatus("Sesión iniciada");
-        });
-
-    loginScreen.setOnEnroll(
-        () -> {
-          stage.setScene(new Scene(enrollScreen.getRoot(), 1280, 800));
-        });
-
-    enrollScreen.setOnBack(
-        () -> {
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
-        });
-
-    enrollScreen.setOnEnrollSuccess(
-        () -> {
-          qrScreen.startRotation(apiClient, machineCode);
-          stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
         });
 
     qrScreen.setOnBack(
@@ -232,6 +231,89 @@ public class Main extends Application {
     if (trayManager != null) {
       trayManager.remove();
     }
+  }
+
+  private void startEnrollment(Stage stage) {
+    EnrollScreen enrollScreen = new EnrollScreen();
+    Scene scene = new Scene(enrollScreen.getRoot(), 1280, 800);
+    scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+    stage.setScene(scene);
+    stage.show();
+    enrollScreen.setOnClose(Platform::exit);
+
+    try {
+      if (!WindowsElevation.isAdministrator()) {
+        enrollScreen.setAvailable(
+            false, "Cierra la aplicación e iníciala con permisos de administrador para enrolar.");
+        return;
+      }
+
+      WindowsDpapiProtector protector = new WindowsDpapiProtector();
+      char[] password = MachineIdentityPasswordStore.underLocalAppData(protector).loadOrCreate();
+      MachineIdentityStore identityStore;
+      try {
+        identityStore = MachineIdentityStore.underProgramData(password);
+      } finally {
+        Arrays.fill(password, '\0');
+      }
+      EnrollmentService enrollmentService =
+          new EnrollmentService(
+              new ApiClient(), identityStore, EnrollmentStore.underLocalAppData(protector));
+      enrollScreen.setAvailable(true, "Ingresa el código de un solo uso entregado por TI.");
+      enrollScreen.setOnEnroll(
+          code -> {
+            enrollScreen.setBusy();
+            Thread.startVirtualThread(
+                () -> {
+                  try {
+                    EnrollmentResponse response = enrollmentService.enroll(code);
+                    Platform.runLater(() -> enrollScreen.showSuccess(response));
+                  } catch (EnrollmentCommitException exception) {
+                    Platform.runLater(
+                        () ->
+                            enrollScreen.showFinalFailure(
+                                "El servidor aceptó el equipo, pero no se pudo verificar o "
+                                    + "guardar el resultado. Contacta a TI antes de reintentar."));
+                  } catch (ApiException exception) {
+                    Platform.runLater(
+                        () -> enrollScreen.showFailure(enrollmentErrorMessage(exception)));
+                  } catch (IllegalArgumentException exception) {
+                    Platform.runLater(
+                        () ->
+                            enrollScreen.showFailure(
+                                "El código debe tener entre 8 y 64 caracteres."));
+                  } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    Platform.runLater(
+                        () ->
+                            enrollScreen.showFailure(
+                                "El enrolamiento se interrumpió. Vuelve a intentarlo."));
+                  } catch (IOException | GeneralSecurityException exception) {
+                    Platform.runLater(
+                        () ->
+                            enrollScreen.showFailure(
+                                "No se recibió una confirmación segura. El servidor pudo haber "
+                                    + "consumido el código; consulta a TI antes de reintentar."));
+                  }
+                });
+          });
+    } catch (IOException | GeneralSecurityException | IllegalStateException exception) {
+      enrollScreen.setAvailable(false, "No se pudo preparar el almacenamiento seguro del equipo.");
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      enrollScreen.setAvailable(false, "No se pudo comprobar el permiso de administrador.");
+    }
+  }
+
+  private static String enrollmentErrorMessage(ApiException exception) {
+    return switch (exception.getStatusCode()) {
+      case 401 -> "El código no es válido, ya se usó o venció.";
+      case 409 -> "La clave de este equipo ya está registrada.";
+      case 422 -> "El código o la clave del equipo no cumple el contrato de enrolamiento.";
+      case 429 -> "Se alcanzó el límite de intentos. Espera antes de volver a intentarlo.";
+      default ->
+          "El servidor no pudo completar el enrolamiento (HTTP " + exception.getStatusCode() + ").";
+    };
   }
 
   private static void applyKioskWindow(Stage stage, boolean locked) {

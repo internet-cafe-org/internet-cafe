@@ -61,7 +61,7 @@ public class ApiClient {
 
   public EnrollmentResponse enroll(EnrollmentRequest request)
       throws IOException, InterruptedException {
-    return post("/enroll", request, EnrollmentResponse.class);
+    return post("/machine/enroll", request, EnrollmentResponse.class);
   }
 
   public TemporaryCredentialResponse getTemporaryCredential(String deviceId)
@@ -148,9 +148,7 @@ public class ApiClient {
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     if (response.statusCode() < 200 || response.statusCode() >= 300) {
-      if (retryOnSkew
-          && response.statusCode() == 401
-          && isClockSkewError(response.body())) {
+      if (retryOnSkew && response.statusCode() == 401 && isClockSkewError(response.body())) {
         String dateHeader = response.headers().firstValue("Date").orElse(null);
         if (skewAdjuster.applyFromDateHeader(dateHeader)) {
           return send(request, responseType, false);
