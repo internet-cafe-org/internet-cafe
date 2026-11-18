@@ -20,6 +20,7 @@ import org.internetcafe.desktop.contract.HealthResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
+import org.internetcafe.desktop.identity.PublicJwk;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,15 +72,21 @@ class ApiClientTest {
     var enrollment =
         apiClient.enroll(
             new EnrollmentRequest(
-                Map.of("kty", "test", "value", "public-key-placeholder"), "signature-placeholder"));
-    assertEquals("enrolado", enrollment.estado());
-    assertEquals("device-test", enrollment.dispositivoId());
-    assertEquals(
-        "signature-placeholder",
-        OBJECT_MAPPER
-            .readTree(requestBodies.get("/api/v1/enroll"))
-            .get("prueba_posesion")
-            .asText());
+                "enrollment-code-placeholder",
+                new PublicJwk("EC", "P-256", "A".repeat(43), "A".repeat(43)),
+                "proof-placeholder"));
+    assertEquals("machine-test", enrollment.machineId());
+    assertEquals("LAB1-PC03", enrollment.code());
+    assertEquals("Sala 1", enrollment.lab());
+    assertEquals("kiosk", enrollment.mode());
+    assertEquals("keyid-placeholder", enrollment.keyid());
+    assertEquals("credential-placeholder", enrollment.provisionalCredential());
+    assertEquals("POST", requestMethods.get("/api/v1/machine/enroll"));
+    JsonNode enrollmentBody = OBJECT_MAPPER.readTree(requestBodies.get("/api/v1/machine/enroll"));
+    assertEquals("enrollment-code-placeholder", enrollmentBody.get("enrollment_code").asText());
+    assertEquals("EC", enrollmentBody.get("jwk").get("kty").asText());
+    assertFalse(enrollmentBody.get("jwk").has("d"));
+    assertEquals("proof-placeholder", enrollmentBody.get("proof").asText());
 
     TemporaryCredentialResponse credential = apiClient.getTemporaryCredential("device-test");
     assertEquals("temporary-token", credential.credencialTemporal());
@@ -136,8 +143,14 @@ class ApiClientTest {
           respond(exchange, 202, "{\"estado\":\"procesando\",\"mensaje\":\"accepted\"}");
         }
       }
-      case "/api/v1/enroll" ->
-          respond(exchange, 200, "{\"estado\":\"enrolado\",\"dispositivo_id\":\"device-test\"}");
+      case "/api/v1/machine/enroll" ->
+          respond(
+              exchange,
+              201,
+              "{\"machine_id\":\"machine-test\",\"code\":\"LAB1-PC03\","
+                  + "\"lab\":\"Sala 1\",\"mode\":\"kiosk\","
+                  + "\"keyid\":\"keyid-placeholder\","
+                  + "\"provisional_credential\":\"credential-placeholder\"}");
       case "/api/v1/credencial-provisional" -> {
         requestBodies.put(
             "credential-device-id", exchange.getRequestHeaders().getFirst("X-Device-ID"));

@@ -65,7 +65,7 @@ public class ApiClient {
 
   public EnrollmentResponse enroll(EnrollmentRequest request)
       throws IOException, InterruptedException {
-    return post("/enroll", request, EnrollmentResponse.class);
+    return post("/machine/enroll", request, EnrollmentResponse.class);
   }
 
   public TemporaryCredentialResponse getTemporaryCredential(String deviceId)
