@@ -1,6 +1,7 @@
 package org.internetcafe.desktop;
 
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
@@ -11,6 +12,7 @@ import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.internetcafe.desktop.qr.ConnectionMonitor;
+import org.internetcafe.desktop.qr.HeartbeatService;
 import org.internetcafe.desktop.screens.BoardScreen;
 import org.internetcafe.desktop.screens.ConnectionStatus;
 import org.internetcafe.desktop.screens.DashboardScreen;
@@ -28,6 +30,8 @@ public class Main extends Application {
   private TrayManager trayManager;
   private PassiveModeController passiveMode;
   private AppModeManager modeManager;
+  private static final Logger LOG = Logger.getLogger(Main.class.getName());
+  private HeartbeatService heartbeatService;
   private Timeline kioskFailOpenTicker;
 
   @Override
@@ -210,10 +214,44 @@ public class Main extends Application {
           stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
         });
 
+    Runnable backToQr =
+        () -> {
+          boardScreen.stop();
+          heartbeatService.setSessionId(null);
+          kioskController.setSessionActive(false);
+          qrScreen.startRotation(apiClient, machineCode);
+          stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
+        };
+    heartbeatService =
+        new HeartbeatService(
+            sessionId -> apiClient.sendHeartbeat(machineCode, sessionId),
+            (sessionId, reason) -> Platform.runLater(backToQr));
+    heartbeatService.start();
+    boardScreen.setOnLogout(
+        () -> {
+          boardScreen.setLogoutEnabled(false);
+          Thread closer =
+              new Thread(
+                  () -> {
+                    try {
+                      apiClient.endCurrentSession(machineCode);
+                    } catch (Exception e) {
+                      LOG.warning(
+                          "No se pudo cerrar la sesion en el servidor: "
+                              + e.getClass().getSimpleName());
+                    }
+                    Platform.runLater(backToQr);
+                  },
+                  "session-end");
+          closer.setDaemon(true);
+          closer.start();
+        });
     qrScreen.setOnApproved(
         (response, approvedAt) -> {
           connectionMonitor.stop();
           kioskController.setSessionActive(true);
+          heartbeatService.setSessionId(
+              response.session() == null ? null : response.session().id());
           stage.setScene(new Scene(boardScreen.getRoot(), 1280, 800));
           boardScreen.show(response.displayName(), response.maskedStudentCode(), approvedAt);
         });
@@ -226,6 +264,9 @@ public class Main extends Application {
 
   @Override
   public void stop() {
+    if (heartbeatService != null) {
+      heartbeatService.stop();
+    }
     if (kioskFailOpenTicker != null) {
       kioskFailOpenTicker.stop();
     }

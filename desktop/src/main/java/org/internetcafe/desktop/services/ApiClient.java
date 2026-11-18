@@ -1,5 +1,6 @@
 package org.internetcafe.desktop.services;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -9,12 +10,14 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 import org.internetcafe.desktop.AppConfig;
 import org.internetcafe.desktop.contract.ChallengeResponse;
 import org.internetcafe.desktop.contract.ChallengeWaitResponse;
 import org.internetcafe.desktop.contract.EnrollmentRequest;
 import org.internetcafe.desktop.contract.EnrollmentResponse;
 import org.internetcafe.desktop.contract.HealthResponse;
+import org.internetcafe.desktop.contract.HeartbeatResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.RegistrationResponse;
@@ -23,6 +26,7 @@ import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
 public class ApiClient {
   static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(35);
   static final int WAIT_TIMEOUT_SECONDS = 25;
+  public static final Duration HEARTBEAT_TIMEOUT = Duration.ofSeconds(5);
   private static final String API_PATH = "/api/v1";
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private static final String CLOCK_SKEW_CODE = "MACHINE_CLOCK_SKEW";
@@ -98,6 +102,40 @@ public class ApiClient {
     return send(request, ChallengeWaitResponse.class);
   }
 
+  /**
+   * Sends the machine heartbeat (every 60 s). {@code sessionId} is the session the machine believes
+   * is open, or {@code null} when it has none. The short timeout keeps remote-close detection under
+   * 65 s.
+   */
+  public HeartbeatResponse sendHeartbeat(String machineCode, String sessionId)
+      throws IOException, InterruptedException {
+    String json =
+        sessionId == null || sessionId.isBlank()
+            ? "{}"
+            : OBJECT_MAPPER.writeValueAsString(Map.of("session_id", sessionId));
+    HttpRequest request =
+        requestBuilder(API_PATH + "/machine/heartbeat")
+            .timeout(HEARTBEAT_TIMEOUT)
+            .header("X-Machine-Code", machineCode)
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+            .build();
+    return send(request, HeartbeatResponse.class);
+  }
+
+  /** Closes the machine's open session (reason {@code user_logout_pc}). */
+  public void endCurrentSession(String machineCode) throws IOException, InterruptedException {
+    HttpRequest request =
+        requestBuilder(API_PATH + "/machine/sessions/current/end")
+            .header("X-Machine-Code", machineCode)
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"reason\":\"user_logout_pc\"}", StandardCharsets.UTF_8))
+            .build();
+    send(request, JsonNode.class);
+  }
+
   public LongPollResponse longPoll(String lastEventId) throws IOException, InterruptedException {
     String path = API_PATH + "/long-poll";
     if (lastEventId != null && !lastEventId.isBlank()) {
@@ -148,9 +186,7 @@ public class ApiClient {
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     if (response.statusCode() < 200 || response.statusCode() >= 300) {
-      if (retryOnSkew
-          && response.statusCode() == 401
-          && isClockSkewError(response.body())) {
+      if (retryOnSkew && response.statusCode() == 401 && isClockSkewError(response.body())) {
         String dateHeader = response.headers().firstValue("Date").orElse(null);
         if (skewAdjuster.applyFromDateHeader(dateHeader)) {
           return send(request, responseType, false);
