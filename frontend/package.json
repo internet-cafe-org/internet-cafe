@@ -24,7 +24,7 @@
     "primeicons": "^8.0.2",
     "primevue": "^5.0.4",
     "vue": "^3.5.42",
-    "vue-router": "^5.3.1"
+    "vue-router": "^4.5.6"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.5",
