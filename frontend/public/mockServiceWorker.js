@@ -359,4 +359,3 @@ async function serializeRequest(request) {
     keepalive: request.keepalive,
   }
 }
-{ ignores: ['public/mockServiceWorker.js'] }
