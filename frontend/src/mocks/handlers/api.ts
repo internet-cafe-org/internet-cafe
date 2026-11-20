@@ -210,6 +210,17 @@ export const apiHandlers = [
       )
     }
 
+    if (body.token === 'demo-token') {
+      return HttpResponse.json({
+        machine: {
+          code: 'PC-001',
+          lab: 'Laboratorio 1',
+        },
+        expires_at: '2026-10-29T18:00:00Z',
+        active_session: null,
+      })
+    }
+
     return problem(
       404,
       'No encontrado',

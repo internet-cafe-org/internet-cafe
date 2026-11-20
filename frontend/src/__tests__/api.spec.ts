@@ -33,11 +33,11 @@ describe('Integración del cliente API con MSW', () => {
     expect(data?.rotate_after_s).toBe(30)
   })
 
-  it('devuelve 404 cuando no hay equipos registrados en la simulación', async () => {
+  it('devuelve 404 cuando el token de escaneo no existe', async () => {
     await expect(
       api.POST('/api/v1/scan/preview', {
         body: {
-          token: 'demo-token',
+          token: 'token-inexistente',
         },
       }),
     ).rejects.toMatchObject({
