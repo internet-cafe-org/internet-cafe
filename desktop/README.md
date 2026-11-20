@@ -114,3 +114,7 @@ no instala interceptores de teclado ni intenta eludir controles de seguridad del
 - Si el servidor responde `ended`, el equipo registra el cierre remoto en el log (sesión, motivo y hora) y vuelve al QR. Con un timeout de 5 s por latido, el cierre se detecta en 65 s o menos.
 - El botón "Cerrar sesión" del tablero llama a `POST /api/v1/machine/sessions/current/end` (motivo `user_logout_pc`) y vuelve al QR.
 - Los latidos fallidos solo se registran; no cierran la sesión local (el servidor la cierra a los 3 min sin latido).
+
+## Prototipo de clave con TPM (ST-DSK-01)
+
+`TpmKeyPrototype` (paquete `identity`) firma con una clave no exportable del TPM de Windows a través de SunMSCAPI. El informe y los pasos para reproducirlo están en [docs/desktop/ST-DSK-01-tpm-sunmscapi.md](../docs/desktop/ST-DSK-01-tpm-sunmscapi.md). Es solo un prototipo: no está conectado a `MachineIdentityStore`.
