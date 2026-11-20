@@ -2,7 +2,10 @@ package org.internetcafe.desktop.services;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,17 +13,26 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.security.Signature;
+import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
+import java.util.Base64;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.internetcafe.desktop.contract.ChallengeResponse;
 import org.internetcafe.desktop.contract.EnrollmentRequest;
 import org.internetcafe.desktop.contract.HealthResponse;
+import org.internetcafe.desktop.contract.HeartbeatResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
 import org.internetcafe.desktop.identity.PublicJwk;
+import org.internetcafe.desktop.signing.RequestSigner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,18 +42,34 @@ class ApiClientTest {
 
   private final Map<String, String> requestBodies = new ConcurrentHashMap<>();
   private final Map<String, String> requestMethods = new ConcurrentHashMap<>();
+  private final Map<String, String> requestUris = new ConcurrentHashMap<>();
+  private final Map<String, Map<String, String>> requestHeaders = new ConcurrentHashMap<>();
   private HttpServer server;
   private ApiClient apiClient;
+  private RequestSigner requestSigner;
+  private ECPublicKey publicKey;
+  private final Set<String> signedNonces = new HashSet<>();
+  private final AtomicInteger skewChallengeCount = new AtomicInteger();
+  private volatile boolean skewChallengeRetry;
+  private String firstSkewSignatureInput;
   private String previousApiBaseUrl;
 
   @BeforeEach
-  void startServer() throws IOException {
+  void startServer() throws Exception {
     previousApiBaseUrl = System.getProperty("api.base.url");
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext("/", this::handleRequest);
     server.start();
     System.setProperty("api.base.url", "http://127.0.0.1:" + server.getAddress().getPort() + "/");
-    apiClient = new ApiClient();
+    KeyPairHolder keyPairHolder = createTestKeyPair();
+    requestSigner = keyPairHolder.requestSigner();
+    publicKey = keyPairHolder.publicKey();
+    apiClient =
+        new ApiClient(
+            HttpClient.newHttpClient(),
+            "http://127.0.0.1:" + server.getAddress().getPort(),
+            new ClockSkewAdjuster(),
+            requestSigner);
   }
 
   @AfterEach
@@ -113,6 +141,46 @@ class ApiClientTest {
   }
 
   @Test
+  void everyMachineRequestIsSignedAndVerifiable() throws Exception {
+    apiClient.createChallenge("PC-01");
+    apiClient.waitForChallenge("PC-01");
+    HeartbeatResponse heartbeat = apiClient.sendHeartbeat("PC-01", null);
+    assertEquals("none", heartbeat.sessionStatus());
+    apiClient.endCurrentSession("PC-01");
+
+    assertValidSignature("/api/v1/machine/challenges", "POST", null);
+    assertValidSignature("/api/v1/machine/challenges/wait", "GET", null);
+    assertValidSignature("/api/v1/machine/heartbeat", "POST", "{}");
+    assertValidSignature(
+        "/api/v1/machine/sessions/current/end", "POST", "{\"reason\":\"user_logout_pc\"}");
+    assertEquals(
+        "/api/v1/machine/challenges/wait?timeout=" + ApiClient.WAIT_TIMEOUT_SECONDS,
+        requestUris.get("/api/v1/machine/challenges/wait"));
+  }
+
+  @Test
+  void machineRequestsFailClosedWhenNoSignerIsConfigured() {
+    ApiClient unsignedClient =
+        new ApiClient(
+            HttpClient.newHttpClient(), "http://127.0.0.1:" + server.getAddress().getPort());
+
+    assertThrows(IllegalStateException.class, () -> unsignedClient.createChallenge("PC-01"));
+  }
+
+  @Test
+  void clockSkewRetrySignsTheRequestAgainWithANewNonce() throws Exception {
+    skewChallengeRetry = true;
+
+    apiClient.createChallenge("PC-01");
+
+    assertEquals(2, skewChallengeCount.get());
+    assertNotEquals(
+        firstSkewSignatureInput,
+        requestHeaders.get("/api/v1/machine/challenges").get("signature-input"));
+    assertValidSignature("/api/v1/machine/challenges", "POST", null);
+  }
+
+  @Test
   void nonSuccessfulResponseRaisesSanitizedApiException() {
     ApiException exception =
         assertThrows(
@@ -128,6 +196,13 @@ class ApiClientTest {
   private void handleRequest(HttpExchange exchange) throws IOException {
     String path = exchange.getRequestURI().getPath();
     requestMethods.put(path, exchange.getRequestMethod());
+    requestUris.put(path, exchange.getRequestURI().toString());
+    Map<String, String> headers = new ConcurrentHashMap<>();
+    exchange
+        .getRequestHeaders()
+        .forEach(
+            (name, values) -> headers.put(name.toLowerCase(java.util.Locale.ROOT), values.get(0)));
+    requestHeaders.put(path, headers);
     String requestBody =
         new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
     if (!requestBody.isEmpty()) {
@@ -161,6 +236,11 @@ class ApiClientTest {
       }
       case "/api/v1/machine/challenges" -> {
         requestBodies.put("machine-code", exchange.getRequestHeaders().getFirst("X-Machine-Code"));
+        if (skewChallengeRetry && skewChallengeCount.incrementAndGet() == 1) {
+          firstSkewSignatureInput = exchange.getRequestHeaders().getFirst("Signature-Input");
+          respond(exchange, 401, "{\"code\":\"MACHINE_CLOCK_SKEW\"}");
+          return;
+        }
         respond(
             exchange,
             201,
@@ -169,6 +249,9 @@ class ApiClientTest {
                 + "\"expires_at\":\"2026-10-19T14:05:00Z\","
                 + "\"rotate_after_s\":45}");
       }
+      case "/api/v1/machine/challenges/wait" -> respond(exchange, 200, "{\"status\":\"waiting\"}");
+      case "/api/v1/machine/heartbeat" -> respond(exchange, 200, "{\"session_status\":\"none\"}");
+      case "/api/v1/machine/sessions/current/end" -> respond(exchange, 200, "{}");
       case "/api/v1/long-poll" -> {
         requestBodies.put("long-poll-query", exchange.getRequestURI().getRawQuery());
         respond(
@@ -189,4 +272,87 @@ class ApiClientTest {
     exchange.getResponseBody().write(response);
     exchange.close();
   }
+
+  private void assertValidSignature(String path, String method, String body) throws Exception {
+    Map<String, String> headers = requestHeaders.get(path);
+    assertTrue(headers.containsKey("signature-input"), path + " must include Signature-Input");
+    assertTrue(headers.containsKey("signature"), path + " must include Signature");
+    assertEquals("PC-01", headers.get("x-machine-code"));
+    assertFalse(headers.containsKey("x-machine-key"));
+
+    String contentDigest = headers.get("content-digest");
+    if (body == null) {
+      assertNull(contentDigest);
+    } else {
+      assertEquals(
+          RequestSigner.contentDigest(body.getBytes(StandardCharsets.UTF_8)), contentDigest);
+    }
+
+    String signatureInput = headers.get("signature-input");
+    String signatureParams = signatureInput.substring("sig1=".length());
+    assertTrue(signatureParams.contains(";keyid=\"" + requestSigner.keyId() + "\""));
+    int nonceStart = signatureParams.indexOf(";nonce=\"");
+    assertTrue(nonceStart >= 0);
+    int nonceValueStart = nonceStart + ";nonce=\"".length();
+    int nonceEnd = signatureParams.indexOf('"', nonceValueStart);
+    assertTrue(nonceEnd > nonceValueStart);
+    assertTrue(signedNonces.add(signatureParams.substring(nonceValueStart, nonceEnd)));
+    String targetUri = baseUrl(server) + requestUris.get(path);
+    StringBuilder signatureBase = new StringBuilder();
+    signatureBase.append("\"@method\": ").append(method).append('\n');
+    signatureBase.append("\"@target-uri\": ").append(targetUri).append('\n');
+    if (contentDigest != null) {
+      signatureBase.append("\"content-digest\": ").append(contentDigest).append('\n');
+    }
+    signatureBase.append("\"@signature-params\": ").append(signatureParams);
+
+    String signatureHeader = headers.get("signature");
+    byte[] rawSignature =
+        Base64.getDecoder()
+            .decode(signatureHeader.substring("sig1=:".length(), signatureHeader.length() - 1));
+    Signature verifier = Signature.getInstance("SHA256withECDSA");
+    verifier.initVerify(publicKey);
+    verifier.update(signatureBase.toString().getBytes(StandardCharsets.UTF_8));
+    assertTrue(verifier.verify(rawToDer(rawSignature)), path + " signature must verify");
+  }
+
+  private KeyPairHolder createTestKeyPair() throws Exception {
+    var generator = java.security.KeyPairGenerator.getInstance("EC");
+    generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+    var keyPair = generator.generateKeyPair();
+    ECPublicKey publicKey = (ECPublicKey) keyPair.getPublic();
+    return new KeyPairHolder(
+        new RequestSigner(keyPair.getPrivate(), PublicJwk.from(publicKey)), publicKey);
+  }
+
+  private static String baseUrl(HttpServer server) {
+    return "http://127.0.0.1:" + server.getAddress().getPort();
+  }
+
+  private static byte[] rawToDer(byte[] raw) {
+    byte[] r = derInteger(raw, 0);
+    byte[] s = derInteger(raw, 32);
+    byte[] der = new byte[2 + r.length + s.length];
+    der[0] = 0x30;
+    der[1] = (byte) (r.length + s.length);
+    System.arraycopy(r, 0, der, 2, r.length);
+    System.arraycopy(s, 0, der, 2 + r.length, s.length);
+    return der;
+  }
+
+  private static byte[] derInteger(byte[] raw, int offset) {
+    int start = offset;
+    while (start < offset + 31 && raw[start] == 0) {
+      start++;
+    }
+    boolean needsPadding = (raw[start] & 0x80) != 0;
+    int length = offset + 32 - start + (needsPadding ? 1 : 0);
+    byte[] integer = new byte[length + 2];
+    integer[0] = 0x02;
+    integer[1] = (byte) length;
+    System.arraycopy(raw, start, integer, needsPadding ? 3 : 2, offset + 32 - start);
+    return integer;
+  }
+
+  private record KeyPairHolder(RequestSigner requestSigner, ECPublicKey publicKey) {}
 }

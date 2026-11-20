@@ -108,6 +108,14 @@ public final class MachineIdentityStore {
     return toIdentity(keyPair.getPrivate(), certificate);
   }
 
+  public MachineIdentity loadExisting() throws IOException, GeneralSecurityException {
+    if (!Files.exists(keyStorePath)) {
+      throw new java.nio.file.NoSuchFileException(keyStorePath.toString());
+    }
+    applyAcl(keyStorePath, false);
+    return load();
+  }
+
   private MachineIdentity load() throws IOException, GeneralSecurityException {
     KeyStore keyStore = KeyStore.getInstance(KEYSTORE_TYPE);
     try (var input = Files.newInputStream(keyStorePath)) {
