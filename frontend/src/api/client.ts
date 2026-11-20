@@ -1,4 +1,3 @@
-
 import createClient from 'openapi-fetch'
 import type { paths } from './schema'
 import { ApiError, normalizeApiError } from '../errors/problem-details'
@@ -43,18 +42,14 @@ export function clearAccessToken(): void {
  * Devuelve la cabecera Authorization.
  */
 export function getAuthHeader(): Record<string, string> {
-  return accessToken
-    ? { Authorization: `Bearer ${accessToken}` }
-    : {}
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
 }
 
 /**
  * Registra la función que cerrará la sesión cuando
  * el refresh token deje de ser válido.
  */
-export function setAuthFailureHandler(
-  handler: (() => void) | null,
-): void {
+export function setAuthFailureHandler(handler: (() => void) | null): void {
   authFailureHandler = handler
   authFailureHandled = false
 }
@@ -69,8 +64,7 @@ function notifyAuthFailure(error: unknown): void {
   }
 
   const invalidCredentials =
-    error.status === 401 &&
-    ['AUTH_TOKEN_EXPIRED', 'AUTH_INVALID_CREDENTIALS'].includes(error.code)
+    error.status === 401 && ['AUTH_TOKEN_EXPIRED', 'AUTH_INVALID_CREDENTIALS'].includes(error.code)
 
   if (!invalidCredentials || !authFailureHandler || authFailureHandled) {
     return
@@ -97,9 +91,7 @@ function getBearerToken(request: Request): string | null {
  * Comprueba si el error corresponde específicamente
  * a la expiración del access token.
  */
-async function isAccessTokenExpired(
-  response: Response,
-): Promise<boolean> {
+async function isAccessTokenExpired(response: Response): Promise<boolean> {
   if (response.status !== 401) {
     return false
   }
@@ -123,9 +115,7 @@ async function isAccessTokenExpired(
 /**
  * Normaliza una respuesta de error HTTP utilizando RFC 9457.
  */
-async function getResponseApiError(
-  response: Response,
-): Promise<ApiError> {
+async function getResponseApiError(response: Response): Promise<ApiError> {
   let data: unknown
 
   try {
@@ -188,18 +178,12 @@ async function requestNewAccessToken(): Promise<string> {
  * sin bloqueo. En ese caso no se garantiza la coordinación
  * entre pestañas.
  */
-function withRefreshLock<T>(
-  callback: () => Promise<T>,
-): Promise<T> {
+function withRefreshLock<T>(callback: () => Promise<T>): Promise<T> {
   if (typeof navigator === 'undefined' || !navigator.locks) {
     return callback()
   }
 
-  return navigator.locks.request(
-    REFRESH_LOCK_NAME,
-    { mode: 'exclusive' },
-    callback,
-  )
+  return navigator.locks.request(REFRESH_LOCK_NAME, { mode: 'exclusive' }, callback)
 }
 
 /**
@@ -298,10 +282,7 @@ async function fetchWithTokenRefresh(
 
   try {
     // Puede existir un token nuevo por otra petición de esta pestaña.
-    tokenToUse =
-      currentToken !== tokenSent
-        ? currentToken
-        : await refreshAccessToken()
+    tokenToUse = currentToken !== tokenSent ? currentToken : await refreshAccessToken()
   } catch (error) {
     notifyAuthFailure(error)
     throw error

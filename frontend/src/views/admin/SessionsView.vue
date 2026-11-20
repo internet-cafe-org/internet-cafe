@@ -360,7 +360,12 @@ const exportSummary = computed(() => {
   const f = applied.value
   const lab = labs.value.find((l) => l.id === f.lab)?.name
   const machine = machines.value.find((m) => m.id === f.machine)?.code
-  const statusText = f.status === 'active' ? 'Activas' : f.status === 'closed' ? 'Cerradas' : 'Todas · Activas y cerradas'
+  const statusText =
+    f.status === 'active'
+      ? 'Activas'
+      : f.status === 'closed'
+        ? 'Cerradas'
+        : 'Todas · Activas y cerradas'
   const period =
     f.from || f.to
       ? `${f.from ? formatDay(f.from) : 'Inicio'} – ${f.to ? formatDay(f.to) : 'Hoy'}`
@@ -411,7 +416,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <form class="filters-grid" novalidate @submit.prevent="applyFilters">
           <label class="field">
             <span>Estudiante · correo o código EXACTO</span>
-            <input v-model="draft.student" type="text" placeholder="ana.perez@universidad.example" />
+            <input
+              v-model="draft.student"
+              type="text"
+              placeholder="ana.perez@universidad.example"
+            />
           </label>
 
           <label class="field">
@@ -442,13 +451,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <label class="field">
             <span>Fecha desde</span>
             <input v-model="draft.from" type="date" :class="{ 'input-error': rangeError }" />
-            <small v-if="rangeError" class="field-error">Debe ser anterior o igual a la fecha hasta.</small>
+            <small v-if="rangeError" class="field-error"
+              >Debe ser anterior o igual a la fecha hasta.</small
+            >
           </label>
 
           <label class="field">
             <span>Fecha hasta</span>
             <input v-model="draft.to" type="date" :class="{ 'input-error': rangeError }" />
-            <small v-if="rangeError" class="field-error">Elige un día igual o posterior a la fecha desde.</small>
+            <small v-if="rangeError" class="field-error"
+              >Elige un día igual o posterior a la fecha desde.</small
+            >
           </label>
 
           <div class="filter-actions">
@@ -469,7 +482,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <i class="pi pi-exclamation-circle"></i>
         <div>
           <strong>El rango de fechas no es válido</strong>
-          <p>Corrige las fechas y vuelve a aplicar los filtros. Se conserva el último resultado válido.</p>
+          <p>
+            Corrige las fechas y vuelve a aplicar los filtros. Se conserva el último resultado
+            válido.
+          </p>
         </div>
       </div>
 
@@ -543,7 +559,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </td>
                 <td>
                   <button class="link-button" type="button" @click="openDetail(s)">
-                    Ver{{ s.status === 'closed' ? ` · ${closeReasonLabel(s.close_reason)}` : ' detalle' }}
+                    Ver{{
+                      s.status === 'closed' ? ` · ${closeReasonLabel(s.close_reason)}` : ' detalle'
+                    }}
                   </button>
                 </td>
               </tr>
@@ -633,7 +651,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </div>
             <div>
               <dt>Sala</dt>
-              <dd>{{ selected.lab_name }}{{ selected.building ? ` · ${selected.building}` : '' }}</dd>
+              <dd>
+                {{ selected.lab_name }}{{ selected.building ? ` · ${selected.building}` : '' }}
+              </dd>
             </div>
             <div>
               <dt>Inicio</dt>
@@ -735,7 +755,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </template>
 
     <!-- ============ MODAL: FORZAR CIERRE ============ -->
-    <div v-if="showForceModal && selected" class="modal-overlay" role="presentation" @click.self="closeModals" @keydown.esc="closeModals" >
+    <div
+      v-if="showForceModal && selected"
+      class="modal-overlay"
+      role="presentation"
+      @click.self="closeModals"
+      @keydown.esc="closeModals"
+    >
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="force-title">
         <header class="modal-header">
           <div>
@@ -754,7 +780,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
           <div>
             <span>Sala</span>
-            <strong>{{ selected.lab_name }}{{ selected.building ? ` · ${selected.building}` : '' }}</strong>
+            <strong
+              >{{ selected.lab_name
+              }}{{ selected.building ? ` · ${selected.building}` : '' }}</strong
+            >
           </div>
         </div>
 
@@ -767,8 +796,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </div>
 
         <p class="modal-text">
-          Motivo de cierre: Cierre administrativo · admin_forced. La hora final se registra desde
-          el servidor.
+          Motivo de cierre: Cierre administrativo · admin_forced. La hora final se registra desde el
+          servidor.
         </p>
 
         <footer class="modal-actions">
@@ -784,7 +813,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- ============ MODAL: EXPORTAR CSV ============ -->
-    <div v-if="showExportModal" class="modal-overlay" role="presentation" @click.self="closeModals" @keydown.esc="closeModals" >
+    <div
+      v-if="showExportModal"
+      class="modal-overlay"
+      role="presentation"
+      @click.self="closeModals"
+      @keydown.esc="closeModals"
+    >
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
         <header class="modal-header">
           <div>

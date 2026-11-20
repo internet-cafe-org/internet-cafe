@@ -110,7 +110,6 @@ export const routes: RouteRecordRaw[] = [
   },
 ]
 
-
 export function createAppRouter(history: RouterHistory) {
   const router = createRouter({ history, routes })
 

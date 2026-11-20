@@ -67,8 +67,8 @@ const userRoleName = computed(() => (session.isAdmin ? 'Administrador' : 'Estudi
 
 const currentLabel = computed(
   () =>
-    [...navItems.value, ...docsItems.value].find((item) => item.routeName === route.name)
-      ?.label ?? '',
+    [...navItems.value, ...docsItems.value].find((item) => item.routeName === route.name)?.label ??
+    '',
 )
 
 /* Fecha y hora del pie, en la zona horaria de la universidad */
@@ -165,10 +165,7 @@ async function handleSignOut() {
           :aria-label="theme === 'light' ? 'Activar modo oscuro' : 'Activar modo claro'"
           @click="toggleTheme"
         >
-          <i
-            :class="theme === 'light' ? 'pi pi-moon' : 'pi pi-sun'"
-            aria-hidden="true"
-          ></i>
+          <i :class="theme === 'light' ? 'pi pi-moon' : 'pi pi-sun'" aria-hidden="true"></i>
           <span>{{ theme === 'light' ? 'Modo oscuro' : 'Modo claro' }}</span>
         </button>
 
@@ -189,12 +186,7 @@ async function handleSignOut() {
               <strong>{{ userRoleName }}</strong>
             </div>
 
-            <button
-              class="user-menu__item"
-              type="button"
-              role="menuitem"
-              @click="handleSignOut"
-            >
+            <button class="user-menu__item" type="button" role="menuitem" @click="handleSignOut">
               <i class="pi pi-sign-out" aria-hidden="true"></i>
               <span>Salir</span>
             </button>

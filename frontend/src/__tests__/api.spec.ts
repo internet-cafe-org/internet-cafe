@@ -149,20 +149,14 @@ describe('Integración del cliente API con MSW', () => {
         },
       })
 
-      const authenticatedCall =
-        fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1]
+      const authenticatedCall = fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1]
 
       const authenticatedRequest =
         authenticatedCall?.[0] instanceof Request
           ? authenticatedCall[0]
-          : new Request(
-              authenticatedCall?.[0] as string,
-              authenticatedCall?.[1],
-            )
+          : new Request(authenticatedCall?.[0] as string, authenticatedCall?.[1])
 
-      expect(authenticatedRequest.headers.get('Authorization')).toBe(
-        'Bearer token-temporal',
-      )
+      expect(authenticatedRequest.headers.get('Authorization')).toBe('Bearer token-temporal')
 
       clearAccessToken()
 
@@ -174,16 +168,12 @@ describe('Integración del cliente API con MSW', () => {
         },
       })
 
-      const unauthenticatedCall =
-        fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1]
+      const unauthenticatedCall = fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1]
 
       const unauthenticatedRequest =
         unauthenticatedCall?.[0] instanceof Request
           ? unauthenticatedCall[0]
-          : new Request(
-              unauthenticatedCall?.[0] as string,
-              unauthenticatedCall?.[1],
-            )
+          : new Request(unauthenticatedCall?.[0] as string, unauthenticatedCall?.[1])
 
       expect(unauthenticatedRequest.headers.get('Authorization')).toBeNull()
     } finally {
@@ -258,20 +248,17 @@ describe('Renovación automática del access token', () => {
         })
       }),
 
-      http.post(
-        `${API_URL}/api/v1/machine/challenges`,
-        ({ request }) => {
-          protectedCalls++
+      http.post(`${API_URL}/api/v1/machine/challenges`, ({ request }) => {
+        protectedCalls++
 
-          const authorization = request.headers.get('Authorization')
+        const authorization = request.headers.get('Authorization')
 
-          if (authorization === 'Bearer token-vencido') {
-            return expiredTokenResponse()
-          }
+        if (authorization === 'Bearer token-vencido') {
+          return expiredTokenResponse()
+        }
 
-          return successfulChallengeResponse()
-        },
-      ),
+        return successfulChallengeResponse()
+      }),
     )
 
     setAccessToken('token-vencido')
@@ -279,9 +266,7 @@ describe('Renovación automática del access token', () => {
     const { data, error } = await createChallenge()
 
     expect(error).toBeUndefined()
-    expect(data?.challenge_id).toBe(
-      '123e4567-e89b-12d3-a456-426614174000',
-    )
+    expect(data?.challenge_id).toBe('123e4567-e89b-12d3-a456-426614174000')
 
     expect(refreshCalls).toBe(1)
     expect(protectedCalls).toBe(2)
@@ -305,29 +290,20 @@ describe('Renovación automática del access token', () => {
         })
       }),
 
-      http.post(
-        `${API_URL}/api/v1/machine/challenges`,
-        ({ request }) => {
-          protectedCalls++
+      http.post(`${API_URL}/api/v1/machine/challenges`, ({ request }) => {
+        protectedCalls++
 
-          if (
-            request.headers.get('Authorization') ===
-            'Bearer token-vencido'
-          ) {
-            return expiredTokenResponse()
-          }
+        if (request.headers.get('Authorization') === 'Bearer token-vencido') {
+          return expiredTokenResponse()
+        }
 
-          return successfulChallengeResponse()
-        },
-      ),
+        return successfulChallengeResponse()
+      }),
     )
 
     setAccessToken('token-vencido')
 
-    const [first, second] = await Promise.all([
-      createChallenge(),
-      createChallenge(),
-    ])
+    const [first, second] = await Promise.all([createChallenge(), createChallenge()])
 
     expect(first.error).toBeUndefined()
     expect(second.error).toBeUndefined()
@@ -337,17 +313,11 @@ describe('Renovación automática del access token', () => {
   })
 
   it('utiliza Web Locks para coordinar la renovación', async () => {
-    const previousLocks = Object.getOwnPropertyDescriptor(
-      navigator,
-      'locks',
-    )
+    const previousLocks = Object.getOwnPropertyDescriptor(navigator, 'locks')
 
     const lockRequest = vi.fn(
-      async (
-        _name: string,
-        _options: { mode: 'exclusive' },
-        callback: () => Promise<string>,
-      ) => callback(),
+      async (_name: string, _options: { mode: 'exclusive' }, callback: () => Promise<string>) =>
+        callback(),
     )
 
     Object.defineProperty(navigator, 'locks', {
@@ -367,19 +337,13 @@ describe('Renovación automática del access token', () => {
           })
         }),
 
-        http.post(
-          `${API_URL}/api/v1/machine/challenges`,
-          ({ request }) => {
-            if (
-              request.headers.get('Authorization') ===
-              'Bearer token-vencido'
-            ) {
-              return expiredTokenResponse()
-            }
+        http.post(`${API_URL}/api/v1/machine/challenges`, ({ request }) => {
+          if (request.headers.get('Authorization') === 'Bearer token-vencido') {
+            return expiredTokenResponse()
+          }
 
-            return successfulChallengeResponse()
-          },
-        ),
+          return successfulChallengeResponse()
+        }),
       )
 
       setAccessToken('token-vencido')
@@ -432,9 +396,7 @@ describe('Fallos de renovación de sesión', () => {
         ),
       ),
 
-      http.post(`${API_URL}/api/v1/machine/challenges`, () =>
-        expiredTokenResponse(),
-      ),
+      http.post(`${API_URL}/api/v1/machine/challenges`, () => expiredTokenResponse()),
     )
 
     setAccessToken('token-vencido')
@@ -473,9 +435,7 @@ describe('Fallos de renovación de sesión', () => {
         ),
       ),
 
-      http.post(`${API_URL}/api/v1/machine/challenges`, () =>
-        expiredTokenResponse(),
-      ),
+      http.post(`${API_URL}/api/v1/machine/challenges`, () => expiredTokenResponse()),
     )
 
     setAccessToken('token-vencido')

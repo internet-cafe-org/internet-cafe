@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 </script>
@@ -10,12 +9,8 @@ import { RouterLink } from 'vue-router'
     <div class="card box">
       <p class="code">404</p>
       <h2>No encontramos esta página</h2>
-      <p class="msg">
-        La dirección que abriste no existe o ya no está disponible
-      </p>
-      <RouterLink to="/" class="btn">
-        Volver al inicio
-      </RouterLink>
+      <p class="msg">La dirección que abriste no existe o ya no está disponible</p>
+      <RouterLink to="/" class="btn"> Volver al inicio </RouterLink>
     </div>
   </main>
 </template>

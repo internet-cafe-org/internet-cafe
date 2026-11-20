@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
@@ -120,8 +119,7 @@ async function saveLab() {
   const name = labName.value.trim()
 
   if (!name) {
-    nameError.value =
-      'El nombre de la sala es obligatorio. Ingresa un nombre para continuar.'
+    nameError.value = 'El nombre de la sala es obligatorio. Ingresa un nombre para continuar.'
     return
   }
 
@@ -132,8 +130,7 @@ async function saveLab() {
   )
 
   if (duplicated) {
-    nameError.value =
-      'Ya existe una sala con este nombre. Ingresa un nombre diferente.'
+    nameError.value = 'Ya existe una sala con este nombre. Ingresa un nombre diferente.'
     return
   }
 
@@ -148,9 +145,7 @@ async function saveLab() {
     // La API todavía no tiene una operación para editar salas.
     // En esta vista de demostración los cambios se aplican localmente.
     if (isEdit.value && editingLab.value) {
-      const index = labs.value.findIndex(
-        (lab) => lab.id === editingLab.value?.id,
-      )
+      const index = labs.value.findIndex((lab) => lab.id === editingLab.value?.id)
 
       if (index !== -1) {
         labs.value[index] = {
@@ -174,8 +169,7 @@ async function saveLab() {
       const status = result.response?.status
 
       if (status === 409) {
-        nameError.value =
-          'Ya existe una sala con este nombre. Ingresa un nombre diferente.'
+        nameError.value = 'Ya existe una sala con este nombre. Ingresa un nombre diferente.'
 
         formError.value = {
           title: 'No se pudo guardar la sala',
@@ -280,16 +274,9 @@ onMounted(loadLabs)
         <div v-else-if="loadFailed" class="empty-state">
           <i class="pi pi-wifi"></i>
           <strong>No se pudieron cargar las salas</strong>
-          <p>
-            Se perdió la conexión con el servicio. Comprueba tu conexión y
-            vuelve a intentarlo.
-          </p>
+          <p>Se perdió la conexión con el servicio. Comprueba tu conexión y vuelve a intentarlo.</p>
 
-          <button
-            class="primary-button"
-            type="button"
-            @click="loadLabs"
-          >
+          <button class="primary-button" type="button" @click="loadLabs">
             <i class="pi pi-refresh"></i>
             Reintentar
           </button>
@@ -300,11 +287,7 @@ onMounted(loadLabs)
           <strong>Aún no hay salas</strong>
           <p>Crea la primera sala para organizar tus equipos.</p>
 
-          <button
-            class="primary-button"
-            type="button"
-            @click="openCreate"
-          >
+          <button class="primary-button" type="button" @click="openCreate">
             <i class="pi pi-plus"></i>
             Crear primera sala
           </button>
@@ -340,11 +323,7 @@ onMounted(loadLabs)
                 </td>
 
                 <td class="text-right">
-                  <button
-                    class="edit-action-button"
-                    type="button"
-                    @click="openEdit(lab)"
-                  >
+                  <button class="edit-action-button" type="button" @click="openEdit(lab)">
                     <i class="pi pi-pencil"></i>
                     <span>Editar</span>
                   </button>
@@ -371,20 +350,13 @@ onMounted(loadLabs)
           <h1>{{ isEdit ? 'Editar sala' : 'Nueva sala' }}</h1>
 
           <p v-if="isEdit">
-            Actualiza la información de {{ editingLab?.name }}.
-            Los equipos mantienen su asignación.
+            Actualiza la información de {{ editingLab?.name }}. Los equipos mantienen su asignación.
           </p>
 
-          <p v-else>
-            Crea un espacio para asignar tus equipos de la universidad.
-          </p>
+          <p v-else>Crea un espacio para asignar tus equipos de la universidad.</p>
         </div>
 
-        <button
-          class="secondary-button"
-          type="button"
-          @click="goList"
-        >
+        <button class="secondary-button" type="button" @click="goList">
           <i class="pi pi-arrow-left"></i>
           Volver a salas
         </button>
@@ -440,43 +412,19 @@ onMounted(loadLabs)
                 placeholder="Ingresa el bloque o edificio"
               />
 
-              <span class="field-hint">
-                Opcional · Máximo 80 caracteres
-              </span>
+              <span class="field-hint"> Opcional · Máximo 80 caracteres </span>
             </label>
 
             <div class="form-actions">
-              <button
-                class="primary-button"
-                type="submit"
-                :disabled="saving"
-              >
+              <button class="primary-button" type="submit" :disabled="saving">
                 <i
-                  :class="
-                    saving
-                      ? 'pi pi-spin pi-spinner'
-                      : isEdit
-                        ? 'pi pi-check'
-                        : 'pi pi-check'
-                  "
+                  :class="saving ? 'pi pi-spin pi-spinner' : isEdit ? 'pi pi-check' : 'pi pi-check'"
                 ></i>
 
-                {{
-                  saving
-                    ? 'Guardando...'
-                    : isEdit
-                      ? 'Guardar cambios'
-                      : 'Guardar'
-                }}
+                {{ saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Guardar' }}
               </button>
 
-              <button
-                class="ghost-button"
-                type="button"
-                @click="goList"
-              >
-                Cancelar
-              </button>
+              <button class="ghost-button" type="button" @click="goList">Cancelar</button>
             </div>
           </form>
         </section>
@@ -487,8 +435,8 @@ onMounted(loadLabs)
           <i class="pi pi-building side-icon"></i>
 
           <p>
-            Usa un nombre breve y reconocible, por ejemplo «Sala 1», y un
-            bloque para facilitar su ubicación.
+            Usa un nombre breve y reconocible, por ejemplo «Sala 1», y un bloque para facilitar su
+            ubicación.
           </p>
 
           <div class="info-box">
@@ -496,9 +444,7 @@ onMounted(loadLabs)
 
             <div>
               <strong>Nombres sin duplicados</strong>
-              <p>
-                Cada sala debe tener un nombre diferente. RF-ADM-01
-              </p>
+              <p>Cada sala debe tener un nombre diferente. RF-ADM-01</p>
             </div>
           </div>
 
@@ -520,8 +466,8 @@ onMounted(loadLabs)
             <div>
               <strong>Modo demostración</strong>
               <p>
-                Los cambios de edición solo se reflejan temporalmente en
-                esta pantalla. La API todavía no permite guardar ediciones.
+                Los cambios de edición solo se reflejan temporalmente en esta pantalla. La API
+                todavía no permite guardar ediciones.
               </p>
             </div>
           </div>

@@ -111,9 +111,7 @@ function verHistorial() {
           </div>
         </dl>
 
-        <p class="hint">
-          Cierra tu sesión desde aquí cuando termines de usar el computador.
-        </p>
+        <p class="hint">Cierra tu sesión desde aquí cuando termines de usar el computador.</p>
 
         <!-- Móvil -->
         <div class="info-mobile">
@@ -122,11 +120,7 @@ function verHistorial() {
           <span>Inicio: {{ sesion.inicio }}</span>
         </div>
 
-        <button
-          class="btn block"
-          type="button"
-          @click="terminarAcceso"
-        >
+        <button class="btn block" type="button" @click="terminarAcceso">
           <svg
             viewBox="0 0 24 24"
             width="18"
@@ -212,9 +206,7 @@ function verHistorial() {
       <header class="card-head">
         <h2>Últimos accesos</h2>
 
-        <button class="link" type="button" @click="verHistorial">
-          Ver historial completo
-        </button>
+        <button class="link" type="button" @click="verHistorial">Ver historial completo</button>
       </header>
 
       <ul class="list">

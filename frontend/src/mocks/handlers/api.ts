@@ -49,12 +49,7 @@ const accessSessions: MockAccessSession[] = []
 // UTILIDADES
 // ============================================================
 
-function problem(
-  status: number,
-  title: string,
-  detail: string,
-  code: string,
-) {
+function problem(status: number, title: string, detail: string, code: string) {
   return HttpResponse.json(
     {
       type: 'about:blank',
@@ -221,12 +216,7 @@ export const apiHandlers = [
       })
     }
 
-    return problem(
-      404,
-      'No encontrado',
-      'El desafío no existe.',
-      'CHALLENGE_NOT_FOUND',
-    )
+    return problem(404, 'No encontrado', 'El desafío no existe.', 'CHALLENGE_NOT_FOUND')
   }),
 
   // ----------------------------------------------------------
@@ -240,15 +230,9 @@ export const apiHandlers = [
     const requestedLimit = Number(url.searchParams.get('limit') ?? 20)
     const requestedOffset = Number(url.searchParams.get('offset') ?? 0)
 
-    const limit =
-      Number.isFinite(requestedLimit) && requestedLimit > 0
-        ? requestedLimit
-        : 20
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 20
 
-    const offset =
-      Number.isFinite(requestedOffset) && requestedOffset >= 0
-        ? requestedOffset
-        : 0
+    const offset = Number.isFinite(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0
 
     return HttpResponse.json({
       items: filtered.slice(offset, offset + limit),
@@ -262,118 +246,107 @@ export const apiHandlers = [
   // W-13: EXPORTAR HISTORIAL DE ACCESOS EN CSV
   // ----------------------------------------------------------
 
-  http.get(
-    `${API_URL}/api/v1/admin/access-sessions/export`,
-    ({ request }) => {
-      const url = new URL(request.url)
-      const filtered = filterAccessSessions(url)
+  http.get(`${API_URL}/api/v1/admin/access-sessions/export`, ({ request }) => {
+    const url = new URL(request.url)
+    const filtered = filterAccessSessions(url)
 
-      const columns = [
-        'estudiante',
-        'codigo',
-        'equipo',
-        'sala',
-        'inicio',
-        'fin',
-        'duracion_minutos',
-        'motivo_cierre',
+    const columns = [
+      'estudiante',
+      'codigo',
+      'equipo',
+      'sala',
+      'inicio',
+      'fin',
+      'duracion_minutos',
+      'motivo_cierre',
+    ]
+
+    function csvCell(value: string | number | null): string {
+      const text = String(value ?? '')
+      return `"${text.replace(/"/g, '""')}"`
+    }
+
+    const rows = filtered.map((session) =>
+      [
+        session.student_name,
+        session.student_code,
+        session.machine_code,
+        session.lab_name,
+        session.started_at,
+        session.ended_at,
+        session.duration_minutes,
+        session.close_reason,
       ]
+        .map(csvCell)
+        .join(','),
+    )
 
-      function csvCell(value: string | number | null): string {
-        const text = String(value ?? '')
-        return `"${text.replace(/"/g, '""')}"`
-      }
+    const csv = [columns.map(csvCell).join(','), ...rows].join('\r\n')
 
-      const rows = filtered.map((session) =>
-        [
-          session.student_name,
-          session.student_code,
-          session.machine_code,
-          session.lab_name,
-          session.started_at,
-          session.ended_at,
-          session.duration_minutes,
-          session.close_reason,
-        ]
-          .map(csvCell)
-          .join(','),
-      )
-
-      const csv = [columns.map(csvCell).join(','), ...rows].join('\r\n')
-
-      return new HttpResponse(`\uFEFF${csv}`, {
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="accesos.csv"',
-        },
-      })
-    },
-  ),
+    return new HttpResponse(`\uFEFF${csv}`, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="accesos.csv"',
+      },
+    })
+  }),
 
   // ----------------------------------------------------------
   // W-13: CONSULTAR DETALLE DE UNA SESIÓN
   // ----------------------------------------------------------
 
-  http.get(
-    `${API_URL}/api/v1/admin/access-sessions/:id`,
-    ({ params }) => {
-      const session = accessSessions.find((item) => item.id === params.id)
+  http.get(`${API_URL}/api/v1/admin/access-sessions/:id`, ({ params }) => {
+    const session = accessSessions.find((item) => item.id === params.id)
 
-      if (!session) {
-        return problem(
-          404,
-          'No encontrado',
-          'La sesión de acceso no existe.',
-          'ACCESS_SESSION_NOT_FOUND',
-        )
-      }
+    if (!session) {
+      return problem(
+        404,
+        'No encontrado',
+        'La sesión de acceso no existe.',
+        'ACCESS_SESSION_NOT_FOUND',
+      )
+    }
 
-      return HttpResponse.json(session)
-    },
-  ),
+    return HttpResponse.json(session)
+  }),
 
   // ----------------------------------------------------------
   // W-13: FORZAR CIERRE DE UNA SESIÓN
   // ----------------------------------------------------------
 
-  http.post(
-    `${API_URL}/api/v1/admin/access-sessions/:id/force-close`,
-    ({ params }) => {
-      const session = accessSessions.find((item) => item.id === params.id)
+  http.post(`${API_URL}/api/v1/admin/access-sessions/:id/force-close`, ({ params }) => {
+    const session = accessSessions.find((item) => item.id === params.id)
 
-      if (!session) {
-        return problem(
-          404,
-          'No encontrado',
-          'La sesión de acceso no existe.',
-          'ACCESS_SESSION_NOT_FOUND',
-        )
-      }
-
-      if (session.status === 'closed') {
-        return problem(
-          409,
-          'Conflicto',
-          'La sesión ya está cerrada.',
-          'ACCESS_SESSION_ALREADY_CLOSED',
-        )
-      }
-
-      const endedAt = new Date()
-
-      session.status = 'closed'
-      session.ended_at = endedAt.toISOString()
-      session.close_reason = 'admin_forced'
-      session.duration_minutes = Math.max(
-        0,
-        Math.floor(
-          (endedAt.getTime() - new Date(session.started_at).getTime()) / 60000,
-        ),
+    if (!session) {
+      return problem(
+        404,
+        'No encontrado',
+        'La sesión de acceso no existe.',
+        'ACCESS_SESSION_NOT_FOUND',
       )
+    }
 
-      return HttpResponse.json(session)
-    },
-  ),
+    if (session.status === 'closed') {
+      return problem(
+        409,
+        'Conflicto',
+        'La sesión ya está cerrada.',
+        'ACCESS_SESSION_ALREADY_CLOSED',
+      )
+    }
+
+    const endedAt = new Date()
+
+    session.status = 'closed'
+    session.ended_at = endedAt.toISOString()
+    session.close_reason = 'admin_forced'
+    session.duration_minutes = Math.max(
+      0,
+      Math.floor((endedAt.getTime() - new Date(session.started_at).getTime()) / 60000),
+    )
+
+    return HttpResponse.json(session)
+  }),
 
   // ----------------------------------------------------------
   // W-10: CONSULTAR SALAS
@@ -413,17 +386,10 @@ export const apiHandlers = [
       )
     }
 
-    const exists = labs.some(
-      (lab) => lab.name.toLowerCase() === name.toLowerCase(),
-    )
+    const exists = labs.some((lab) => lab.name.toLowerCase() === name.toLowerCase())
 
     if (exists) {
-      return problem(
-        409,
-        'Conflicto',
-        'Ya existe una sala con ese nombre.',
-        'LAB_ALREADY_EXISTS',
-      )
+      return problem(409, 'Conflicto', 'Ya existe una sala con ese nombre.', 'LAB_ALREADY_EXISTS')
     }
 
     const lab: Lab = {
@@ -470,68 +436,52 @@ export const apiHandlers = [
   // W-10: ACTUALIZAR UN EQUIPO
   // ----------------------------------------------------------
 
-  http.patch(
-    `${API_URL}/api/v1/admin/machines/:id`,
-    async ({ params, request }) => {
-      const machine = machines.find((item) => item.id === params.id)
+  http.patch(`${API_URL}/api/v1/admin/machines/:id`, async ({ params, request }) => {
+    const machine = machines.find((item) => item.id === params.id)
 
-      if (!machine) {
-        return problem(
-          404,
-          'No encontrado',
-          'El equipo no existe.',
-          'MACHINE_NOT_FOUND',
-        )
+    if (!machine) {
+      return problem(404, 'No encontrado', 'El equipo no existe.', 'MACHINE_NOT_FOUND')
+    }
+
+    const patch = (await request.json()) as MachinePatch
+
+    if (Object.keys(patch).length === 0) {
+      return problem(
+        422,
+        'Error de validación',
+        'Debe proporcionar al menos un campo para actualizar.',
+        'VALIDATION_ERROR',
+      )
+    }
+
+    if (patch.status === 'active' && machine.status === 'pending_enrollment') {
+      return problem(
+        409,
+        'Conflicto',
+        'No se puede activar un equipo que todavía no está enrolado.',
+        'MACHINE_NOT_ENROLLED',
+      )
+    }
+
+    if (patch.lab_id !== undefined) {
+      const lab = labs.find((item) => item.id === patch.lab_id)
+
+      if (patch.lab_id !== null && !lab) {
+        return problem(404, 'Sala no encontrada', 'La sala indicada no existe.', 'LAB_NOT_FOUND')
       }
 
-      const patch = (await request.json()) as MachinePatch
+      machine.lab_id = patch.lab_id
+      machine.lab = lab?.name ?? null
+    }
 
-      if (Object.keys(patch).length === 0) {
-        return problem(
-          422,
-          'Error de validación',
-          'Debe proporcionar al menos un campo para actualizar.',
-          'VALIDATION_ERROR',
-        )
-      }
+    if (patch.mode !== undefined) {
+      machine.mode = patch.mode
+    }
 
-      if (
-        patch.status === 'active' &&
-        machine.status === 'pending_enrollment'
-      ) {
-        return problem(
-          409,
-          'Conflicto',
-          'No se puede activar un equipo que todavía no está enrolado.',
-          'MACHINE_NOT_ENROLLED',
-        )
-      }
+    if (patch.status !== undefined) {
+      machine.status = patch.status
+    }
 
-      if (patch.lab_id !== undefined) {
-        const lab = labs.find((item) => item.id === patch.lab_id)
-
-        if (patch.lab_id !== null && !lab) {
-          return problem(
-            404,
-            'Sala no encontrada',
-            'La sala indicada no existe.',
-            'LAB_NOT_FOUND',
-          )
-        }
-
-        machine.lab_id = patch.lab_id
-        machine.lab = lab?.name ?? null
-      }
-
-      if (patch.mode !== undefined) {
-        machine.mode = patch.mode
-      }
-
-      if (patch.status !== undefined) {
-        machine.status = patch.status
-      }
-
-      return HttpResponse.json(machine)
-    },
-  ),
+    return HttpResponse.json(machine)
+  }),
 ]

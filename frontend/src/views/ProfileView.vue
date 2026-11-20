@@ -26,11 +26,7 @@ function cambiarContrasena() {
   infoMessage.value = ''
   errorMessage.value = ''
 
-  if (
-    !form.actual.trim() ||
-    !form.nueva.trim() ||
-    !form.confirmar.trim()
-  ) {
+  if (!form.actual.trim() || !form.nueva.trim() || !form.confirmar.trim()) {
     errorMessage.value = 'Completa todos los campos de contraseña.'
     return
   }
@@ -41,8 +37,7 @@ function cambiarContrasena() {
   }
 
   if (form.nueva.length < 8) {
-    errorMessage.value =
-      'La nueva contraseña debe tener al menos 8 caracteres.'
+    errorMessage.value = 'La nueva contraseña debe tener al menos 8 caracteres.'
     return
   }
 
@@ -51,8 +46,7 @@ function cambiarContrasena() {
 }
 
 function cerrarSesionWeb() {
-  infoMessage.value =
-    'El cierre de sesión web todavía no está conectado al servicio.'
+  infoMessage.value = 'El cierre de sesión web todavía no está conectado al servicio.'
 }
 </script>
 
@@ -66,34 +60,19 @@ function cerrarSesionWeb() {
       <div class="fields">
         <div class="field">
           <label for="nombre">Nombre completo</label>
-          <input
-            id="nombre"
-            class="ro"
-            :value="cuenta.nombre"
-            readonly
-          />
+          <input id="nombre" class="ro" :value="cuenta.nombre" readonly />
           <p class="ro-text">{{ cuenta.nombre }}</p>
         </div>
 
         <div class="field">
           <label for="correo">Correo institucional</label>
-          <input
-            id="correo"
-            class="ro"
-            :value="cuenta.correo"
-            readonly
-          />
+          <input id="correo" class="ro" :value="cuenta.correo" readonly />
           <p class="ro-text">{{ cuenta.correo }}</p>
         </div>
 
         <div class="field">
           <label for="codigo">Código estudiantil</label>
-          <input
-            id="codigo"
-            class="ro"
-            :value="cuenta.codigo"
-            readonly
-          />
+          <input id="codigo" class="ro" :value="cuenta.codigo" readonly />
           <p class="ro-text">{{ cuenta.codigo }}</p>
         </div>
       </div>
@@ -146,16 +125,10 @@ function cerrarSesionWeb() {
           {{ infoMessage }}
         </div>
 
-        <button class="btn change" type="submit">
-          Cambiar contraseña
-        </button>
+        <button class="btn change" type="submit">Cambiar contraseña</button>
       </form>
 
-      <button
-        class="btn logout"
-        type="button"
-        @click="cerrarSesionWeb"
-      >
+      <button class="btn logout" type="button" @click="cerrarSesionWeb">
         <svg
           viewBox="0 0 24 24"
           width="18"
@@ -186,18 +159,13 @@ function cerrarSesionWeb() {
           stroke-linejoin="round"
           aria-hidden="true"
         >
-          <path
-            d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"
-          />
+          <path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z" />
           <path d="M12 9v4M12 17h.01" />
         </svg>
 
         <div>
           <strong>Aviso</strong>
-          <p>
-            Cerrar sesión web no termina el acceso que pueda seguir activo
-            en un computador.
-          </p>
+          <p>Cerrar sesión web no termina el acceso que pueda seguir activo en un computador.</p>
         </div>
       </aside>
     </div>

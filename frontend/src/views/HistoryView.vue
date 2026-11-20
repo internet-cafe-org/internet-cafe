@@ -78,8 +78,7 @@ const registros = ref<Registro[]>([
 const infoMessage = ref('')
 
 function cargarMas() {
-  infoMessage.value =
-    'La carga de más registros todavía no está conectada al servicio.'
+  infoMessage.value = 'La carga de más registros todavía no está conectada al servicio.'
 }
 </script>
 
@@ -122,11 +121,7 @@ function cargarMas() {
 
       <!-- Móvil -->
       <div class="scroll cards-wrap">
-        <dl
-          v-for="registro in registros"
-          :key="registro.inicio"
-          class="item"
-        >
+        <dl v-for="registro in registros" :key="registro.inicio" class="item">
           <div>
             <dt>Equipo</dt>
             <dd class="strong">{{ registro.equipo }}</dd>
@@ -157,9 +152,7 @@ function cargarMas() {
       <footer class="foot">
         <span>Mostrando {{ registros.length }} registros</span>
 
-        <button class="more" type="button" @click="cargarMas">
-          Cargar más
-        </button>
+        <button class="more" type="button" @click="cargarMas">Cargar más</button>
       </footer>
     </div>
   </main>
