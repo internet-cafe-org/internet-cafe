@@ -114,3 +114,18 @@ no instala interceptores de teclado ni intenta eludir controles de seguridad del
 - Si el servidor responde `ended`, el equipo registra el cierre remoto en el log (sesión, motivo y hora) y vuelve al QR. Con un timeout de 5 s por latido, el cierre se detecta en 65 s o menos.
 - El botón "Cerrar sesión" del tablero llama a `POST /api/v1/machine/sessions/current/end` (motivo `user_logout_pc`) y vuelve al QR.
 - Los latidos fallidos solo se registran; no cierran la sesión local (el servidor la cierra a los 3 min sin latido).
+
+## Firma de peticiones del equipo (DSK-12b)
+
+Las peticiones a `POST /machine/challenges`, `GET /machine/challenges/wait`,
+`POST /machine/heartbeat` y `POST /machine/sessions/current/end` se firman con RFC 9421
+(`ecdsa-p256-sha256`, etiqueta `sig1`) usando la clave privada P-256 enrolada. Cada intento usa
+un nonce nuevo y el reloj ajustado con `Date`; las peticiones con cuerpo incluyen `Content-Digest`.
+Los GET y el POST vacío de desafíos no incluyen ese digest. No se envía la credencial provisional.
+
+El cliente falla cerrado si no encuentra el enrolamiento, la contraseña protegida o una clave cuyo
+thumbprint no coincida con el `keyid` guardado. Para Render dev, configura `API_BASE_URL` con el
+origen público que coincide con `PUBLIC_API_BASE_URL` del backend, mantenlo en `MACHINE_AUTH_MODE=dual`
+y usa un equipo enrolado de prueba. En `dual`, una petición que sí incluye firma debe validarse;
+el fallback de credencial no aplica a una firma inválida.
+El endpoint de enrolamiento conserva su prueba de posesión de código; no usa esta firma de máquina.

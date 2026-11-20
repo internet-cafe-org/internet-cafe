@@ -12,6 +12,7 @@ import org.internetcafe.desktop.contract.EnrollmentRequest;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.identity.PublicJwk;
 import org.internetcafe.desktop.services.ApiClient;
+import org.internetcafe.desktop.signing.TestRequestSigner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,7 @@ class MockApiServerTest {
 
   @Test
   void apiClientHappyPathAgainstMock() throws Exception {
-    ApiClient client = new ApiClient();
+    ApiClient client = new ApiClient(TestRequestSigner.create());
 
     var health = client.getHealth();
     assertEquals("ok", health.status());
