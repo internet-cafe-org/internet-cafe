@@ -1,4 +1,3 @@
-
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
@@ -8,6 +7,7 @@ import 'primeicons/primeicons.css'
 import App from './App.vue'
 import router from './router'
 import { setAuthFailureHandler } from './api/client'
+import { restoreSession } from './services/auth'
 import { useSessionStore } from './stores/session'
 
 async function enableMocks(): Promise<void> {
@@ -26,17 +26,8 @@ async function bootstrap(): Promise<void> {
   const app = createApp(App)
   const pinia = createPinia()
 
+  // Pinia debe estar activa antes de restaurar la sesión.
   app.use(pinia)
-  app.use(router)
-
-  app.use(PrimeVue, {
-    theme: {
-      preset: Aura,
-      options: {
-        darkModeSelector: false,
-      },
-    },
-  })
 
   // Cierra la sesión cuando el refresh token deja de ser válido.
   setAuthFailureHandler(() => {
@@ -47,6 +38,21 @@ async function bootstrap(): Promise<void> {
     if (router.currentRoute.value.name !== 'login') {
       void router.replace({ name: 'login' })
     }
+  })
+
+  // Recupera la sesión al arrancar mediante /auth/refresh (HU-31 / UI-04c).
+  // Va antes del router para que los guards vean la sesión ya restaurada.
+  await restoreSession()
+
+  app.use(router)
+
+  app.use(PrimeVue, {
+    theme: {
+      preset: Aura,
+      options: {
+        darkModeSelector: false,
+      },
+    },
   })
 
   app.mount('#app')
