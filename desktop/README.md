@@ -114,3 +114,11 @@ no instala interceptores de teclado ni intenta eludir controles de seguridad del
 - Si el servidor responde `ended`, el equipo registra el cierre remoto en el log (sesión, motivo y hora) y vuelve al QR. Con un timeout de 5 s por latido, el cierre se detecta en 65 s o menos.
 - El botón "Cerrar sesión" del tablero llama a `POST /api/v1/machine/sessions/current/end` (motivo `user_logout_pc`) y vuelve al QR.
 - Los latidos fallidos solo se registran; no cierran la sesión local (el servidor la cierra a los 3 min sin latido).
+
+## Cierre al apagar (HU-34)
+
+Al terminar la JVM, si `HeartbeatService` todavía registra una sesión activa, un shutdown hook
+intenta cerrar la sesión con el motivo `machine_shutdown`. La llamada tiene un timeout de 3 s; si
+el equipo ya perdió la red o el proceso no puede completar el cierre, el cierre por inactividad de
+la API sigue siendo el respaldo. El log solo registra la clase de excepción, nunca el identificador
+de sesión.
