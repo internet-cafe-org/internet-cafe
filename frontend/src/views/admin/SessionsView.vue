@@ -232,7 +232,7 @@ function applyFilters() {
   successMessage.value = ''
   applied.value = { ...draft }
   page.value = 0
-  loadSessions()
+  void loadSessions()
 }
 
 function clearFilters() {
@@ -240,12 +240,12 @@ function clearFilters() {
   rangeError.value = false
   applied.value = { ...draft }
   page.value = 0
-  loadSessions()
+  void loadSessions()
 }
 
 function goPage(delta: number) {
   page.value = Math.max(0, page.value + delta)
-  loadSessions()
+  void loadSessions()
 }
 
 /* ------------------------------------------------------------------ */
@@ -301,7 +301,7 @@ async function forceClose() {
     }
     showForceModal.value = false
     successMessage.value = `Sesión de ${selected.value.student_name} cerrada por la administración.`
-    loadSessions()
+    void loadSessions()
   } catch {
     showForceModal.value = false
     forceError.value = true
@@ -375,8 +375,8 @@ const exportSummary = computed(() => {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  loadCatalogs()
-  loadSessions()
+  void loadCatalogs()
+  void loadSessions()
 })
 
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
@@ -735,7 +735,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </template>
 
     <!-- ============ MODAL: FORZAR CIERRE ============ -->
-    <div v-if="showForceModal && selected" class="modal-overlay" @click.self="closeModals">
+    <div v-if="showForceModal && selected" class="modal-overlay" role="presentation" @click.self="closeModals" @keydown.esc="closeModals" >
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="force-title">
         <header class="modal-header">
           <div>
@@ -784,7 +784,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- ============ MODAL: EXPORTAR CSV ============ -->
-    <div v-if="showExportModal" class="modal-overlay" @click.self="closeModals">
+    <div v-if="showExportModal" class="modal-overlay" role="presentation" @click.self="closeModals" @keydown.esc="closeModals" >
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
         <header class="modal-header">
           <div>

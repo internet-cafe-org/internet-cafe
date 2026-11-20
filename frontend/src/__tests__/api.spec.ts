@@ -354,7 +354,7 @@ describe('Renovación automática del access token', () => {
       configurable: true,
       value: {
         request: lockRequest,
-      } as unknown as LockManager,
+      },
     })
 
     try {

@@ -68,7 +68,7 @@ function terminarAcceso() {
 }
 
 function verHistorial() {
-  router.push({ name: 'history' })
+  void router.push({ name: 'history' })
 }
 </script>
 
