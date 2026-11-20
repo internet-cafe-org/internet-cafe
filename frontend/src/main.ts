@@ -6,11 +6,18 @@ import 'primeicons/primeicons.css'
 
 import App from './App.vue'
 import router from './router'
+import { restoreSession } from './services/auth'
 
-createApp(App)
-  .use(createPinia())
-  .use(router)
-  .use(PrimeVue, {
-    theme: { preset: Aura, options: { darkModeSelector: false } },
-  })
-  .mount('#app')
+const app = createApp(App)
+const pinia = createPinia()
+
+app.use(pinia)
+
+// Recupera la sesión al arrancar mediante /auth/refresh (HU-31 / UI-04c).
+await restoreSession()
+
+app.use(router)
+app.use(PrimeVue, {
+  theme: { preset: Aura, options: { darkModeSelector: false } },
+})
+app.mount('#app')
