@@ -38,6 +38,8 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(requir
 
 # ------------------------------------------------------------------------- esquemas
 class LabCreate(BaseModel):
+    """Cuerpo de ``POST /admin/labs``."""
+
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=80)
@@ -45,12 +47,16 @@ class LabCreate(BaseModel):
 
 
 class LabItem(BaseModel):
+    """Sala en las respuestas de administración."""
+
     id: uuid.UUID
     name: str
     building: str | None = None
 
 
 class LabsPage(BaseModel):
+    """Página de salas."""
+
     items: list[LabItem]
     total: int
     limit: int
@@ -74,6 +80,8 @@ class MachinePatch(BaseModel):
 
 
 class MachineItem(BaseModel):
+    """Equipo con su estado, para el panel de administración."""
+
     id: uuid.UUID
     code: str
     hostname: str | None = None
@@ -87,6 +95,8 @@ class MachineItem(BaseModel):
 
 
 class MachinesPage(BaseModel):
+    """Página de equipos."""
+
     items: list[MachineItem]
     total: int
     limit: int
@@ -94,12 +104,16 @@ class MachinesPage(BaseModel):
 
 
 class AdminUserInfo(BaseModel):
+    """Estudiante de un acceso, con el código enmascarado."""
+
     id: uuid.UUID
     full_name: str
     student_code_masked: str
 
 
 class AdminSessionItem(BaseModel):
+    """Acceso en la consulta del administrador."""
+
     id: uuid.UUID
     user: AdminUserInfo
     machine_code: str
@@ -112,6 +126,8 @@ class AdminSessionItem(BaseModel):
 
 
 class AdminSessionsPage(BaseModel):
+    """Página de accesos."""
+
     items: list[AdminSessionItem]
     total: int
     limit: int
@@ -119,6 +135,8 @@ class AdminSessionsPage(BaseModel):
 
 
 class AdminSessionResponse(BaseModel):
+    """Respuesta del cierre forzado de un acceso."""
+
     session: AdminSessionItem
 
 
@@ -179,6 +197,16 @@ async def listar_salas(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> LabsPage:
+    """Lista las salas en orden alfabético, paginadas.
+
+    Args:
+        limit: Máximo de salas por página (1 a 100).
+        offset: Salas que se saltan.
+        db: Sesión de base de datos.
+
+    Returns:
+        La página de salas con el total.
+    """
     total = (await db.execute(select(func.count()).select_from(Lab))).scalar_one()
     salas = (
         await db.execute(select(Lab).order_by(Lab.name).limit(limit).offset(offset))
@@ -197,6 +225,19 @@ async def crear_sala(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> LabItem:
+    """Crea una sala y la audita.
+
+    Args:
+        body: Nombre y edificio de la sala.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        La sala creada.
+
+    Raises:
+        AppError: ``CONFLICT`` si ya existe una sala con ese nombre.
+    """
     existente = (
         await db.execute(select(Lab.id).where(Lab.name == body.name))
     ).scalar_one_or_none()
@@ -209,7 +250,7 @@ async def crear_sala(
     except IntegrityError:
         # Carrera con otra petición que creó el mismo nombre entre el SELECT y el INSERT
         await db.rollback()
-        raise AppError(ErrorCode.CONFLICT, detail="Ya existe una sala con ese nombre.")
+        raise AppError(ErrorCode.CONFLICT, detail="Ya existe una sala con ese nombre.") from None
     await audit(
         db,
         actor_type=AuditActorType.user,
@@ -231,6 +272,18 @@ async def listar_equipos(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachinesPage:
+    """Lista los equipos con su estado, filtrados por sala o estado y paginados.
+
+    Args:
+        lab_id: Sala, si se filtra.
+        status: Estado, si se filtra.
+        limit: Máximo de equipos por página (1 a 100).
+        offset: Equipos que se saltan.
+        db: Sesión de base de datos.
+
+    Returns:
+        La página de equipos con el total.
+    """
     condiciones: list[Any] = []
     if lab_id is not None:
         condiciones.append(Machine.lab_id == lab_id)

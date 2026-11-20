@@ -5,7 +5,7 @@ sin `input`, credenciales, tokens ni trazas en las respuestas.
 
 - Configuración: copia `.env.example` → `.env` (valores ficticios; nunca secretos reales).
 - Base de datos y roles: ver `db/README.md`.
-- Contrato: `openapi.yaml` / `Contrato.md` (v0.2.0).
+- Contrato: `openapi.yaml` / `contrato.md` (v0.2.1).
 - Pruebas: `python -m pytest`.
 
 ## Concurrencia (BE-05 / BE-07b)

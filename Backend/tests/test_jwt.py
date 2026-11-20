@@ -7,7 +7,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from app.jwt import (
     ALGORITHM,
-    InvalidTokenError,
     create_access_token,
     verify_access_token,
 )

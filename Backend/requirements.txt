@@ -1,17 +1,15 @@
-fastapi
-uvicorn
-sqlalchemy[asyncio]
-asyncpg
-alembic
-pydantic-settings
-psycopg2-binary
-greenlet
-pytest
-pytest-asyncio
-httpx
-freezegun
-argon2-cffi
-cryptography>=42.0.0
-pyjwt[crypto]>=2.8.0
-
-
+# Dependencias de producción de la API (Python 3.12). Versiones fijas: las que
+# pasan la suite completa. Para actualizarlas, cambia la versión, corre las
+# pruebas con PostgreSQL y revisa pip-audit (OPS-05b).
+fastapi==0.163.0
+uvicorn==0.54.0
+starlette==1.10.0
+pydantic==2.14.3
+pydantic-settings==2.16.3
+sqlalchemy[asyncio]==2.1.8
+asyncpg==0.32.0
+greenlet==3.5.6
+alembic==1.20.1
+argon2-cffi==25.1.0
+cryptography==50.0.2
+pyjwt[crypto]==2.15.1

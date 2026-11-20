@@ -15,7 +15,8 @@ import javafx.scene.layout.VBox;
 
 /**
  * Pantalla del tablero b\u00e1sico (DSK-06): nombre, c\u00f3digo enmascarado, hora de inicio y
- * cron\u00f3metro. El bot\u00f3n "Volver al QR" solo existe en el perfil dev.
+ * cron\u00f3metro. Incluye el bot\u00f3n "Cerrar sesi\u00f3n" (DSK-08); "Volver al QR" solo existe
+ * en el perfil dev.
  */
 public class BoardScreen {
 
@@ -27,9 +28,11 @@ public class BoardScreen {
   private final Label codeLabel;
   private final Label startLabel;
   private final Label elapsedLabel;
+  private final Button logoutButton;
   private BoardScreenModel model;
   private Timeline ticker;
   private Runnable onBackToQr;
+  private Runnable onLogout;
 
   public BoardScreen(boolean devProfile) {
     this(devProfile, Clock.systemDefaultZone());
@@ -56,7 +59,16 @@ public class BoardScreen {
     elapsedLabel.getStyleClass().add("board-elapsed");
     elapsedLabel.setStyle("-fx-font-size: 48px; -fx-font-weight: 700;");
 
-    VBox center = new VBox(16, title, nameLabel, codeLabel, startLabel, elapsedLabel);
+    logoutButton = new Button("Cerrar sesi\u00f3n");
+    logoutButton.getStyleClass().add("board-logout");
+    logoutButton.setOnAction(
+        event -> {
+          if (onLogout != null) {
+            onLogout.run();
+          }
+        });
+
+    VBox center = new VBox(16, title, nameLabel, codeLabel, startLabel, elapsedLabel, logoutButton);
     center.setAlignment(Pos.CENTER);
     center.setPadding(new Insets(32));
 
@@ -88,6 +100,15 @@ public class BoardScreen {
     this.onBackToQr = onBackToQr;
   }
 
+  public void setOnLogout(Runnable onLogout) {
+    this.onLogout = onLogout;
+  }
+
+  /** Enables or disables "Cerrar sesi\u00f3n" (disabled while the close request is in flight). */
+  public void setLogoutEnabled(boolean enabled) {
+    logoutButton.setDisable(!enabled);
+  }
+
   /**
    * Muestra el tablero y arranca el cron\u00f3metro desde la hora de {@code approved}. Debe
    * llamarse en el hilo de JavaFX, justo despu\u00e9s de poner la escena en el escenario.
@@ -95,6 +116,7 @@ public class BoardScreen {
   public void show(String userName, String code, Instant approvedAt) {
     stop();
     model = new BoardScreenModel(userName, code, approvedAt, clock);
+    setLogoutEnabled(true);
     render();
     startTicker();
     Instant visibleAt = clock.instant();

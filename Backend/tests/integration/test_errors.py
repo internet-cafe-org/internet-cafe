@@ -184,12 +184,13 @@ def test_app_real_metodo_no_permitido_405() -> None:
     assert "GET" in r.headers["allow"]
 
 
-def test_app_real_422_sin_body() -> None:
-    r = TestClient(app_real).post("/api/v1/scan/preview", json={})
+def test_app_real_422_campo_faltante() -> None:
+    # Ruta pública con cuerpo: /scan/* exige el access token y respondería 401 antes del 422.
+    r = TestClient(app_real).post("/api/v1/auth/login", json={"email": "a@test.invalid"})
 
     assert r.status_code == 422
     cuerpo = _es_problema(r)
-    assert cuerpo["errors"] == [{"field": "body.token", "message": "Field required"}]
+    assert cuerpo["errors"] == [{"field": "body.password", "message": "Field required"}]
 
 
 def test_openapi_422_usa_problem_detail() -> None:

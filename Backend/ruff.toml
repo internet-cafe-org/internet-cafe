@@ -1,0 +1,30 @@
+# Configuración de ruff para la API (OPS-05b). La CI corre `ruff check .` desde Backend/.
+target-version = "py312"
+line-length = 110
+
+[lint]
+# F: errores y nombres; E: estilo PEP 8; B: bugbear; D: docstrings (PEP 257).
+select = ["F", "E", "B", "D"]
+# Las líneas largas no bloquean: el formato se revisa en la revisión de código.
+ignore = ["E501"]
+
+[lint.pydocstyle]
+# Estilo del proyecto: Args / Returns / Raises (Google), en español.
+convention = "google"
+
+[lint.flake8-bugbear]
+# Patrón normal de FastAPI: las dependencias se declaran como valor por defecto.
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+]
+
+[lint.per-file-ignores]
+# Pruebas: sin docstrings obligatorios; F811 es el patrón de importar fixtures de pytest.
+"tests/**" = ["D", "F811", "E701"]
+# Migraciones ya fusionadas: no se editan (solo se agregan migraciones nuevas).
+"alembic/versions/8548f2b62d28_*.py" = ["D", "E"]

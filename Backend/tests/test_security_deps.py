@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-from datetime import timedelta
 import uuid as _uuid
 import pytest
 import httpx
 from fastapi import Depends, FastAPI
 from app.database import obtener_base_datos
-from app.jwt import create_access_token
 from app.models import Machine, MachineStatus
 from app.security.dependencies import require_admin, require_machine, require_user, hash_machine_credential
 
@@ -35,7 +33,7 @@ def admin(jwt_keys): return _crear_actor('admin')
 @pytest.fixture
 def equipo():
     credencial = 'credencial-provisional-de-prueba'
-    machine = Machine(id=_uuid.uuid4(), code='LAB-TEST-01', status=MachineStatus.active, key_thumbprint=hash_machine_credential(credencial))
+    machine = Machine(id=_uuid.uuid4(), code='LAB-TEST-01', status=MachineStatus.active, credential_hash=hash_machine_credential(credencial))
     return {'machine': machine, 'credential': credencial, 'headers': {'X-Machine-Code': machine.code, 'X-Machine-Key': credencial}}
 
 class _Resultado:

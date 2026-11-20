@@ -14,11 +14,13 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 
 from app.config import settings
 from app.database import obtener_base_datos
 from app.jwt import create_access_token
 from app.main import app
+from app.models import User
 from app.routers.auth import COOKIE_NAME
 from app.services import refresh_tokens
 
@@ -182,10 +184,28 @@ async def test_logout_con_cookie_desconocida_no_falla(cliente, datos):
 # ----------------------------------------------------------------- Registro duplicado
 
 
-@pytest.mark.skip(
-    reason="POST /api/v1/registro está en openapi.yaml pero aún no existe en el "
-    "backend (SEC-02, #102). Quitar este skip cuando se fusione y comprobar el "
-    "código de error del contrato para correo duplicado."
-)
-async def test_registro_con_correo_existente(cliente, datos):
-    pass
+async def test_registro_con_correo_existente(cliente, sesiones, monkeypatch):
+    """Un correo ya registrado no da error: responde 202 igual y no crea otra cuenta.
+
+    El contrato (RF-AUT-01) prohíbe revelar que la cuenta existe, así que no hay
+    código de error para este caso: la prueba compara las dos respuestas.
+    """
+    monkeypatch.setattr(settings, "blind_index_key", bytes(range(32)).hex())
+    monkeypatch.setattr(settings, "allowed_email_domains", "")
+    cuerpo = {
+        "email": "repetido@test.invalid",
+        "student_code": "2026000009",
+        "full_name": "Estudiante Repetido",
+        "password": "contraseña-de-prueba",
+        "privacy_consent": True,
+    }
+
+    primera = await cliente.post(f"{API}/auth/register", json=cuerpo)
+    segunda = await cliente.post(
+        f"{API}/auth/register", json={**cuerpo, "student_code": "2026000010"}
+    )
+
+    assert primera.status_code == segunda.status_code == 202
+    assert primera.content == segunda.content == b""
+    async with sesiones() as db:
+        assert await db.scalar(select(func.count()).select_from(User)) == 1

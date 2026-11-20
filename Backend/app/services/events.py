@@ -5,11 +5,12 @@ cuando un reto QR es reclamado exitosamente en POST /scan/claim.
 """
 
 import asyncio
-import logging
 import uuid
 from typing import Any, Dict, List
 
-logger = logging.getLogger(__name__)
+from app.logger import obtener_logger
+
+logger = obtener_logger("eventos")
 
 # Mapa en memoria de eventos por ID de equipo: machine_id -> List[asyncio.Event]
 _listeners: Dict[uuid.UUID, List[asyncio.Event]] = {}
@@ -46,7 +47,11 @@ def notify(machine_id: uuid.UUID, data: Any = None) -> None:
 
     listeners = _listeners.get(machine_id, [])
     if listeners:
-        logger.info("Notificando a %d listener(s) del equipo %s", len(listeners), machine_id)
+        logger.info(
+            "Equipo notificado",
+            extra={"datos": {"evento": "longpoll.notificado", "machine_id": str(machine_id),
+                             "listeners": len(listeners)}},
+        )
         for event in list(listeners):
             event.set()
     else:

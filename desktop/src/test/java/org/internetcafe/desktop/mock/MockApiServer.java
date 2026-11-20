@@ -11,7 +11,7 @@ import java.util.UUID;
 /**
  * API simulada local (DSK-07) para probar el escritorio sin el backend real.
  *
- * <p>Responde con los valores de ejemplo de {@code Backend/contrato.md} (registro, enroll,
+ * <p>Responde con los valores de ejemplo de {@code Backend/contrato.md} (registro, machine/enroll,
  * credencial-provisional y long-poll) y con la forma real del backend para {@code /healthz} y
  * {@code POST /api/v1/machine/challenges}. Solo escucha en 127.0.0.1 y no escribe cuerpos,
  * cabeceras ni query strings en el log.
@@ -28,7 +28,10 @@ public final class MockApiServer implements AutoCloseable {
   private static final String REGISTRO =
       "{\"estado\":\"procesando\","
           + "\"mensaje\":\"Registro aceptado para procesamiento en segundo plano\"}";
-  private static final String ENROLL = "{\"estado\":\"enrolado\",\"dispositivo_id\":\"dev-98765\"}";
+  private static final String ENROLL =
+      "{\"machine_id\":\"machine-test\",\"code\":\"dev-98765\",\"lab\":\"Sala 1\","
+          + "\"mode\":\"kiosk\",\"keyid\":\"keyid-placeholder\","
+          + "\"provisional_credential\":\"credential-placeholder\"}";
   private static final String CREDENCIAL =
       "{\"credencial_temporal\":\"temp-token-xyz-789\",\"expiracion_segundos\":300}";
   private static final String LONG_POLL =
@@ -98,7 +101,8 @@ public final class MockApiServer implements AutoCloseable {
       case "/healthz" -> is(exchange, "GET") ? new Reply(200, HEALTH) : METHOD_NOT_ALLOWED;
       case "/api/v1/registro" ->
           is(exchange, "POST") ? new Reply(202, REGISTRO) : METHOD_NOT_ALLOWED;
-      case "/api/v1/enroll" -> is(exchange, "POST") ? new Reply(200, ENROLL) : METHOD_NOT_ALLOWED;
+      case "/api/v1/machine/enroll" ->
+          is(exchange, "POST") ? new Reply(201, ENROLL) : METHOD_NOT_ALLOWED;
       case "/api/v1/credencial-provisional" ->
           !is(exchange, "GET")
               ? METHOD_NOT_ALLOWED

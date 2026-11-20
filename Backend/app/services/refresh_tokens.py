@@ -1,8 +1,15 @@
-"""Refresh tokens rotativos con deteccion de reutilizacion (SEC-03a).
+"""Refresh tokens rotativos con detección de reutilización (SEC-03a y SEC-03b).
 
 En la base solo se guarda el SHA-256 del token. Cada uso del refresh revoca el
-token presentado y emite uno nuevo de la misma familia (replaced_by). Si llega
-un token ya revocado se asume robo y se revoca toda la familia.
+token presentado y emite uno nuevo de la misma familia (``replaced_by``).
+
+Si llega un token ya revocado:
+
+- **dentro de la gracia** (``REFRESH_GRACIA_S``, 10 s desde que se rotó) y con
+  la familia todavía viva, se acepta y se emite otro token de la familia: es el
+  caso de dos pestañas que renuevan casi a la vez (SRS §12.2);
+- **fuera de la gracia**, o si fue revocado por un logout, se asume robo y se
+  revoca toda la familia.
 """
 
 import hashlib
@@ -107,7 +114,9 @@ async def rotar(
         raise RefreshInvalido("desconocido")
 
     if registro.revoked_at is not None:
-        # Token ya usado: posible robo. Se cierra toda la familia.
+        if await _en_gracia(db, registro):
+            return await _emitir_en_gracia(db, registro, user_agent)
+        # Token ya usado fuera de la gracia: posible robo. Se cierra toda la familia.
         await revocar_familia(db, registro.family_id)
         await db.commit()
         raise RefreshInvalido("reutilizado")
@@ -124,6 +133,60 @@ async def rotar(
     nuevo, fila_nueva = await _crear(db, registro.user_id, user_agent, registro.family_id)
     registro.revoked_at = _ahora()
     registro.replaced_by = fila_nueva.id
+    await db.commit()
+    return Rotacion(user_id=usuario.id, role=usuario.role, token=nuevo)
+
+
+async def _en_gracia(db: AsyncSession, registro: RefreshToken) -> bool:
+    """Indica si un token revocado todavía se acepta por la gracia de SEC-03b.
+
+    Solo aplica a un token revocado **por rotación** (tiene ``replaced_by``)
+    hace menos de ``REFRESH_GRACIA_S`` segundos, y mientras la familia tenga
+    algún token vigente (un logout o un reuso ya la habrían cerrado).
+
+    Args:
+        db: Sesión de base de datos.
+        registro: Token revocado que se presentó.
+
+    Returns:
+        ``True`` si se acepta.
+    """
+    if registro.replaced_by is None or registro.revoked_at is None:
+        return False
+    if _ahora() - registro.revoked_at > timedelta(seconds=settings.refresh_gracia_s):
+        return False
+    vigente = await db.scalar(
+        select(RefreshToken.id).where(
+            RefreshToken.family_id == registro.family_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > _ahora(),
+        ).limit(1)
+    )
+    return vigente is not None
+
+
+async def _emitir_en_gracia(
+    db: AsyncSession, registro: RefreshToken, user_agent: str | None
+) -> Rotacion:
+    """Emite otro token de la familia para una pestaña que llegó dentro de la gracia.
+
+    Args:
+        db: Sesión de base de datos.
+        registro: Token revocado hace menos de ``REFRESH_GRACIA_S``.
+        user_agent: ``User-Agent`` de la petición.
+
+    Returns:
+        La rotación con el token nuevo.
+
+    Raises:
+        RefreshInvalido: Si el usuario ya no está activo.
+    """
+    usuario = await db.get(User, registro.user_id)
+    if usuario is None or usuario.status != UserStatus.active:
+        await revocar_familia(db, registro.family_id)
+        await db.commit()
+        raise RefreshInvalido("usuario inactivo")
+    nuevo, _ = await _crear(db, registro.user_id, user_agent, registro.family_id)
     await db.commit()
     return Rotacion(user_id=usuario.id, role=usuario.role, token=nuevo)
 

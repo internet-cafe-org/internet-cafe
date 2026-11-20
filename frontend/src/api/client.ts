@@ -7,9 +7,7 @@ import { ApiError, normalizeApiError } from '../errors/problem-details'
  * Cliente HTTP tipado.
  * El access token permanece exclusivamente en memoria.
  */
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL || 'http://localhost:8000'
-).replace(/\/+$/, '')
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
 const REFRESH_URL = `${API_BASE_URL}/api/v1/auth/refresh`
 const REFRESH_LOCK_NAME = 'internet-cafe-auth-refresh'
@@ -327,6 +325,11 @@ async function fetchWithTokenRefresh(
 
 /**
  * Cliente HTTP generado a partir del contrato OpenAPI.
+ *
+ * En desarrollo local apunta a http://localhost:8000 (Uvicorn corriendo localmente).
+ * En Vercel no se define VITE_API_URL: el cliente apunta a '' (cadena vacía = mismo
+ * origen) y el rewrite /api/* → Render dev del vercel.json enruta las peticiones.
+ * Así nunca hardcodeamos la URL del backend en el código.
  */
 export const api = createClient<paths>({
   baseUrl: API_BASE_URL,
