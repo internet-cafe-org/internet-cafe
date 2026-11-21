@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import type { components } from '@/api/schema'
 
@@ -10,6 +11,12 @@ type MachineStatus = components['schemas']['MachineStatus']
 type MachineMode = components['schemas']['MachineMode']
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000 // En línea si el último contacto fue ≤ 2 min
+
+const router = useRouter()
+
+function openDetail(machine: Machine) {
+  return router.push({ name: 'admin-machine-detail', params: { id: machine.id } })
+}
 
 const labs = ref<Lab[]>([])
 const machines = ref<Machine[]>([])
@@ -325,18 +332,30 @@ onMounted(loadData)
               <td class="date-cell">{{ formatDate(machine.last_seen_at) }}</td>
 
               <td>
-                <button
-                  v-if="machine.status !== 'pending_enrollment'"
-                  class="action-button"
-                  :class="machine.status === 'active' ? 'danger-action' : 'primary-action'"
-                  type="button"
-                  :disabled="saving"
-                  @click="toggleStatus(machine)"
-                >
-                  {{ machine.status === 'active' ? 'Deshabilitar' : 'Activar' }}
-                </button>
+                <div class="row-actions">
+                  <button
+                    class="action-button detail-action"
+                    type="button"
+                    :data-test="`open-${machine.code}`"
+                    :aria-label="`Ver y editar ${machine.code}`"
+                    @click="openDetail(machine)"
+                  >
+                    Ver / editar
+                  </button>
 
-                <span v-else class="pending-action">Requiere enrolamiento</span>
+                  <button
+                    v-if="machine.status !== 'pending_enrollment'"
+                    class="action-button"
+                    :class="machine.status === 'active' ? 'danger-action' : 'primary-action'"
+                    type="button"
+                    :disabled="saving"
+                    @click="toggleStatus(machine)"
+                  >
+                    {{ machine.status === 'active' ? 'Deshabilitar' : 'Activar' }}
+                  </button>
+
+                  <span v-else class="pending-action">Requiere enrolamiento</span>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -676,6 +695,21 @@ td small {
 .pending-action {
   color: var(--muted);
   font-size: 11px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-action {
+  color: var(--primary);
+  border-color: var(--border);
+}
+
+.detail-action:hover {
+  background: var(--hover);
 }
 
 /* ---- Estados vacíos y pie ---- */
