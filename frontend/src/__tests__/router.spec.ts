@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('vue-qrcode-reader', () => ({
+  QrcodeStream: { name: 'QrcodeStream', template: '<div />' },
+  setZXingModuleOverrides: vi.fn(),
+}))
 import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
