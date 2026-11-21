@@ -89,6 +89,15 @@ services:
       - key: RATE_LIMIT_ENABLED
         value: "true"
 
+      # BE-21: endurecimiento de la API (SRS §12.9)
+      # Hosts aceptados en la cabecera Host: la API en Render dev y la web en Vercel dev.
+      - key: ALLOWED_HOSTS
+        value: internet-cafe-backend-dev.onrender.com,internet-cafe-dev.vercel.app
+
+      # Tamaño máximo del cuerpo de una petición (64 KB).
+      - key: MAX_BODY_BYTES
+        value: "65536"
+
       # -----------------------------------------------------------------------
       # Secretos: sync: false → Render los marca como requeridos pero NO los
       # sobrescribe con valores en blanco en cada sync del Blueprint.

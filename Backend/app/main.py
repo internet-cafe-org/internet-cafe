@@ -1,8 +1,9 @@
 """Punto de entrada de la API FastAPI.
 
 Crea la aplicación, comprueba las llaves al arrancar, registra los manejadores
-de errores RFC 9457 (``app.error_handlers``) y los routers, y expone los
-endpoints de salud ``/healthz`` (liveness) y ``/readyz`` (base de datos).
+de errores RFC 9457 (``app.error_handlers``), los middlewares de endurecimiento
+(BE-21) y los routers, y expone los endpoints de salud ``/healthz`` (liveness)
+y ``/readyz`` (base de datos).
 """
 
 import asyncio
@@ -13,6 +14,10 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from app.config import settings
 from app.database import SesionLocalAsync, obtener_base_datos
@@ -24,6 +29,59 @@ from app.security.arranque import verificar_llaves
 from app.services import inactividad
 
 logger = configurar_logger()
+
+
+class LimiteCuerpoMiddleware(BaseHTTPMiddleware):
+    """Rechaza peticiones cuyo cuerpo supere ``MAX_BODY_BYTES`` con un 413."""
+
+    async def dispatch(self, request: Request, call_next):
+        """Valida ``Content-Length`` antes de pasar la petición al router."""
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > settings.max_body_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "type": f"{settings.errors_base_url}/payload-too-large",
+                            "title": "Cuerpo demasiado grande",
+                            "status": 413,
+                            "code": "PAYLOAD_TOO_LARGE",
+                            "detail": (
+                                f"El cuerpo supera {settings.max_body_bytes} bytes."
+                            ),
+                            "instance": request.url.path,
+                        },
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "type": f"{settings.errors_base_url}/bad-request",
+                        "title": "Petición inválida",
+                        "status": 400,
+                        "code": "BAD_REQUEST",
+                        "detail": "Content-Length inválido.",
+                        "instance": request.url.path,
+                    },
+                )
+        return await call_next(request)
+
+
+class CabecerasSeguridadMiddleware(BaseHTTPMiddleware):
+    """Agrega las cabeceras de seguridad del SRS §12.9 a cada respuesta."""
+
+    async def dispatch(self, request: Request, call_next):
+        """Ejecuta la petición y añade las cabeceras a la respuesta."""
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
 
 
 @asynccontextmanager
@@ -46,7 +104,10 @@ async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
         # BE-09b: la actividad en memoria se pierde al reiniciar, así que se barre la base.
         await inactividad.barrido_inicial(SesionLocalAsync)
         tarea = asyncio.create_task(inactividad.tarea_periodica(SesionLocalAsync))
-    logger.info("API lista", extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}})
+    logger.info(
+        "API lista",
+        extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}},
+    )
     try:
         yield
     finally:
@@ -64,6 +125,17 @@ app = FastAPI(
 )
 
 registrar_manejadores(app)
+
+# BE-21: endurecimiento de la API (SRS §12.9).
+# En FastAPI los middlewares se ejecutan en orden inverso al registro, así que
+# el último agregado (TrustedHost) es el primero en validar la petición.
+app.add_middleware(CabecerasSeguridadMiddleware)
+app.add_middleware(LimiteCuerpoMiddleware)
+if settings.hosts_permitidos:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=settings.hosts_permitidos,
+    )
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(machine.router, prefix="/api/v1")
