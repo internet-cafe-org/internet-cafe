@@ -19,4 +19,9 @@ export const authHandlers = [
       },
     )
   }),
+
+  // Cerrar sesión web (simulación MSW).
+  http.post('*/api/v1/auth/logout', () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
 ]
