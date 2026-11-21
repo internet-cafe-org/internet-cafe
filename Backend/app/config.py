@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     rate_limit_saltos_web: int = 2
     rate_limit_saltos_equipo: int = 1
 
+    # Exportación CSV (ST-BE-03): zona horaria con la que se muestran las fechas.
+    # Ej: "America/Bogota", "UTC", "Europe/Madrid".
+    csv_timezone: str = "America/Bogota"
+
     @property
     def dominios_correo_permitidos(self) -> frozenset[str]:
         """Devuelve los dominios de ``ALLOWED_EMAIL_DOMAINS`` normalizados.

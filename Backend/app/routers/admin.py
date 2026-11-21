@@ -5,17 +5,21 @@ nueva queda abierta por olvido. Las respuestas de administración nunca incluyen
 `password_hash`, tokens, claves del equipo ni el código de estudiante completo.
 """
 
+import csv
+import io
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
+from app.config import settings
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.models import (
@@ -469,3 +473,78 @@ async def cerrar_sesion_forzada(
     item = _item_sesion(sesion, usuario, codigo, lab)
     await db.commit()
     return AdminSessionResponse(session=item)
+
+
+# ------------------------------------------------------------------------- exportación CSV
+@router.get("/sessions/export")
+async def exportar_sesiones_csv(
+    machine_code: str | None = Query(default=None, max_length=40),
+    lab_id: uuid.UUID | None = None,
+    state: Literal["active", "ended"] | None = None,
+    started_from: datetime | None = None,
+    started_to: datetime | None = None,
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> Response:
+    """Exporta los accesos filtrados a un archivo CSV (UTF-8 con BOM).
+
+    Las fechas se convierten a la zona horaria definida en `settings.csv_timezone`.
+    """
+    started_from, started_to = _utc(started_from), _utc(started_to)
+    condiciones: list[Any] = []
+    if machine_code is not None:
+        condiciones.append(Machine.code == machine_code)
+    if lab_id is not None:
+        condiciones.append(Machine.lab_id == lab_id)
+    if state == "active":
+        condiciones.append(AccessSession.ended_at.is_(None))
+    elif state == "ended":
+        condiciones.append(AccessSession.ended_at.is_not(None))
+    if started_from is not None:
+        condiciones.append(AccessSession.started_at >= started_from)
+    if started_to is not None:
+        condiciones.append(AccessSession.started_at < started_to)
+
+    # Consultamos todos los registros que cumplan el filtro (sin paginar para el CSV)
+    filas = await db.execute(
+        _consulta_sesiones(*condiciones)
+        .order_by(AccessSession.started_at.desc(), AccessSession.id)
+    )
+    
+    tz = ZoneInfo(settings.csv_timezone)
+    
+    output = io.StringIO()
+    # Escribimos el BOM de UTF-8 para que Excel lo reconozca
+    output.write('\ufeff')
+    
+    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(["ID", "Estudiante", "Código", "Equipo", "Sala", "Inicio", "Último latido", "Fin", "Motivo", "Duración (s)"])
+    
+    for sesion, usuario, codigo, lab in filas.all():
+        nombre, codigo_enmascarado = sesiones.datos_estudiante(usuario)
+        # Formateamos las fechas a la zona horaria configurada
+        inicio_local = sesion.started_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
+        latido_local = sesion.last_heartbeat_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
+        fin_local = sesion.ended_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if sesion.ended_at else ""
+        motivo = sesion.end_reason.value if sesion.end_reason else ""
+        duracion = sesiones.duracion_s(sesion.started_at, sesion.ended_at) or ""
+        
+        writer.writerow([
+            str(sesion.id),
+            nombre,
+            codigo_enmascarado,
+            codigo,
+            lab or sesiones.LAB_SIN_ASIGNAR,
+            inicio_local,
+            latido_local,
+            fin_local,
+            motivo,
+            duracion
+        ])
+    
+    contenido = output.getvalue()
+    # Devolvemos el archivo listo para descargar
+    return Response(
+        content=contenido,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="accesos.csv"'}
+    )
