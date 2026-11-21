@@ -39,7 +39,10 @@ describe('App + router', () => {
       const path = route.path.replace(':id', 'abc').replace('/:pathMatch(.*)*', '/x')
       await router.push(path)
       await flushPromises()
-      expect(wrapper.find('main').exists()).toBe(true)
+      expect(
+        wrapper.find('main').exists(),
+        `La ruta ${path} no renderizó un elemento <main>.`,
+      ).toBe(true)
     }
   })
 })

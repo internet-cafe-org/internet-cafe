@@ -8,7 +8,7 @@ import skipFormatting from 'eslint-config-prettier/flat'
 export default defineConfigWithVueTs(
   { name: 'app/files-to-lint', files: ['**/*.{vue,ts,mts,tsx}'] },
 
-  globalIgnores(['**/dist/**', '**/dist-ssr/**', '**/coverage/**']),
+  globalIgnores([ '**/dist/**', '**/dist-ssr/**', '**/coverage/**', 'public/mockServiceWorker.js', ]),
 
   ...pluginVue.configs['flat/recommended'],
   vueTsConfigs.recommendedTypeChecked,
