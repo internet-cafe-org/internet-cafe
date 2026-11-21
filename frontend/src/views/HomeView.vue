@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+
+import {
+  endMySession,
+  getActiveSession,
+  getRecentSessions,
+  type MySession,
+} from '@/services/mySessions'
+import { formatDateTime } from '@/utils/dateTime'
 
 const router = useRouter()
 
+/** RF-EST-01: la pantalla de inicio muestra los últimos 3 accesos. */
+const ULTIMOS_ACCESOS = 3
+
 interface Sesion {
+  id: string
   equipo: string
   sala: string
   inicio: string
 }
 
 interface AccesoReciente {
+  id: string
   equipo: string
   sala: string
   fecha: string
@@ -21,29 +34,13 @@ interface Paso {
   texto: string
 }
 
-const sesion = ref<Sesion | null>({
-  equipo: 'LAB3-PC12',
-  sala: 'Sala 3',
-  inicio: '04/11/2026, 09:15',
-})
-
-const ultimos = ref<AccesoReciente[]>([
-  {
-    equipo: 'LAB2-PC08',
-    sala: 'Sala 2',
-    fecha: '03/11/2026, 14:30',
-  },
-  {
-    equipo: 'LAB1-PC05',
-    sala: 'Sala 1',
-    fecha: '02/11/2026, 10:00',
-  },
-  {
-    equipo: 'LAB3-PC04',
-    sala: 'Sala 3',
-    fecha: '30/10/2026, 08:45',
-  },
-])
+const sesion = ref<Sesion | null>(null)
+const ultimos = ref<AccesoReciente[]>([])
+const cargando = ref(true)
+const loadFailed = ref(false)
+const terminando = ref(false)
+const infoMessage = ref('')
+const infoIsError = ref(false)
 
 const pasos: Paso[] = [
   {
@@ -60,16 +57,88 @@ const pasos: Paso[] = [
   },
 ]
 
-const infoMessage = ref('')
+function showMessage(text: string, isError: boolean) {
+  infoMessage.value = text
+  infoIsError.value = isError
+}
 
-function terminarAcceso() {
-  infoMessage.value =
-    'Esta acción todavía no está conectada al servicio. Tu acceso real no ha sido cerrado.'
+function toSesion(s: MySession): Sesion {
+  return {
+    id: s.id,
+    equipo: s.machine_code,
+    sala: s.lab,
+    inicio: formatDateTime(s.started_at),
+  }
+}
+
+/** Pide uno más y descarta la sesión activa para no repetirla en "Últimos accesos". */
+function toAccesos(items: MySession[], activeId?: string): AccesoReciente[] {
+  return items
+    .filter((s) => s.id !== activeId)
+    .slice(0, ULTIMOS_ACCESOS)
+    .map((s) => ({
+      id: s.id,
+      equipo: s.machine_code,
+      sala: s.lab,
+      fecha: formatDateTime(s.started_at),
+    }))
+}
+
+async function cargar() {
+  cargando.value = true
+  loadFailed.value = false
+  infoMessage.value = ''
+
+  try {
+    const [activa, recientes] = await Promise.all([
+      getActiveSession(),
+      getRecentSessions(ULTIMOS_ACCESOS + 1),
+    ])
+    sesion.value = activa ? toSesion(activa) : null
+    ultimos.value = toAccesos(recientes, activa?.id)
+  } catch {
+    loadFailed.value = true
+    showMessage(
+      'No pudimos cargar tu información. Revisa tu conexión e inténtalo de nuevo.',
+      true,
+    )
+  } finally {
+    cargando.value = false
+  }
+}
+
+async function terminarAcceso() {
+  if (!sesion.value || terminando.value) return
+
+  terminando.value = true
+  infoMessage.value = ''
+
+  try {
+    await endMySession(sesion.value.id)
+  } catch {
+    showMessage('No pudimos terminar tu acceso. Revisa tu conexión e inténtalo de nuevo.', true)
+    terminando.value = false
+    return
+  }
+
+  sesion.value = null
+  showMessage('Terminaste tu acceso. El equipo volverá a mostrar el QR en hasta 1 minuto.', false)
+
+  // El acceso recién cerrado pasa a "Últimos accesos". Si falla, el cierre ya se hizo.
+  try {
+    ultimos.value = toAccesos(await getRecentSessions(ULTIMOS_ACCESOS))
+  } catch {
+    // Se conserva la lista anterior.
+  } finally {
+    terminando.value = false
+  }
 }
 
 function verHistorial() {
   void router.push({ name: 'history' })
 }
+
+onMounted(cargar)
 </script>
 
 <template>
@@ -77,149 +146,158 @@ function verHistorial() {
     <h1 class="title">Inicio</h1>
     <p class="subtitle">Bienvenido a tu portal de acceso universitario</p>
 
-    <div v-if="infoMessage" class="feedback" role="status">
+    <div v-if="infoMessage" class="feedback" :role="infoIsError ? 'alert' : 'status'">
       <i class="pi pi-info-circle"></i>
-      {{ infoMessage }}
+      <span>{{ infoMessage }}</span>
+      <button v-if="loadFailed" class="link" type="button" @click="cargar">Reintentar</button>
     </div>
 
-    <div class="top">
-      <article v-if="sesion" class="card">
-        <header class="card-head">
-          <h2>Mi sesión actual</h2>
+    <p v-if="cargando" class="subtitle" role="status">Cargando tu información…</p>
 
-          <span class="badge">
-            <i class="dot"></i>
-            Acceso activo
-          </span>
+    <template v-else-if="!loadFailed">
+      <div class="top">
+        <article v-if="sesion" class="card">
+          <header class="card-head">
+            <h2>Mi sesión actual</h2>
+
+            <span class="badge">
+              <i class="dot"></i>
+              Acceso activo
+            </span>
+          </header>
+
+          <!-- Escritorio -->
+          <dl class="info">
+            <div>
+              <dt>Equipo</dt>
+              <dd>{{ sesion.equipo }}</dd>
+            </div>
+
+            <div>
+              <dt>Sala</dt>
+              <dd>{{ sesion.sala }}</dd>
+            </div>
+
+            <div>
+              <dt>Fecha y hora de inicio</dt>
+              <dd>{{ sesion.inicio }}</dd>
+            </div>
+          </dl>
+
+          <p class="hint">Cierra tu sesión desde aquí cuando termines de usar el computador.</p>
+
+          <!-- Móvil -->
+          <div class="info-mobile">
+            <strong>{{ sesion.equipo }}</strong>
+            <span>{{ sesion.sala }}</span>
+            <span>Inicio: {{ sesion.inicio }}</span>
+          </div>
+
+          <button class="btn block" type="button" :disabled="terminando" @click="terminarAcceso">
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="m16 17 5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+
+            Terminar acceso
+          </button>
+        </article>
+
+        <article class="card">
+          <h2>¿Cómo registrar un acceso?</h2>
+
+          <ul class="steps">
+            <li v-for="paso in pasos" :key="paso.icon">
+              <span class="ico">
+                <svg
+                  v-if="paso.icon === 'monitor'"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+
+                <svg
+                  v-else-if="paso.icon === 'phone'"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="7" y="2" width="10" height="20" rx="2" />
+                  <path d="M11 18h2" />
+                </svg>
+
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21.8 10A10 10 0 1 1 17 3.3" />
+                  <path d="m9 11 3 3L22 4" />
+                </svg>
+              </span>
+
+              <span>{{ paso.texto }}</span>
+            </li>
+          </ul>
+        </article>
+      </div>
+
+      <article class="card recents">
+        <header class="card-head">
+          <h2>Últimos accesos</h2>
+
+          <button class="link" type="button" @click="verHistorial">Ver historial completo</button>
         </header>
 
-        <!-- Escritorio -->
-        <dl class="info">
-          <div>
-            <dt>Equipo</dt>
-            <dd>{{ sesion.equipo }}</dd>
-          </div>
+        <p v-if="ultimos.length === 0" class="empty">
+          Aún no tienes accesos. Cuando registres el primero, aparecerá aquí.
+        </p>
 
-          <div>
-            <dt>Sala</dt>
-            <dd>{{ sesion.sala }}</dd>
-          </div>
-
-          <div>
-            <dt>Fecha y hora de inicio</dt>
-            <dd>{{ sesion.inicio }}</dd>
-          </div>
-        </dl>
-
-        <p class="hint">Cierra tu sesión desde aquí cuando termines de usar el computador.</p>
-
-        <!-- Móvil -->
-        <div class="info-mobile">
-          <strong>{{ sesion.equipo }}</strong>
-          <span>{{ sesion.sala }}</span>
-          <span>Inicio: {{ sesion.inicio }}</span>
-        </div>
-
-        <button class="btn block" type="button" @click="terminarAcceso">
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <path d="m16 17 5-5-5-5" />
-            <path d="M21 12H9" />
-          </svg>
-
-          Terminar acceso
-        </button>
-      </article>
-
-      <article class="card">
-        <h2>¿Cómo registrar un acceso?</h2>
-
-        <ul class="steps">
-          <li v-for="paso in pasos" :key="paso.icon">
-            <span class="ico">
-              <svg
-                v-if="paso.icon === 'monitor'"
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <path d="M8 21h8M12 17v4" />
-              </svg>
-
-              <svg
-                v-else-if="paso.icon === 'phone'"
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="7" y="2" width="10" height="20" rx="2" />
-                <path d="M11 18h2" />
-              </svg>
-
-              <svg
-                v-else
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M21.8 10A10 10 0 1 1 17 3.3" />
-                <path d="m9 11 3 3L22 4" />
-              </svg>
+        <ul v-else class="list">
+          <li v-for="acceso in ultimos" :key="acceso.id">
+            <span>
+              <strong>{{ acceso.equipo }}</strong>
+              <small>{{ acceso.sala }}</small>
             </span>
 
-            <span>{{ paso.texto }}</span>
+            <time>{{ acceso.fecha }}</time>
           </li>
         </ul>
       </article>
-    </div>
-
-    <article class="card recents">
-      <header class="card-head">
-        <h2>Últimos accesos</h2>
-
-        <button class="link" type="button" @click="verHistorial">Ver historial completo</button>
-      </header>
-
-      <ul class="list">
-        <li v-for="acceso in ultimos" :key="acceso.fecha">
-          <span>
-            <strong>{{ acceso.equipo }}</strong>
-            <small>{{ acceso.sala }}</small>
-          </span>
-
-          <time>{{ acceso.fecha }}</time>
-        </li>
-      </ul>
-    </article>
+    </template>
   </main>
 </template>
 
@@ -279,6 +357,10 @@ function verHistorial() {
   color: var(--c-muted);
   background: var(--c-row-alt);
   font-size: 0.8rem;
+}
+
+.feedback .link {
+  margin-left: auto;
 }
 
 .top {
@@ -373,6 +455,12 @@ h2 {
   filter: brightness(1.08);
 }
 
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .block {
   width: 100%;
   margin-top: 0.5rem;
@@ -449,6 +537,12 @@ h2 {
 .list time {
   color: var(--c-muted);
   font-size: 0.8rem;
+}
+
+.empty {
+  color: var(--c-muted);
+  font-size: 0.85rem;
+  margin: 0;
 }
 
 @media (max-width: 767px) {

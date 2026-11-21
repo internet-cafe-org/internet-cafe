@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import type { components } from '@/api/schema'
+import { meHandlers } from './me'
 
 const API_URL = 'http://localhost:8000'
 
@@ -100,6 +101,7 @@ function filterAccessSessions(url: URL): MockAccessSession[] {
 // ============================================================
 
 export const apiHandlers = [
+  ...meHandlers,
   // ----------------------------------------------------------
   // CREAR DESAFÍO DE UNA MÁQUINA
   // ----------------------------------------------------------
