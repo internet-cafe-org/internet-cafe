@@ -484,4 +484,58 @@ export const apiHandlers = [
 
     return HttpResponse.json(machine)
   }),
+
+  // ----------------------------------------------------------
+  // UI-11: CÓDIGO DE ENROLAMIENTO DE UN SOLO USO
+  // BE-13 (#130) aún no publica este endpoint: la ruta es una propuesta.
+  // ----------------------------------------------------------
+
+  http.post(`${API_URL}/api/v1/admin/machines/:id/enrollment-code`, ({ params }) => {
+    const machine = machines.find((item) => item.id === params.id)
+
+    if (!machine) {
+      return problem(404, 'No encontrado', 'El equipo no existe.', 'MACHINE_NOT_FOUND')
+    }
+
+    if (machine.status === 'disabled') {
+      return problem(
+        409,
+        'Conflicto',
+        'No se puede generar un código para un equipo deshabilitado.',
+        'CONFLICT',
+      )
+    }
+
+    const part = () => crypto.randomUUID().slice(0, 4).toUpperCase()
+
+    return HttpResponse.json(
+      {
+        code: `${part()}-${part()}`,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+      { status: 201 },
+    )
+  }),
+
+  // ----------------------------------------------------------
+  // UI-11: REVOCAR LA CLAVE DE UN EQUIPO
+  // Supuesto: el equipo vuelve a quedar pendiente de enrolamiento.
+  // ----------------------------------------------------------
+
+  http.post(`${API_URL}/api/v1/admin/machines/:id/revoke-key`, ({ params }) => {
+    const machine = machines.find((item) => item.id === params.id)
+
+    if (!machine) {
+      return problem(404, 'No encontrado', 'El equipo no existe.', 'MACHINE_NOT_FOUND')
+    }
+
+    if (machine.status === 'pending_enrollment') {
+      return problem(409, 'Conflicto', 'El equipo todavía no tiene una clave.', 'CONFLICT')
+    }
+
+    machine.status = 'pending_enrollment'
+    machine.enrolled_at = null
+
+    return new HttpResponse(null, { status: 204 })
+  }),
 ]
