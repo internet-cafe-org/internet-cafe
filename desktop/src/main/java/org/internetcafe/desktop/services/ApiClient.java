@@ -27,6 +27,7 @@ public class ApiClient {
   static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(35);
   static final int WAIT_TIMEOUT_SECONDS = 25;
   public static final Duration HEARTBEAT_TIMEOUT = Duration.ofSeconds(5);
+  static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(3);
   private static final String API_PATH = "/api/v1";
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private static final String CLOCK_SKEW_CODE = "MACHINE_CLOCK_SKEW";
@@ -125,13 +126,24 @@ public class ApiClient {
 
   /** Closes the machine's open session (reason {@code user_logout_pc}). */
   public void endCurrentSession(String machineCode) throws IOException, InterruptedException {
+    endCurrentSession(machineCode, "user_logout_pc", REQUEST_TIMEOUT);
+  }
+
+  /** Best-effort close sent while the JVM shuts down (reason {@code machine_shutdown}). */
+  public void endCurrentSessionForShutdown(String machineCode)
+      throws IOException, InterruptedException {
+    endCurrentSession(machineCode, "machine_shutdown", SHUTDOWN_TIMEOUT);
+  }
+
+  private void endCurrentSession(String machineCode, String reason, Duration timeout)
+      throws IOException, InterruptedException {
+    String json = OBJECT_MAPPER.writeValueAsString(Map.of("reason", reason));
     HttpRequest request =
         requestBuilder(API_PATH + "/machine/sessions/current/end")
+            .timeout(timeout)
             .header("X-Machine-Code", machineCode)
             .header("Content-Type", "application/json")
-            .POST(
-                HttpRequest.BodyPublishers.ofString(
-                    "{\"reason\":\"user_logout_pc\"}", StandardCharsets.UTF_8))
+            .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
             .build();
     send(request, JsonNode.class);
   }

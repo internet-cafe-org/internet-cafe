@@ -55,6 +55,10 @@ public final class HeartbeatService implements AutoCloseable {
     sessionId.set(id == null || id.isBlank() ? null : id);
   }
 
+  public boolean hasActiveSession() {
+    return sessionId.get() != null;
+  }
+
   /** Starts the periodic heartbeat; the first one goes out immediately. */
   public synchronized void start() {
     if (executor != null) {

@@ -2,6 +2,7 @@ package org.internetcafe.desktop.qr;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,6 +57,17 @@ class HeartbeatServiceTest {
     service.beat();
     assertEquals("s1", sent.get(0));
     assertTrue(closedSessions.isEmpty());
+  }
+
+  @Test
+  void reportsWhetherASessionIsActive() {
+    HeartbeatService service = service(id -> response("active", null));
+
+    assertFalse(service.hasActiveSession());
+    service.setSessionId("s1");
+    assertTrue(service.hasActiveSession());
+    service.setSessionId(null);
+    assertFalse(service.hasActiveSession());
   }
 
   @Test

@@ -113,6 +113,25 @@ class ApiClientTest {
   }
 
   @Test
+  void shutdownSessionRequestUsesMachineShutdownReason() throws Exception {
+    apiClient.endCurrentSessionForShutdown("PC-01");
+
+    assertEquals(
+        "{\"reason\":\"machine_shutdown\"}",
+        requestBodies.get("/api/v1/machine/sessions/current/end"));
+    assertEquals("POST", requestMethods.get("/api/v1/machine/sessions/current/end"));
+  }
+
+  @Test
+  void regularSessionCloseKeepsUserLogoutReason() throws Exception {
+    apiClient.endCurrentSession("PC-01");
+
+    assertEquals(
+        "{\"reason\":\"user_logout_pc\"}",
+        requestBodies.get("/api/v1/machine/sessions/current/end"));
+  }
+
+  @Test
   void nonSuccessfulResponseRaisesSanitizedApiException() {
     ApiException exception =
         assertThrows(
@@ -169,6 +188,7 @@ class ApiClientTest {
                 + "\"expires_at\":\"2026-10-19T14:05:00Z\","
                 + "\"rotate_after_s\":45}");
       }
+      case "/api/v1/machine/sessions/current/end" -> respond(exchange, 200, "{}");
       case "/api/v1/long-poll" -> {
         requestBodies.put("long-poll-query", exchange.getRequestURI().getRawQuery());
         respond(
