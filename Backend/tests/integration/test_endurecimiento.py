@@ -5,18 +5,13 @@ cabeceras de seguridad. Para no depender de BD ni de llaves criptográficas,
 cada prueba construye una app mínima con los middlewares de ``app.main``.
 """
 
-import importlib
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
-from app.main import (
-    CabecerasSeguridadMiddleware,
-    LimiteCuerpoMiddleware,
-)
-from starlette.middleware.trustedhost import TrustedHostMiddleware
+from app.main import CabecerasSeguridadMiddleware, LimiteCuerpoMiddleware
 
 
 def _crear_app(
