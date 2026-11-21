@@ -98,10 +98,7 @@ async function cargar() {
     ultimos.value = toAccesos(recientes, activa?.id)
   } catch {
     loadFailed.value = true
-    showMessage(
-      'No pudimos cargar tu información. Revisa tu conexión e inténtalo de nuevo.',
-      true,
-    )
+    showMessage('No pudimos cargar tu información. Revisa tu conexión e inténtalo de nuevo.', true)
   } finally {
     cargando.value = false
   }
