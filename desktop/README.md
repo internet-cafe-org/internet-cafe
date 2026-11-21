@@ -96,6 +96,19 @@ El cliente HTTP del escritorio (`SecureHttpClient`) no usa el almacén de certif
 
 Si Render cambia de autoridad, agregar la nueva raíz pública (`.pem`) a esa carpeta y a la lista de `SecureHttpClient`.
 
+## Firma de peticiones del equipo (DSK-12b)
+
+Las peticiones del equipo que usan `/api/v1/machine/challenges`, `/api/v1/machine/challenges/wait`,
+`/api/v1/machine/heartbeat` y `/api/v1/machine/sessions/current/end` deben estar protegidas con
+RFC 9421 y el perfil `ecdsa-p256-sha256`, etiqueta `sig1`. El contenido y la URL firmada deben
+mantenerse idénticos a los enviados por el cliente. Cada intento usa un nonce nuevo y el reloj
+ajustado por la cabecera `Date` cuando el servidor indica desfase.
+
+El cliente no puede continuar sin el enrolamiento local, su contraseña protegida, el thumbprint
+correcto ni el `keyid` guardado. En modo `dual`, la firma válida de una petición se debe validar;
+una firma inválida no debe volver al fallback de credencial provisional. El endpoint de enrolamiento
+conserva su propia prueba de posesión y no usa esta firma de máquina.
+
 ## Modo kiosco (DSK-11)
 
 En modo kiosco, la ventana ocupa toda la pantalla, permanece encima y no acepta solicitudes para
@@ -122,3 +135,10 @@ intenta cerrar la sesión con el motivo `machine_shutdown`. La llamada tiene un 
 el equipo ya perdió la red o el proceso no puede completar el cierre, el cierre por inactividad de
 la API sigue siendo el respaldo. El log solo registra la clase de excepción, nunca el identificador
 de sesión.
+
+## Prototipo de clave con TPM (ST-DSK-01)
+
+`TpmKeyPrototype`, dentro del paquete `identity`, prueba una clave P-256 no exportable del almacén
+de Windows mediante SunMSCAPI. El informe y los pasos de reproducción están en
+`docs/desktop/ST-DSK-01-tpm-sunmscapi.md`. Esta integración es solo experimental: todavía no
+forma parte de `MachineIdentityStore` ni reemplaza el almacén de identidad usado por el enrolamiento.
