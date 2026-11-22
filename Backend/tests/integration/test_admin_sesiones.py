@@ -192,8 +192,12 @@ async def test_admin_filtra_por_estudiante_correo(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Filtro por estudiante (correo). Debe ser exacto e ignorar mayúsculas."""
+    # Forzamos una llave de blind index para el entorno de pruebas
+    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+    
     # Creamos un usuario con correo indexado correctamente
     async with sesiones() as db:
         correo = "ana.test@universidad.edu.co"
@@ -229,8 +233,12 @@ async def test_admin_filtra_por_estudiante_codigo(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Filtro por estudiante (código). Debe ser exacto y aceptar espacios."""
+    # Forzamos una llave de blind index para el entorno de pruebas
+    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+    
     # Creamos un usuario con código indexado correctamente
     async with sesiones() as db:
         beto = User(
