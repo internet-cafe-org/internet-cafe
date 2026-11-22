@@ -1,7 +1,7 @@
 """Pruebas de integración para la consulta y el cierre forzado de accesos (BE-14).
 
 Cubre HU-15 sobre la API real:
-- GET /admin/sessions con filtros (equipo, estado, fechas) y paginación.
+- GET /admin/sessions con filtros (estudiante, equipo, estado, fechas) y paginación.
 - POST /admin/sessions/{id}/end (cierre forzado por admin) y su auditoría.
 """
 
@@ -36,7 +36,6 @@ API = "/api/v1"
 
 
 # ------------------------------------------------------------------------- Fixtures
-
 
 @pytest.fixture
 def claves(monkeypatch: pytest.MonkeyPatch) -> str:
@@ -145,7 +144,6 @@ async def _auditorias_de(sesiones: async_sessionmaker[AsyncSession], sesion_id: 
 
 # ------------------------------------------------------------------- GET /admin/sessions
 
-
 async def test_admin_lista_sesiones_con_filtros(
     cliente: AsyncClient,
     claves: str,
@@ -181,8 +179,71 @@ async def test_admin_lista_sesiones_con_filtros(
     assert resp.json()["items"][0]["id"] == str(abierta_pc01)
 
 
-# ------------------------------------------------------- POST /admin/sessions/{id}/end
+async def test_admin_filtra_por_estudiante_correo(
+    cliente: AsyncClient,
+    claves: str,
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+    admin_user: User,
+) -> None:
+    """Filtro por estudiante (correo). Debe ser exacto e ignorar mayúsculas."""
+    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
+    cabeceras = _bearer_admin(claves, admin_user)
 
+    # Buscamos por el correo real de Ana (con mayúsculas para probar la normalización)
+    resp = await cliente.get(f"{API}/admin/sessions?student=ESTUDIANTE1@TEST.INVALID", headers=cabeceras)
+
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["user"]["full_name"] == "Estudiante Prueba 1"
+
+
+async def test_admin_filtra_por_estudiante_codigo(
+    cliente: AsyncClient,
+    claves: str,
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+    admin_user: User,
+) -> None:
+    """Filtro por estudiante (código). Debe ser exacto y aceptar espacios."""
+    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    cabeceras = _bearer_admin(claves, admin_user)
+
+    # Buscamos por el código de Ana (con espacios al final para probar la normalización)
+    resp = await cliente.get(f"{API}/admin/sessions?student= 0000000001 ", headers=cabeceras)
+
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["user"]["full_name"] == "Estudiante Prueba 1"
+
+
+async def test_admin_filtra_por_fechas_y_paginacion(
+    cliente: AsyncClient,
+    claves: str,
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+    admin_user: User,
+) -> None:
+    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
+    cabeceras = _bearer_admin(claves, admin_user)
+
+    ahora = datetime.now(UTC)
+    ayer = ahora - timedelta(days=1)
+    manana = ahora + timedelta(days=1)
+
+    # Fechas
+    resp = await cliente.get(f"{API}/admin/sessions?started_from={ayer.isoformat()}&started_to={manana.isoformat()}", headers=cabeceras)
+    assert resp.json()["total"] == 2
+
+    # Paginación
+    resp = await cliente.get(f"{API}/admin/sessions?limit=1&offset=0", headers=cabeceras)
+    assert len(resp.json()["items"]) == 1
+    assert resp.json()["total"] == 2
+
+
+# ------------------------------------------------------- POST /admin/sessions/{id}/end
 
 async def test_admin_cierra_sesion_forzada_y_audita(
     cliente: AsyncClient,
@@ -199,13 +260,11 @@ async def test_admin_cierra_sesion_forzada_y_audita(
     assert resp.status_code == 200
     assert resp.json()["session"]["end_reason"] == "admin_forced"
 
-    # Verificar en BD
     async with sesiones() as db:
         guardada = await db.get(AccessSession, abierta)
         assert guardada.ended_at is not None
         assert guardada.end_reason == SessionEndReason.admin_forced
 
-    # Verificar auditoría
     assert await _auditorias_de(sesiones, abierta) == 1
 
 
@@ -223,7 +282,6 @@ async def test_admin_cierre_forzado_es_idempotente(
     segunda = await cliente.post(f"{API}/admin/sessions/{abierta}/end", headers=cabeceras)
 
     assert (primera.status_code, segunda.status_code) == (200, 200)
-    # No debe crear otra entrada de auditoría si ya estaba cerrada
     assert await _auditorias_de(sesiones, abierta) == 1
 
 
@@ -240,11 +298,10 @@ async def test_admin_cierre_forzado_sesion_inexistente(
 async def test_estudiante_no_puede_acceder_al_admin(
     cliente: AsyncClient, claves: str, datos: Any
 ) -> None:
-    # Un estudiante normal intentando usar el endpoint de admin
     token = create_access_token(subject=str(datos.ana.id), role="student", private_key=claves)
     cabeceras = {"Authorization": f"Bearer {token}"}
-    
+
     resp = await cliente.get(f"{API}/admin/sessions", headers=cabeceras)
-    
+
     assert resp.status_code == 403
     assert resp.json()["code"] == "FORBIDDEN"
