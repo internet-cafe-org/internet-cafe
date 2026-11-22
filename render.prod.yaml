@@ -1,0 +1,111 @@
+# =============================================================================
+# render.prod.yaml — Servicio de la API en Render, entorno prod
+#
+# OPS-08: Producción en la nube · HU-32 · Sprint 3
+#
+# Uso:
+#   New → Blueprint → este repositorio, y en el campo "Blueprint Path" escribir
+#   render.prod.yaml. El servicio de dev sigue en render.yaml.
+#   Pasos completos, orden y verificación: docs/ops/produccion.md.
+#
+# Decisiones clave:
+#   - Plan free y un solo worker: el SRS (O-06 y §13.4) fija costo USD 0.
+#   - autoDeployTrigger: off. Prod solo se despliega desde etiquetas v* con la
+#     aprobación del environment prod de GitHub (QA-17), mediante el deploy hook.
+#   - MACHINE_AUTH_MODE=signature desde el primer día (HU-32): el equipo firma
+#     cada petición (SRS §12.4).
+#   - Los secretos van con sync: false: Render los pide al crear el Blueprint y no
+#     los sobrescribe en cada sync. Ningún valor secreto vive en este archivo.
+# =============================================================================
+
+services:
+  - type: web
+    name: internet-cafe-backend-prod
+
+    runtime: docker
+    dockerfilePath: ./Backend/Dockerfile
+    dockerContext: ./Backend
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    branch: main
+
+    # Misma región que el proyecto Neon internet-cafe-prod
+    region: ohio
+
+    plan: free
+
+    autoDeployTrigger: "off"
+
+    envVars:
+      - key: APP_ENV
+        value: prod
+
+      - key: APP_NAME
+        value: Internet Cafe API
+
+      # URL pública de la web de prod (segundo proyecto de Vercel). Es el origen
+      # permitido en /auth/refresh y /auth/logout. Ajustar si Vercel asigna otro dominio.
+      - key: FRONTEND_BASE_URL
+        value: https://internet-cafe-prod.vercel.app
+
+      # Base con la que el equipo firma @target-uri. Ajustar si Render asigna otro
+      # subdominio al servicio.
+      - key: PUBLIC_API_BASE_URL
+        value: https://internet-cafe-backend-prod.onrender.com
+
+      - key: JWT_ISSUER
+        value: internet-cafe-api
+
+      - key: JWT_AUDIENCE
+        value: web
+
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "10"
+
+      # SRS §12.4: solo peticiones firmadas con la clave del equipo
+      - key: MACHINE_AUTH_MODE
+        value: signature
+
+      # En prod los retos nunca se aceptan solo con el código del equipo
+      - key: RETOS_ACEPTAN_SOLO_CODIGO
+        value: "false"
+
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+
+      # MVP sin correo (backlog §4): las cuentas quedan activas al registrarse
+      - key: REQUIRE_EMAIL_VERIFICATION
+        value: "false"
+
+      # ORIGEN_PREVIEW_REGEX no se define en prod: los previews de Vercel solo se
+      # aceptan con APP_ENV=dev.
+
+      # -----------------------------------------------------------------------
+      # Secretos (sync: false). Valores solo en el dashboard de Render.
+      # -----------------------------------------------------------------------
+
+      # Dominios de correo institucional permitidos, separados por coma (PEND-06)
+      - key: ALLOWED_EMAIL_DOMAINS
+        sync: false
+
+      # Neon internet-cafe-prod con el rol svc_app (OPS-02), nunca el dueño
+      - key: DATABASE_URL
+        sync: false
+
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Llaves de prod generadas con Backend/tools/generate_keys.py; distintas de dev
+      - key: JWT_PRIVATE_KEY
+        sync: false
+
+      - key: JWT_PUBLIC_KEY
+        sync: false
+
+      - key: DATA_ENC_KEYS
+        sync: false
+
+      - key: BLIND_INDEX_KEY
+        sync: false
+
+    healthCheckPath: /healthz
