@@ -1,7 +1,7 @@
 package org.internetcafe.desktop.contract;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.util.Map;
+import org.internetcafe.desktop.identity.PublicJwk;
 
 public record EnrollmentRequest(
-    Map<String, Object> jwk, @JsonProperty("prueba_posesion") String pruebaPosesion) {}
+    @JsonProperty("enrollment_code") String enrollmentCode, PublicJwk jwk, String proof) {}

@@ -8,9 +8,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.Map;
 import org.internetcafe.desktop.contract.EnrollmentRequest;
 import org.internetcafe.desktop.contract.RegistrationRequest;
+import org.internetcafe.desktop.identity.PublicJwk;
 import org.internetcafe.desktop.services.ApiClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,9 +52,15 @@ class MockApiServerTest {
     assertEquals("procesando", registration.estado());
 
     var enrollment =
-        client.enroll(new EnrollmentRequest(Map.of("kty", "EC"), "signature-placeholder"));
-    assertEquals("enrolado", enrollment.estado());
-    assertEquals("dev-98765", enrollment.dispositivoId());
+        client.enroll(
+            new EnrollmentRequest(
+                "enrollment-code-placeholder",
+                new PublicJwk("EC", "P-256", "A".repeat(43), "A".repeat(43)),
+                "proof-placeholder"));
+    assertEquals("machine-test", enrollment.machineId());
+    assertEquals("dev-98765", enrollment.code());
+    assertEquals("Sala 1", enrollment.lab());
+    assertEquals("kiosk", enrollment.mode());
 
     var credential = client.getTemporaryCredential("dev-98765");
     assertEquals("temp-token-xyz-789", credential.credencialTemporal());

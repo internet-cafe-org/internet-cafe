@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('vue-qrcode-reader', () => ({
+  QrcodeStream: { name: 'QrcodeStream', template: '<div />' },
+  setZXingModuleOverrides: vi.fn(),
+}))
 import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
@@ -39,7 +44,10 @@ describe('App + router', () => {
       const path = route.path.replace(':id', 'abc').replace('/:pathMatch(.*)*', '/x')
       await router.push(path)
       await flushPromises()
-      expect(wrapper.find('main').exists()).toBe(true)
+      expect(
+        wrapper.find('main').exists(),
+        `La ruta ${path} no renderizó un elemento <main>.`,
+      ).toBe(true)
     }
   })
 })
