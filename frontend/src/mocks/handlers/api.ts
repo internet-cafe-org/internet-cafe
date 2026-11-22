@@ -103,6 +103,38 @@ function filterAccessSessions(url: URL): MockAccessSession[] {
 export const apiHandlers = [
   ...meHandlers,
   // ----------------------------------------------------------
+  // W-09: PERFIL DEL ESTUDIANTE AUTENTICADO
+  // ----------------------------------------------------------
+
+  http.get('*/api/v1/me', () => {
+    return HttpResponse.json({
+      id: '0192f0c4-0000-7000-8000-000000000001',
+      full_name: 'Ana Pérez',
+      email: 'ana.perez@universidad.edu.co',
+      student_code_masked: '2021****34',
+      role: 'student',
+      status: 'active',
+    })
+  }),
+
+  // ----------------------------------------------------------
+  // W-08: HISTORIAL DE ACCESOS DEL ESTUDIANTE
+  // ----------------------------------------------------------
+
+  http.get('*/api/v1/me/sessions', ({ request }) => {
+    const url = new URL(request.url)
+    const limit = Number(url.searchParams.get('limit') ?? 20)
+    const offset = Number(url.searchParams.get('offset') ?? 0)
+
+    return HttpResponse.json({
+      items: [],
+      total: 0,
+      limit,
+      offset,
+    })
+  }),
+
+  // ----------------------------------------------------------
   // CREAR DESAFÍO DE UNA MÁQUINA
   // ----------------------------------------------------------
 
