@@ -181,6 +181,27 @@ class ApiClientTest {
   }
 
   @Test
+  void shutdownSessionRequestUsesMachineShutdownReason() throws Exception {
+    apiClient.endCurrentSessionForShutdown("PC-01");
+
+    assertEquals(
+        "{\"reason\":\"machine_shutdown\"}",
+        requestBodies.get("/api/v1/machine/sessions/current/end"));
+    assertEquals("POST", requestMethods.get("/api/v1/machine/sessions/current/end"));
+    assertValidSignature(
+        "/api/v1/machine/sessions/current/end", "POST", "{\"reason\":\"machine_shutdown\"}");
+  }
+
+  @Test
+  void regularSessionCloseKeepsUserLogoutReason() throws Exception {
+    apiClient.endCurrentSession("PC-01");
+
+    assertEquals(
+        "{\"reason\":\"user_logout_pc\"}",
+        requestBodies.get("/api/v1/machine/sessions/current/end"));
+  }
+
+  @Test
   void nonSuccessfulResponseRaisesSanitizedApiException() {
     ApiException exception =
         assertThrows(

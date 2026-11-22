@@ -254,6 +254,13 @@ public class Main extends Application {
             sessionId -> apiClient.sendHeartbeat(machineCode, sessionId),
             (sessionId, reason) -> Platform.runLater(backToQr));
     heartbeatService.start();
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                new SessionShutdownHook(
+                    heartbeatService::hasActiveSession,
+                    () -> apiClient.endCurrentSessionForShutdown(machineCode)),
+                "session-shutdown"));
     boardScreen.setOnLogout(
         () -> {
           boardScreen.setLogoutEnabled(false);

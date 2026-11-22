@@ -80,6 +80,20 @@ export function refresh(): Promise<RefreshResponse> {
   return post<RefreshResponse>('/auth/refresh')
 }
 
+/**
+ * Revoca la cookie de sesión en el servidor (POST /auth/logout).
+ */
+export async function logout(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+  } catch {
+    // El cierre local siempre debe completarse aunque falle la red.
+  }
+}
+
 export interface JwtPayload {
   sub?: string
   role?: Role

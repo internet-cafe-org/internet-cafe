@@ -3,10 +3,12 @@ plugins {
     id 'org.openjfx.javafxplugin' version '0.1.0'
     id 'org.beryx.jlink' version '3.0.1'
     id 'com.diffplug.spotless' version '6.25.0'
+    id 'checkstyle'
 }
 
 group = 'org.internetcafe'
-version = '0.1.0'
+// La version se puede sobreescribir con -PappVersion=1.0.0 (p.ej. en el workflow de release).
+version = project.findProperty('appVersion') ?: '0.1.0'
 
 repositories {
     mavenCentral()
@@ -47,15 +49,28 @@ tasks.register('mockApi', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'org.internetcafe.desktop.mock.MockApiServer'
 }
+
 spotless {
     java {
         googleJavaFormat()
     }
 }
 
+checkstyle {
+    toolVersion = '10.17.0'
+    configFile = file('config/checkstyle/checkstyle.xml')
+}
+
 tasks.named('check') {
     dependsOn tasks.named('spotlessCheck')
 }
+
+// URL de la API elegida por entorno (DSK-14a).
+// Prioridad: propiedad Gradle (-PapiBaseUrl=...) > variable de entorno API_BASE_URL > localhost.
+// El valor queda fijo en el launcher del jlink image (y por ende en el .msi) al momento del build.
+def resolvedApiBaseUrl =
+        (project.findProperty('apiBaseUrl') as String)
+        ?: (System.getenv('API_BASE_URL') ?: 'http://localhost:8000')
 
 jlink {
     imageName = 'internet-cafe-desktop'
@@ -63,10 +78,97 @@ jlink {
 
     launcher {
         name = 'internet-cafe'
-        jvmArgs = ['-Dfile.encoding=UTF-8']
+        jvmArgs = [
+            '-Dfile.encoding=UTF-8',
+            // La URL se inyecta en tiempo de build; AppConfig.getApiBaseUrl() la lee en runtime.
+            "-Dapi.base.url=${resolvedApiBaseUrl}",
+        ]
     }
 }
 
 tasks.named('jlink') {
     dependsOn tasks.named('classes')
+}
+
+// ── Instalador .msi (DSK-14a) ───────────────────────────────────────────────
+//
+// Genera el instalador de Windows a partir de la imagen jlink producida por la
+// tarea `jlink`. Requiere:
+//   - Windows (jpackage solo genera .msi en Windows)
+//   - WiX Toolset 3.14 instalado y en el PATH
+//   - JDK 21 con jpackage (incluido desde JDK 14)
+//
+// Uso local:
+//   gradlew jpackageMsi
+//   gradlew jpackageMsi -PapiBaseUrl=https://api.render.com -PappVersion=1.0.0
+//
+// El .msi resultante queda en build/installer/Internet Cafe Desktop-<version>.msi
+//
+// El --win-upgrade-uuid es fijo para que reinstalar conserve ProgramData
+// (credenciales del equipo, identidad P-256, etc.).
+
+tasks.register('jpackageMsi') {
+    group       = 'distribution'
+    description = 'Genera el instalador .msi de Windows con jpackage (DSK-14a). Solo en Windows con WiX 3.14.'
+
+    dependsOn 'jlink'
+
+    def imageDir     = layout.buildDirectory.dir('image/internet-cafe-desktop')
+    def destDir      = layout.buildDirectory.dir('installer')
+    def resourceDir  = file("${projectDir}/packaging")
+    def licenseFile  = new File(resourceDir, 'license.rtf')
+    def appVer       = version.toString()
+
+    inputs.dir(imageDir)
+    inputs.dir(resourceDir)
+    outputs.dir(destDir)
+
+    doLast {
+        // Localizar jpackage en el mismo JDK que usa el toolchain
+        def launcher   = javaToolchains
+                .launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+                .get()
+                .executablePath
+                .asFile
+        def binDir     = launcher.parentFile
+        def isWindows  = System.getProperty('os.name', '').toLowerCase().contains('windows')
+        def jpackage   = new File(binDir, isWindows ? 'jpackage.exe' : 'jpackage')
+
+        if (!jpackage.exists()) {
+            throw new GradleException(
+                "jpackage no encontrado en ${binDir}. Verifica que el JDK 21 completo esté instalado.")
+        }
+        if (!licenseFile.exists()) {
+            throw new GradleException(
+                "Falta el archivo de licencia requerido: ${licenseFile}. " +
+                "Debe existir en desktop/packaging/license.rtf antes de generar el .msi.")
+        }
+
+        destDir.get().asFile.mkdirs()
+
+        def jpackageArgs = [
+            jpackage.absolutePath,
+            '--type',              'msi',
+            '--name',              'Internet Cafe Desktop',
+            '--app-version',       appVer,
+            '--app-image',         imageDir.get().asFile.absolutePath,
+            '--dest',              destDir.get().asFile.absolutePath,
+            '--win-upgrade-uuid',  '7F3A1B2C-9D4E-5F60-A7B8-C9D0E1F2A3B4',
+            '--win-menu',
+            '--win-shortcut',
+            '--win-dir-chooser',
+            '--resource-dir',      resourceDir.absolutePath,
+            '--license-file',      licenseFile.absolutePath,
+        ]
+
+        logger.lifecycle("Ejecutando jpackage: ${jpackageArgs.join(' ')}")
+        exec {
+            commandLine jpackageArgs
+        }
+
+        def msi = destDir.get().asFile.listFiles()?.find { it.name.endsWith('.msi') }
+        if (msi) {
+            logger.lifecycle("Instalador generado: ${msi.absolutePath}")
+        }
+    }
 }

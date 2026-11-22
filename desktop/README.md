@@ -96,6 +96,23 @@ El cliente HTTP del escritorio (`SecureHttpClient`) no usa el almacén de certif
 
 Si Render cambia de autoridad, agregar la nueva raíz pública (`.pem`) a esa carpeta y a la lista de `SecureHttpClient`.
 
+## Firma de peticiones del equipo (DSK-12b)
+
+Las peticiones del equipo que usan `/api/v1/machine/challenges`, `/api/v1/machine/challenges/wait`,
+`/api/v1/machine/heartbeat` y `/api/v1/machine/sessions/current/end` deben estar protegidas con
+RFC 9421 y el perfil `ecdsa-p256-sha256`, etiqueta `sig1`. El contenido y la URL firmada deben
+mantenerse idénticos a los enviados por el cliente. Cada intento usa un nonce nuevo y el reloj
+ajustado por la cabecera `Date` cuando el servidor indica desfase. Las peticiones con cuerpo incluyen
+`Content-Digest`; los GET y el POST vacío de desafíos no incluyen ese digest. No se envía la
+credencial provisional.
+
+El cliente no puede continuar sin el enrolamiento local, su contraseña protegida, el thumbprint
+correcto ni el `keyid` guardado. En modo `dual`, la firma válida de una petición se debe validar;
+una firma inválida no debe volver al fallback de credencial provisional. El endpoint de enrolamiento
+conserva su propia prueba de posesión y no usa esta firma de máquina. Para Render dev, configura
+`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend, mantenlo
+en `MACHINE_AUTH_MODE=dual` y usa un equipo enrolado de prueba.
+
 ## Modo kiosco (DSK-11)
 
 En modo kiosco, la ventana ocupa toda la pantalla, permanece encima y no acepta solicitudes para
@@ -115,17 +132,17 @@ no instala interceptores de teclado ni intenta eludir controles de seguridad del
 - El botón "Cerrar sesión" del tablero llama a `POST /api/v1/machine/sessions/current/end` (motivo `user_logout_pc`) y vuelve al QR.
 - Los latidos fallidos solo se registran; no cierran la sesión local (el servidor la cierra a los 3 min sin latido).
 
-## Firma de peticiones del equipo (DSK-12b)
+## Cierre al apagar (HU-34)
 
-Las peticiones a `POST /machine/challenges`, `GET /machine/challenges/wait`,
-`POST /machine/heartbeat` y `POST /machine/sessions/current/end` se firman con RFC 9421
-(`ecdsa-p256-sha256`, etiqueta `sig1`) usando la clave privada P-256 enrolada. Cada intento usa
-un nonce nuevo y el reloj ajustado con `Date`; las peticiones con cuerpo incluyen `Content-Digest`.
-Los GET y el POST vacío de desafíos no incluyen ese digest. No se envía la credencial provisional.
+Al terminar la JVM, si `HeartbeatService` todavía registra una sesión activa, un shutdown hook
+intenta cerrar la sesión con el motivo `machine_shutdown`. La llamada tiene un timeout de 3 s; si
+el equipo ya perdió la red o el proceso no puede completar el cierre, el cierre por inactividad de
+la API sigue siendo el respaldo. El log solo registra la clase de excepción, nunca el identificador
+de sesión.
 
-El cliente falla cerrado si no encuentra el enrolamiento, la contraseña protegida o una clave cuyo
-thumbprint no coincida con el `keyid` guardado. Para Render dev, configura `API_BASE_URL` con el
-origen público que coincide con `PUBLIC_API_BASE_URL` del backend, mantenlo en `MACHINE_AUTH_MODE=dual`
-y usa un equipo enrolado de prueba. En `dual`, una petición que sí incluye firma debe validarse;
-el fallback de credencial no aplica a una firma inválida.
-El endpoint de enrolamiento conserva su prueba de posesión de código; no usa esta firma de máquina.
+## Prototipo de clave con TPM (ST-DSK-01)
+
+`TpmKeyPrototype`, dentro del paquete `identity`, prueba una clave P-256 no exportable del almacén
+de Windows mediante SunMSCAPI. El informe y los pasos de reproducción están en
+`docs/desktop/ST-DSK-01-tpm-sunmscapi.md`. Esta integración es solo experimental: todavía no
+forma parte de `MachineIdentityStore` ni reemplaza el almacén de identidad usado por el enrolamiento.
