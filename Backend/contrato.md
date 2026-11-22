@@ -745,6 +745,52 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/me/password:
+    patch:
+      tags:
+      - me
+      security:
+      - bearerAuth: []
+      summary: Cambiar la contraseña propia (SEC-02)
+      description: >-
+        Cambia la contraseña del usuario autenticado. Exige la contraseña actual.
+        La nueva debe tener entre 10 y 128 caracteres y ser distinta de la actual.
+        Al cambiarla se cierran las demás sesiones web (refresh tokens); la sesión
+        que hizo el cambio sigue abierta. Una contraseña actual incorrecta responde
+        422 `VALIDATION_ERROR` (no 401, para que el cliente no lo confunda con un
+        token vencido). Límite por cuenta, 429 `RATE_LIMITED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - current_password
+              - new_password
+              properties:
+                current_password:
+                  type: string
+                  format: password
+                  minLength: 1
+                  maxLength: 128
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 10
+                  maxLength: 128
+      responses:
+        '204':
+          description: Contraseña cambiada. Sin cuerpo.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Demasiados intentos. Espera lo indicado en `Retry-After`.
   /api/v1/me/sessions:
     get:
       tags:
