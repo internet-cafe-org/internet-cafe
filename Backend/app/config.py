@@ -89,7 +89,7 @@ class Settings(BaseSettings):
 
     # Endurecimiento de la API (BE-21, SRS §12.9).
     # Hosts que la API acepta en la cabecera Host, separados por comas
-    # (p. ej. "internet-cafe-backend-dev.onrender.com,internet-cafe-dev.vercel.app").
+    # (p. ej. "internet-cafe-tq03.onrender.com").
     # Vacío: no se restringe (desarrollo local, pruebas y CI).
     allowed_hosts: str = ""
     # Tamaño máximo del cuerpo de una petición, en bytes; si se supera, responde 413.

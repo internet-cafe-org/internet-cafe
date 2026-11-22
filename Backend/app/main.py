@@ -46,7 +46,7 @@ class LimiteCuerpoMiddleware(BaseHTTPMiddleware):
                     if int(content_length) > settings.max_body_bytes:
                         raise AppError(ErrorCode.PAYLOAD_TOO_LARGE)
                 except ValueError:
-                    raise AppError(ErrorCode.BAD_REQUEST, detail="Content-Length inválido.")
+                    raise AppError(ErrorCode.BAD_REQUEST, detail="Content-Length inválido.") from None
 
             if not content_length or request.headers.get("transfer-encoding") == "chunked":
                 body = b""

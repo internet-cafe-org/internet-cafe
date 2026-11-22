@@ -10,12 +10,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
-from app.main import (
-    CabecerasSeguridadMiddleware,
-    LimiteCuerpoMiddleware,
-    verificar_listo,
-    verificar_salud,
-)
+from app.main import CabecerasSeguridadMiddleware, LimiteCuerpoMiddleware
 
 
 def _crear_app(
