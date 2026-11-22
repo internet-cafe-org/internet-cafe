@@ -8,11 +8,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Cookie, Depends, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit import audit
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.models import (
@@ -25,8 +26,16 @@ from app.models import (
     UserRole,
     UserStatus,
 )
+from app.routers.auth import COOKIE_NAME
+from app.security import limites
 from app.security.dependencies import CurrentUser, require_user
-from app.services import challenges, sesiones
+from app.services import challenges, refresh_tokens, sesiones
+from app.services.passwords import (
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+    hash_password,
+    verify_password,
+)
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -198,3 +207,66 @@ async def cerrar_sesion_propia(
     await db.commit()
     sesion, codigo, lab = fila
     return MySessionResponse(session=_item(sesion, codigo, lab))
+
+
+class ChangePasswordRequest(BaseModel):
+    """Cuerpo de ``PATCH /me/password``. Nunca se registra ni se devuelve."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+
+@router.patch("/password", status_code=204)
+async def cambiar_contrasena(
+    datos: ChangePasswordRequest,
+    request: Request,
+    refresh_token: str | None = Cookie(default=None, alias=COOKIE_NAME),
+    usuario: CurrentUser = Depends(require_user),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> None:
+    """Cambia la contraseña propia (SEC-02).
+
+    Exige la contraseña actual. Con la actual incorrecta responde 422 y no 401, para
+    que el cliente no lo confunda con un token vencido. Al terminar cierra las demás
+    sesiones web; la que hizo el cambio sigue abierta.
+
+    Args:
+        datos: Contraseña actual y nueva.
+        request: Petición, para el rate limit por cuenta.
+        refresh_token: Cookie de la sesión actual, para no cerrarla.
+        usuario: Usuario autenticado.
+        db: Sesión de base de datos.
+
+    Raises:
+        AppError: 429 ``RATE_LIMITED``; 422 ``VALIDATION_ERROR`` si la actual no
+            coincide o la nueva es igual a la actual.
+    """
+    limites.limitar(request, "me.password", cuenta=str(usuario.id), contar_ip=False)
+    fila = (
+        await db.execute(select(User).where(User.id == usuario.id).with_for_update())
+    ).scalar_one_or_none()
+    if fila is None:
+        raise AppError(ErrorCode.AUTH_INVALID_CREDENTIALS)
+    if fila.status != UserStatus.active:
+        raise AppError(ErrorCode.FORBIDDEN)
+    if not verify_password(datos.current_password, fila.password_hash):
+        raise AppError(ErrorCode.VALIDATION_ERROR, "La contraseña actual no es correcta.")
+    if datos.new_password == datos.current_password:
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            "La contraseña nueva debe ser distinta de la actual.",
+        )
+    fila.password_hash = hash_password(datos.new_password)
+    await refresh_tokens.revocar_todas_menos(db, usuario.id, refresh_token)
+    # Sin contraseñas ni hashes en la auditoría
+    await audit(
+        db,
+        AuditActorType.user,
+        "auth.password_change",
+        actor_id=usuario.id,
+        target_type="user",
+        target_id=usuario.id,
+    )
+    await db.commit()
