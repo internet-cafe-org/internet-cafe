@@ -198,10 +198,10 @@ async def test_admin_filtra_por_estudiante_correo(
     async with sesiones() as db:
         correo = "ana.test@universidad.edu.co"
         ana = User(
-            email_ct=pii.cifrar(correo),
+            email_ct=pii.proteger(correo),
             email_bidx=pii.indice_ciego(correo),
             full_name_ct=b"Ana Test",
-            student_code_ct=pii.cifrar("111"),
+            student_code_ct=pii.proteger("111"),
             student_code_bidx=pii.indice_ciego("111"),
             password_hash="no-es-un-hash",
             role=UserRole.student,
@@ -234,10 +234,10 @@ async def test_admin_filtra_por_estudiante_codigo(
     # Creamos un usuario con código indexado correctamente
     async with sesiones() as db:
         beto = User(
-            email_ct=pii.cifrar("beto.test@universidad.edu.co"),
+            email_ct=pii.proteger("beto.test@universidad.edu.co"),
             email_bidx=pii.indice_ciego("beto.test@universidad.edu.co"),
             full_name_ct=b"Beto Test",
-            student_code_ct=pii.cifrar("222"),
+            student_code_ct=pii.proteger("222"),
             student_code_bidx=pii.indice_ciego("222"),
             password_hash="no-es-un-hash",
             role=UserRole.student,
