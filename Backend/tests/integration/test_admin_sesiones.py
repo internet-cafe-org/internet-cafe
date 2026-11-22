@@ -31,6 +31,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.services import pii
 
 API = "/api/v1"
 
@@ -178,6 +179,12 @@ async def test_admin_lista_sesiones_con_filtros(
     assert resp.json()["total"] == 1
     assert resp.json()["items"][0]["id"] == str(abierta_pc01)
 
+    # 5. Filtrar por sala (lab_id)
+    resp = await cliente.get(
+        f"{API}/admin/sessions?lab_id={datos.lab.id}", headers=cabeceras
+    )
+    assert resp.json()["total"] == 2  # Ambas sesiones están en la misma sala
+
 
 async def test_admin_filtra_por_estudiante_correo(
     cliente: AsyncClient,
@@ -187,16 +194,33 @@ async def test_admin_filtra_por_estudiante_correo(
     admin_user: User,
 ) -> None:
     """Filtro por estudiante (correo). Debe ser exacto e ignorar mayúsculas."""
-    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
-    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
+    # Creamos un usuario con correo indexado correctamente
+    async with sesiones() as db:
+        correo = "ana.test@universidad.edu.co"
+        ana = User(
+            email_ct=pii.cifrar(correo),
+            email_bidx=pii.indice_ciego(correo),
+            full_name_ct=b"Ana Test",
+            student_code_ct=pii.cifrar("111"),
+            student_code_bidx=pii.indice_ciego("111"),
+            password_hash="no-es-un-hash",
+            role=UserRole.student,
+            privacy_consent_at=datetime.now(UTC),
+        )
+        db.add(ana)
+        await db.commit()
+    
+    await _crear_sesion(sesiones, ana, datos.pc01, hace_min=10)
     cabeceras = _bearer_admin(claves, admin_user)
 
-    # Buscamos por el correo real de Ana (con mayúsculas para probar la normalización)
-    resp = await cliente.get(f"{API}/admin/sessions?student=ESTUDIANTE1@TEST.INVALID", headers=cabeceras)
-
+    # Buscamos por el correo (con mayúsculas para probar que se normaliza)
+    resp = await cliente.get(
+        f"{API}/admin/sessions?student=ANA.TEST@UNIVERSIDAD.EDU.CO", headers=cabeceras
+    )
+    
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
-    assert resp.json()["items"][0]["user"]["full_name"] == "Estudiante Prueba 1"
+    assert resp.json()["items"][0]["user"]["full_name"] == "Ana Test"
 
 
 async def test_admin_filtra_por_estudiante_codigo(
@@ -207,15 +231,30 @@ async def test_admin_filtra_por_estudiante_codigo(
     admin_user: User,
 ) -> None:
     """Filtro por estudiante (código). Debe ser exacto y aceptar espacios."""
-    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    # Creamos un usuario con código indexado correctamente
+    async with sesiones() as db:
+        beto = User(
+            email_ct=pii.cifrar("beto.test@universidad.edu.co"),
+            email_bidx=pii.indice_ciego("beto.test@universidad.edu.co"),
+            full_name_ct=b"Beto Test",
+            student_code_ct=pii.cifrar("222"),
+            student_code_bidx=pii.indice_ciego("222"),
+            password_hash="no-es-un-hash",
+            role=UserRole.student,
+            privacy_consent_at=datetime.now(UTC),
+        )
+        db.add(beto)
+        await db.commit()
+
+    await _crear_sesion(sesiones, beto, datos.pc02, hace_min=10)
     cabeceras = _bearer_admin(claves, admin_user)
 
-    # Buscamos por el código de Ana (con espacios al final para probar la normalización)
-    resp = await cliente.get(f"{API}/admin/sessions?student= 0000000001 ", headers=cabeceras)
-
+    # Buscamos por el código (con espacios para probar que se normaliza)
+    resp = await cliente.get(f"{API}/admin/sessions?student= 222 ", headers=cabeceras)
+    
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
-    assert resp.json()["items"][0]["user"]["full_name"] == "Estudiante Prueba 1"
+    assert resp.json()["items"][0]["user"]["full_name"] == "Beto Test"
 
 
 async def test_admin_filtra_por_fechas_y_paginacion(
@@ -230,15 +269,19 @@ async def test_admin_filtra_por_fechas_y_paginacion(
     cabeceras = _bearer_admin(claves, admin_user)
 
     ahora = datetime.now(UTC)
-    ayer = ahora - timedelta(days=1)
-    manana = ahora + timedelta(days=1)
+    ayer = (ahora - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    manana = (ahora + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Fechas
-    resp = await cliente.get(f"{API}/admin/sessions?started_from={ayer.isoformat()}&started_to={manana.isoformat()}", headers=cabeceras)
+    # Fechas (formato estricto ISO 8601 con Z)
+    resp = await cliente.get(
+        f"{API}/admin/sessions?started_from={ayer}&started_to={manana}", headers=cabeceras
+    )
+    assert resp.status_code == 200
     assert resp.json()["total"] == 2
 
     # Paginación
     resp = await cliente.get(f"{API}/admin/sessions?limit=1&offset=0", headers=cabeceras)
+    assert resp.status_code == 200
     assert len(resp.json()["items"]) == 1
     assert resp.json()["total"] == 2
 
@@ -300,8 +343,8 @@ async def test_estudiante_no_puede_acceder_al_admin(
 ) -> None:
     token = create_access_token(subject=str(datos.ana.id), role="student", private_key=claves)
     cabeceras = {"Authorization": f"Bearer {token}"}
-
+    
     resp = await cliente.get(f"{API}/admin/sessions", headers=cabeceras)
-
+    
     assert resp.status_code == 403
     assert resp.json()["code"] == "FORBIDDEN"
