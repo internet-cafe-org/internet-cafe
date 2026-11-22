@@ -72,6 +72,16 @@ class MachineIdentityStoreTest {
   }
 
   @Test
+  void loadsOnlyAnExistingIdentityWithoutCreatingOne() throws Exception {
+    MachineIdentityStore store = new MachineIdentityStore(tempDirectory, PASSWORD);
+
+    assertThrows(java.nio.file.NoSuchFileException.class, store::loadExisting);
+
+    MachineIdentity created = store.loadOrCreate();
+    assertEquals(created.publicJwk(), store.loadExisting().publicJwk());
+  }
+
+  @Test
   void rejectsNonMatchingLocalThumbprint() throws Exception {
     MachineIdentity identity = new MachineIdentityStore(tempDirectory, PASSWORD).loadOrCreate();
 

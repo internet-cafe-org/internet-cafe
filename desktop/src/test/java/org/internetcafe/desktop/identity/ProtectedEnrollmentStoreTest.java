@@ -3,6 +3,7 @@ package org.internetcafe.desktop.identity;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -65,7 +66,7 @@ class ProtectedEnrollmentStoreTest {
     var store = new MachineIdentityPasswordStore(new ProtectedFile(path, TEST_PROTECTOR));
 
     char[] first = store.loadOrCreate();
-    char[] second = store.loadOrCreate();
+    char[] second = store.loadExisting();
 
     assertArrayEquals(first, second);
     assertFalse(
@@ -73,6 +74,15 @@ class ProtectedEnrollmentStoreTest {
             .contains(new String(first)));
     Arrays.fill(first, '\0');
     Arrays.fill(second, '\0');
+  }
+
+  @Test
+  void loadingPasswordRequiresExistingProtectedData() {
+    var path = temporaryDirectory.resolve("missing-password.bin");
+    var store = new MachineIdentityPasswordStore(new ProtectedFile(path, TEST_PROTECTOR));
+
+    assertThrows(java.nio.file.NoSuchFileException.class, store::loadExisting);
+    assertFalse(Files.exists(path));
   }
 
   @Test
@@ -90,7 +100,7 @@ class ProtectedEnrollmentStoreTest {
     char[] reloadedPassword = passwordStore.loadOrCreate();
     MachineIdentity loaded =
         new MachineIdentityStore(temporaryDirectory.resolve("identity"), reloadedPassword)
-            .loadOrCreate();
+            .loadExisting();
 
     assertEquals(created.publicJwk(), loaded.publicJwk());
     assertEquals(created.thumbprint(), loaded.thumbprint());

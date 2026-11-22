@@ -11,11 +11,13 @@ import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.internetcafe.desktop.contract.EnrollmentResponse;
 import org.internetcafe.desktop.identity.EnrollmentStore;
+import org.internetcafe.desktop.identity.MachineIdentity;
 import org.internetcafe.desktop.identity.MachineIdentityPasswordStore;
 import org.internetcafe.desktop.identity.MachineIdentityStore;
 import org.internetcafe.desktop.identity.WindowsDpapiProtector;
@@ -35,6 +37,7 @@ import org.internetcafe.desktop.services.ApiClient;
 import org.internetcafe.desktop.services.ApiException;
 import org.internetcafe.desktop.services.EnrollmentCommitException;
 import org.internetcafe.desktop.services.EnrollmentService;
+import org.internetcafe.desktop.signing.RequestSigner;
 
 public class Main extends Application {
 
@@ -55,14 +58,38 @@ public class Main extends Application {
       return;
     }
 
+    EnrolledMachine enrolledMachine;
+    try {
+      enrolledMachine = loadEnrolledMachine();
+    } catch (IOException
+        | GeneralSecurityException
+        | IllegalArgumentException
+        | IllegalStateException exception) {
+      LOG.warning("Machine identity could not be loaded: " + exception.getClass().getSimpleName());
+      Alert alert = new Alert(Alert.AlertType.ERROR);
+      alert.setTitle("Equipo no disponible");
+      alert.setHeaderText("No se pudo cargar la identidad enrolada");
+      alert.setContentText(
+          "No se enviarán peticiones del equipo. Verifica el enrolamiento o contacta a TI.");
+      alert.showAndWait();
+      Platform.exit();
+      return;
+    }
+
     LoginScreen loginScreen = new LoginScreen();
-    QrScreenModel qrModel = new QrScreenModel("LAB1-PC03", "Sala 1", ConnectionStatus.ONLINE, 45);
+    QrScreenModel qrModel =
+        new QrScreenModel(
+            enrolledMachine.code(),
+            enrolledMachine.lab(),
+            ConnectionStatus.ONLINE,
+            45,
+            enrolledMachine.mode());
     QrScreen qrScreen = new QrScreen(qrModel);
     DashboardScreen dashboardScreen = new DashboardScreen();
     BoardScreen boardScreen = new BoardScreen("dev".equals(System.getProperty("app.profile")));
     OfflineScreen offlineScreen = new OfflineScreen();
-    ApiClient apiClient = new ApiClient();
-    String machineCode = System.getProperty("machine.code", qrModel.machineCode());
+    ApiClient apiClient = new ApiClient(enrolledMachine.requestSigner());
+    String machineCode = enrolledMachine.code();
     Scene scene = new Scene(loginScreen.getRoot(), 1280, 800);
     scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
 
@@ -194,6 +221,7 @@ public class Main extends Application {
                       kioskController.setMode(mode);
                       passiveMode.applyMode(mode);
                     }));
+    modeManager.applyMode(enrolledMachine.mode());
     passiveCard.setOnRegister(() -> modeManager.applyMode(MachineMode.KIOSK));
     qrScreen.setOnSkip(() -> modeManager.applyMode(MachineMode.PASSIVE));
 
@@ -352,6 +380,41 @@ public class Main extends Application {
       enrollScreen.setAvailable(false, "No se pudo comprobar el permiso de administrador.");
     }
   }
+
+  private EnrolledMachine loadEnrolledMachine() throws IOException, GeneralSecurityException {
+    WindowsDpapiProtector protector = new WindowsDpapiProtector();
+    EnrollmentResponse enrollment = EnrollmentStore.underLocalAppData(protector).load();
+    char[] password = MachineIdentityPasswordStore.underLocalAppData(protector).loadExisting();
+    MachineIdentity identity;
+    try {
+      identity = MachineIdentityStore.underProgramData(password).loadExisting();
+    } finally {
+      Arrays.fill(password, '\0');
+    }
+    if (enrollment.keyid() == null || !identity.publicJwk().matchesThumbprint(enrollment.keyid())) {
+      throw new GeneralSecurityException("Stored enrollment does not match the machine identity");
+    }
+    if (enrollment.code() == null || enrollment.code().isBlank()) {
+      throw new IOException("Stored enrollment is missing the machine code");
+    }
+    if (enrollment.lab() == null || enrollment.lab().isBlank()) {
+      throw new IOException("Stored enrollment is missing the room");
+    }
+    MachineMode mode;
+    try {
+      mode = MachineMode.valueOf(enrollment.mode().toUpperCase(java.util.Locale.ROOT));
+    } catch (NullPointerException | IllegalArgumentException exception) {
+      throw new IOException("Stored enrollment contains an invalid machine mode", exception);
+    }
+    return new EnrolledMachine(
+        enrollment.code(),
+        enrollment.lab(),
+        mode,
+        new RequestSigner(identity.privateKey(), identity.publicJwk()));
+  }
+
+  private record EnrolledMachine(
+      String code, String lab, MachineMode mode, RequestSigner requestSigner) {}
 
   private static String enrollmentErrorMessage(ApiException exception) {
     return switch (exception.getStatusCode()) {
