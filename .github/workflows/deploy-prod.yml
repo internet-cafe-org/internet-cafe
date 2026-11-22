@@ -5,7 +5,10 @@ name: deploy-prod
 #      deploy hook de Render → humo.
 # Web: CLI de Vercel contra el proyecto de producción, después de que la API quede sana.
 # El environment `prod` debe tener revisores obligatorios (Settings → Environments → prod):
-# ahí está la aprobación manual. Secretos y variables: ver docs/ops/runbook.md.
+# ahí está la aprobación manual.
+# Secretos del environment prod: DATABASE_URL_MIGRATOR, RENDER_DEPLOY_HOOK, VERCEL_TOKEN,
+# VERCEL_ORG_ID, VERCEL_PROJECT_ID. Variables: PROD_API_URL, PROD_WEB_URL y,
+# opcional, PROD_ESPERA_DEPLOY_S.
 
 on:
   push:
