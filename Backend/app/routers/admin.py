@@ -1,4 +1,4 @@
-"""Funciones de administración (contrato v0.2 / BE-18, SRS §10.3).
+﻿"""Funciones de administración (contrato v0.2 / BE-18, SRS §10.3).
 
 Denegación por defecto: `require_admin` va a nivel de router, así que ninguna ruta
 nueva queda abierta por olvido. Las respuestas de administración nunca incluyen
@@ -62,6 +62,30 @@ class LabsPage(BaseModel):
     limit: int
     offset: int
 
+
+class LabPatch(BaseModel):
+    """Cuerpo de `PATCH /admin/labs/{id}`: editar nombre o edificio."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    building: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def _al_menos_un_campo(self) -> "LabPatch":
+        if not self.model_fields_set:
+            raise ValueError("Envia al menos un campo para modificar.")
+        return self
+
+
+class MachineCreate(BaseModel):
+    """Cuerpo de `POST /admin/machines`: crear un equipo."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    code: str = Field(min_length=1, max_length=40)
+    lab_id: uuid.UUID | None = None
+    mode: MachineMode = MachineMode.passive
 
 class MachinePatch(BaseModel):
     """Edición de un equipo: sala, modo o estado (activar/deshabilitar)."""
@@ -263,7 +287,117 @@ async def crear_sala(
     return LabItem(id=sala.id, name=sala.name, building=sala.building)
 
 
+@router.patch("/labs/{lab_id}", response_model=LabItem)
+async def editar_sala(
+    lab_id: uuid.UUID,
+    body: LabPatch,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> LabItem:
+    """Edita el nombre o el edificio de una sala existente.
+
+    Args:
+        lab_id: UUID de la sala a editar.
+        body: Campos a modificar (name y/o building).
+        admin: Administrador autenticado.
+        db: Sesion de base de datos.
+
+    Returns:
+        La sala con los datos actualizados.
+
+    Raises:
+        AppError: `NOT_FOUND` si la sala no existe.
+        AppError: `CONFLICT` si el nuevo nombre ya lo usa otra sala.
+    """
+    sala = (
+        await db.execute(
+            select(Lab).where(Lab.id == lab_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if sala is None:
+        raise AppError(ErrorCode.NOT_FOUND, detail="La sala no existe.")
+
+    if body.name is not None and body.name != sala.name:
+        duplicado = (
+            await db.execute(
+                select(Lab.id).where(Lab.name == body.name, Lab.id != lab_id)
+            )
+        ).scalar_one_or_none()
+        if duplicado is not None:
+            raise AppError(ErrorCode.CONFLICT, detail="Ya existe una sala con ese nombre.")
+        sala.name = body.name
+
+    if "building" in body.model_fields_set:
+        sala.building = body.building
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="lab_updated",
+        target_type="lab",
+        target_id=sala.id,
+        metadata_info={"fields": sorted(body.model_fields_set)},
+    )
+    await db.commit()
+    return LabItem(id=sala.id, name=sala.name, building=sala.building)
+
+
 # ------------------------------------------------------------------------- equipos
+@router.post("/machines", response_model=MachineItem, status_code=201)
+async def crear_equipo(
+    body: MachineCreate,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> MachineItem:
+    """Crea un equipo en estado `pending_enrollment` y lo audita.
+
+    Args:
+        body: Codigo, sala y modo inicial del equipo.
+        admin: Administrador autenticado.
+        db: Sesion de base de datos.
+
+    Returns:
+        El equipo creado con todos sus campos.
+
+    Raises:
+        AppError: `CONFLICT` si ya existe un equipo con ese codigo.
+        AppError: `NOT_FOUND` si la sala indicada no existe.
+    """
+    if body.lab_id is not None:
+        if (await db.execute(select(Lab.id).where(Lab.id == body.lab_id))).scalar_one_or_none() is None:
+            raise AppError(ErrorCode.NOT_FOUND, detail="La sala no existe.")
+
+    existente = (
+        await db.execute(select(Machine.id).where(Machine.code == body.code))
+    ).scalar_one_or_none()
+    if existente is not None:
+        raise AppError(ErrorCode.CONFLICT, detail="Ya existe un equipo con ese codigo.")
+
+    equipo = Machine(
+        code=body.code,
+        lab_id=body.lab_id,
+        mode=body.mode,
+        status=MachineStatus.pending_enrollment,
+    )
+    db.add(equipo)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise AppError(ErrorCode.CONFLICT, detail="Ya existe un equipo con ese codigo.") from None
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="machine_created",
+        target_type="machine",
+        target_id=equipo.id,
+    )
+    await db.commit()
+    return _item_equipo(equipo, None)
+
 @router.get("/machines", response_model=MachinesPage)
 async def listar_equipos(
     lab_id: uuid.UUID | None = None,

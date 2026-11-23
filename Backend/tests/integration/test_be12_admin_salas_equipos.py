@@ -21,13 +21,12 @@ Si no está definida, todas las pruebas se saltan automáticamente.
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
@@ -554,3 +553,213 @@ async def test_respuesta_equipos_nunca_incluye_secretos(
     )
     for campo in ("credential_hash", "public_key_jwk", "key_thumbprint"):
         assert campo not in resp_patch.json()
+
+
+# ------------------------------------------------------------------ editar sala
+
+async def test_editar_sala_cambia_nombre_y_devuelve_200(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """PATCH /admin/labs/{id} actualiza el nombre y lo devuelve en la respuesta."""
+    sala = await _crear_sala(sesiones, "Sala Original")
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.patch(
+        f"{API}/admin/labs/{sala.id}",
+        json={"name": "Sala Renombrada"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "Sala Renombrada"
+    assert body["id"] == str(sala.id)
+
+
+async def test_editar_sala_registra_auditoria(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """Editar una sala deja una entrada 'lab_updated' en audit_log."""
+    sala = await _crear_sala(sesiones, "Sala Audit Edit")
+    antes = await _contar_auditorias(sesiones, "lab_updated")
+    cab = _cab_admin(claves, admin)
+
+    await cliente.patch(
+        f"{API}/admin/labs/{sala.id}",
+        json={"building": "Bloque Nuevo"},
+        headers=cab,
+    )
+
+    despues = await _contar_auditorias(sesiones, "lab_updated")
+    assert despues == antes + 1
+
+
+async def test_editar_sala_nombre_duplicado_devuelve_409(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """Renombrar una sala con un nombre ya usado por otra devuelve 409 CONFLICT."""
+    await _crear_sala(sesiones, "Sala Ocupada")
+    sala = await _crear_sala(sesiones, "Sala Libre")
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.patch(
+        f"{API}/admin/labs/{sala.id}",
+        json={"name": "Sala Ocupada"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "CONFLICT"
+
+
+async def test_editar_sala_inexistente_devuelve_404(
+    cliente: AsyncClient,
+    claves: str,
+    admin: User,
+) -> None:
+    """PATCH de una sala que no existe devuelve 404 NOT_FOUND."""
+    id_falso = "00000000-0000-4000-8000-000000000098"
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.patch(
+        f"{API}/admin/labs/{id_falso}",
+        json={"name": "No importa"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 404
+
+
+# ------------------------------------------------------------------ crear equipo
+
+
+async def test_crear_equipo_devuelve_201_en_pending_enrollment(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """POST /admin/machines crea el equipo en estado pending_enrollment."""
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.post(
+        f"{API}/admin/machines",
+        json={"code": "BE12-NEW-PC01"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["code"] == "BE12-NEW-PC01"
+    assert body["status"] == "pending_enrollment"
+    assert uuid.UUID(body["id"])
+
+
+async def test_crear_equipo_con_sala_y_modo(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """POST /admin/machines acepta lab_id y mode en el cuerpo."""
+    sala = await _crear_sala(sesiones, "Sala Nuevo Equipo")
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.post(
+        f"{API}/admin/machines",
+        json={"code": "BE12-NEW-PC02", "lab_id": str(sala.id), "mode": "kiosk"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["lab_id"] == str(sala.id)
+    assert body["mode"] == "kiosk"
+
+
+async def test_crear_equipo_registra_auditoria(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """Crear un equipo deja una entrada 'machine_created' en audit_log."""
+    antes = await _contar_auditorias(sesiones, "machine_created")
+    cab = _cab_admin(claves, admin)
+
+    await cliente.post(
+        f"{API}/admin/machines",
+        json={"code": "BE12-AUDIT-NEW"},
+        headers=cab,
+    )
+
+    despues = await _contar_auditorias(sesiones, "machine_created")
+    assert despues == antes + 1
+
+
+async def test_crear_equipo_codigo_duplicado_devuelve_409(
+    cliente: AsyncClient,
+    sesiones: async_sessionmaker[AsyncSession],
+    claves: str,
+    admin: User,
+) -> None:
+    """Crear un equipo con código ya registrado devuelve 409 CONFLICT."""
+    await _crear_equipo(sesiones, "BE12-DUP-CODE")
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.post(
+        f"{API}/admin/machines",
+        json={"code": "BE12-DUP-CODE"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "CONFLICT"
+
+
+async def test_crear_equipo_sala_inexistente_devuelve_404(
+    cliente: AsyncClient,
+    claves: str,
+    admin: User,
+) -> None:
+    """Crear un equipo con lab_id de una sala que no existe devuelve 404."""
+    id_falso = "00000000-0000-4000-8000-000000000097"
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.post(
+        f"{API}/admin/machines",
+        json={"code": "BE12-NO-LAB", "lab_id": id_falso},
+        headers=cab,
+    )
+
+    assert resp.status_code == 404
+
+
+async def test_crear_equipo_no_incluye_secretos(
+    cliente: AsyncClient,
+    claves: str,
+    admin: User,
+) -> None:
+    """La respuesta de crear equipo no expone credential_hash ni public_key_jwk."""
+    cab = _cab_admin(claves, admin)
+
+    resp = await cliente.post(
+        f"{API}/admin/machines",
+        json={"code": "BE12-SEC-NEW"},
+        headers=cab,
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "credential_hash" not in body
+    assert "public_key_jwk" not in body
+    assert "key_thumbprint" not in body

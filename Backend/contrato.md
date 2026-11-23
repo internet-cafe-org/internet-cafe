@@ -1,4 +1,4 @@
-# Contrato de Backend y Especificación de Datos / OpenAPI v0.2.1 - Sprint 2
+﻿# Contrato de Backend y Especificación de Datos / OpenAPI v0.2.1 - Sprint 2
 
 > Fuente de verdad: el bloque YAML de este documento es idéntico a `openapi.yaml`.
 > Estado: **borrador para aprobación** de los líderes de UI, Desktop y Seguridad.
@@ -28,7 +28,7 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 ### v0.2 respecto a v0.1
 - **Nuevo** `POST /machine/heartbeat`, `GET /machine/sessions/current`, `POST /machine/sessions/current/end`.
 - **Nuevo** `GET /me`, `GET /me/sessions`, `GET /me/sessions/active`, `POST /me/sessions/{id}/end`.
-- **Nuevo** `GET|POST /admin/labs`, `GET /admin/machines`, `PATCH /admin/machines/{id}`, `GET /admin/sessions`, `POST /admin/sessions/{id}/end`.
+- **Nuevo** `GET|POST /admin/labs`, `PATCH /admin/labs/{id}`, `GET|POST /admin/machines`, `PATCH /admin/machines/{id}`, `GET /admin/sessions`, `POST /admin/sessions/{id}/end`.
 - **Nuevo** código de error genérico `CONFLICT` (409). Los demás vienen del catálogo del SRS §10.5.
 - `ProblemDetails` pasa a llamarse `ProblemDetail` y es el único esquema de error (antes convivían los dos nombres); se añade `FieldError`.
 
@@ -924,7 +924,68 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
-  /api/v1/admin/machines:
+  /api/v1/admin/labs/{id}:
+    patch:
+      tags:
+      - admin
+      security: *id005
+      summary: Editar nombre o edificio de una sala (BE-12)
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabPatch'
+      responses:
+        '200':
+          description: Sala actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lab'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'  /api/v1/admin/machines:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Crear un equipo (BE-12)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineCreate'
+      responses:
+        '201':
+          description: Equipo creado en estado pending_enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
     get:
       tags:
       - admin
@@ -1365,6 +1426,19 @@ components:
           type: string
           maxLength: 80
           nullable: true
+    LabPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        building:
+          type: string
+          maxLength: 80
+          nullable: true
     Lab:
       type: object
       required:
@@ -1395,6 +1469,22 @@ components:
           type: integer
         offset:
           type: integer
+    MachineCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+        lab_id:
+          type: string
+          format: uuid
+          nullable: true
+        mode:
+          $ref: '#/components/schemas/MachineMode'
     MachinePatch:
       type: object
       additionalProperties: false
