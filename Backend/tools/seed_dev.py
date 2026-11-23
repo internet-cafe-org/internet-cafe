@@ -115,6 +115,9 @@ async def sembrar(
         UserRole,
         UserStatus,
     )
+    import uuid
+
+    from app.services import pii
     from app.services.passwords import hash_password
 
     if not 0 <= codigos <= MAX_CODIGOS:
@@ -122,19 +125,22 @@ async def sembrar(
     ahora = datetime.now(UTC)
 
     # Administrador: se busca por índice ciego; si existe, se reafirma rol, estado y contraseña.
-    # La interfaz `pii` real llega con SEC-06; hasta entonces los *_ct van en claro, igual
-    # que en las fixtures de integración, y `reset` vuelve a sembrar cuando cambie.
     email_bidx = compute_blind_index(admin_email, blind_index_key)
     admin = await db.scalar(select(User).where(User.email_bidx == email_bidx))
     admin_creado = admin is None
     if admin is None:
+        uid = uuid.uuid4()
         admin = User(
-            email_ct=admin_email.strip().lower().encode(),
+            id=uid,
+            email_ct=pii.proteger(admin_email.strip().lower(), aad=f"users.email_ct.{uid}"),
             email_bidx=email_bidx,
-            full_name_ct=ADMIN_NOMBRE.encode(),
+            full_name_ct=pii.proteger(ADMIN_NOMBRE, aad=f"users.full_name_ct.{uid}"),
             privacy_consent_at=ahora,
         )
         db.add(admin)
+    else:
+        admin.email_ct = pii.proteger(admin_email.strip().lower(), aad=f"users.email_ct.{admin.id}")
+        admin.full_name_ct = pii.proteger(ADMIN_NOMBRE, aad=f"users.full_name_ct.{admin.id}")
     admin.password_hash = hash_password(admin_password)
     admin.role = UserRole.admin
     admin.status = UserStatus.active

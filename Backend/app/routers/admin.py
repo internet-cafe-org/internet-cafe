@@ -5,17 +5,21 @@ nueva queda abierta por olvido. Las respuestas de administración nunca incluyen
 `password_hash`, tokens, claves del equipo ni el código de estudiante completo.
 """
 
+import csv
+import io
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
+from app.config import settings
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.models import (
@@ -31,9 +35,12 @@ from app.models import (
     User,
 )
 from app.security.dependencies import CurrentUser, require_admin
-from app.services import challenges, sesiones
+from app.services import challenges, pii, sesiones
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+# Máximo de filas que devuelve la exportación CSV; si hay más, se avisa en la respuesta.
+LIMITE_FILAS_CSV = 10_000
 
 
 # ------------------------------------------------------------------------- esquemas
@@ -168,6 +175,50 @@ def _consulta_sesiones(*condiciones: Any):
     )
 
 
+def _filtros_sesiones(
+    machine_code: str | None,
+    lab_id: uuid.UUID | None,
+    state: Literal["active", "ended"] | None,
+    started_from: datetime | None,
+    started_to: datetime | None,
+    student: str | None,
+) -> list[Any]:
+    """Construye las condiciones para filtrar sesiones (compartido entre GET y CSV).
+
+    Args:
+        machine_code: Código exacto del equipo, si se filtra.
+        lab_id: Sala del equipo, si se filtra.
+        state: ``active`` (sin cerrar) o ``ended`` (cerrada), si se filtra.
+        started_from: Inicio mínimo, incluido. Sin zona horaria se toma como UTC.
+        started_to: Inicio máximo, excluido. Sin zona horaria se toma como UTC.
+        student: Correo o código exacto del estudiante; se busca por índice ciego.
+
+    Returns:
+        Lista de condiciones para unir con AND en el ``where``. La consulta que las
+        use debe unir ``Machine`` y ``User``.
+    """
+    started_from, started_to = _utc(started_from), _utc(started_to)
+    condiciones: list[Any] = []
+    if machine_code is not None:
+        condiciones.append(Machine.code == machine_code)
+    if lab_id is not None:
+        condiciones.append(Machine.lab_id == lab_id)
+    if state == "active":
+        condiciones.append(AccessSession.ended_at.is_(None))
+    elif state == "ended":
+        condiciones.append(AccessSession.ended_at.is_not(None))
+    if started_from is not None:
+        condiciones.append(AccessSession.started_at >= started_from)
+    if started_to is not None:
+        condiciones.append(AccessSession.started_at < started_to)
+    if student is not None:
+        bidx = pii.indice_ciego(student)
+        condiciones.append(
+            (User.email_bidx == bidx) | (User.student_code_bidx == bidx)
+        )
+    return condiciones
+
+
 def _utc(momento: datetime | None) -> datetime | None:
     """Una fecha sin zona horaria se interpreta como UTC (asyncpg exige fechas con zona)."""
     if momento is not None and momento.tzinfo is None:
@@ -188,6 +239,25 @@ def _item_equipo(machine: Machine, lab_name: str | None) -> MachineItem:
         enrolled_at=machine.enrolled_at,
         last_seen_at=machine.last_seen_at,
     )
+
+
+def _neutralizar_formula(valor: str | None) -> str:
+    """Antepone una comilla si el valor empieza con un carácter peligroso para Excel.
+
+    Evita la inyección de fórmulas en el CSV: Excel interpreta como fórmula las
+    celdas que empiezan con ``=``, ``+``, ``-``, ``@``, tabulador o retorno de carro.
+
+    Args:
+        valor: Texto de la celda, o ``None``.
+
+    Returns:
+        El texto listo para escribir, o cadena vacía si no hay valor.
+    """
+    if not valor:
+        return ""
+    if valor[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{valor}"
+    return valor
 
 
 # ------------------------------------------------------------------------- salas
@@ -400,31 +470,19 @@ async def consultar_sesiones(
     state: Literal["active", "ended"] | None = None,
     started_from: datetime | None = None,
     started_to: datetime | None = None,
+    student: str | None = Query(default=None, max_length=80, description="Correo o código exacto del estudiante"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> AdminSessionsPage:
     """Consulta de accesos con filtros y paginación estricta (limit ≤ 100)."""
-    started_from, started_to = _utc(started_from), _utc(started_to)
-    condiciones: list[Any] = []
-    if machine_code is not None:
-        condiciones.append(Machine.code == machine_code)
-    if lab_id is not None:
-        condiciones.append(Machine.lab_id == lab_id)
-    if state == "active":
-        condiciones.append(AccessSession.ended_at.is_(None))
-    elif state == "ended":
-        condiciones.append(AccessSession.ended_at.is_not(None))
-    if started_from is not None:
-        condiciones.append(AccessSession.started_at >= started_from)
-    if started_to is not None:
-        condiciones.append(AccessSession.started_at < started_to)
-
+    condiciones = _filtros_sesiones(machine_code, lab_id, state, started_from, started_to, student)
     total = (
         await db.execute(
             select(func.count())
             .select_from(AccessSession)
             .join(Machine, Machine.id == AccessSession.machine_id)
+            .join(User, User.id == AccessSession.user_id)
             .where(*condiciones)
         )
     ).scalar_one()
@@ -469,3 +527,116 @@ async def cerrar_sesion_forzada(
     item = _item_sesion(sesion, usuario, codigo, lab)
     await db.commit()
     return AdminSessionResponse(session=item)
+
+
+# ------------------------------------------------------------------------- exportación CSV
+@router.get("/sessions/export")
+async def exportar_sesiones_csv(
+    machine_code: str | None = Query(default=None, max_length=40),
+    lab_id: uuid.UUID | None = None,
+    state: Literal["active", "ended"] | None = None,
+    started_from: datetime | None = None,
+    started_to: datetime | None = None,
+    student: str | None = Query(default=None, max_length=80, description="Correo o código exacto del estudiante"),
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> Response:
+    """Exporta los accesos filtrados a un archivo CSV (UTF-8 con BOM).
+
+    Las fechas se convierten a la zona horaria definida en `settings.csv_timezone`.
+    El archivo trae como máximo `LIMITE_FILAS_CSV` filas; si hay más, se corta y se
+    avisa con la cabecera `X-Export-Truncated: true`.
+
+    Args:
+        machine_code: Código exacto del equipo, si se filtra.
+        lab_id: Sala del equipo, si se filtra.
+        state: ``active`` o ``ended``, si se filtra.
+        started_from: Inicio mínimo, incluido.
+        started_to: Inicio máximo, excluido.
+        student: Correo o código exacto del estudiante, si se filtra.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El CSV como descarga adjunta (``accesos.csv``).
+    """
+    condiciones = _filtros_sesiones(machine_code, lab_id, state, started_from, started_to, student)
+
+    # Se pide una fila de más para saber si el resultado se cortó
+    filas = await db.execute(
+        _consulta_sesiones(*condiciones)
+        .order_by(AccessSession.started_at.desc(), AccessSession.id)
+        .limit(LIMITE_FILAS_CSV + 1)
+    )
+    filas_datos = filas.all()
+    truncado = len(filas_datos) > LIMITE_FILAS_CSV
+    if truncado:
+        filas_datos = filas_datos[:LIMITE_FILAS_CSV]
+
+    # Auditoría
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="admin_export_csv",
+        target_type="session",
+        target_id=None,
+        metadata_info={
+            "filas": len(filas_datos),
+            "truncado": truncado,
+            "filtros": {
+                "machine_code": machine_code,
+                "lab_id": str(lab_id) if lab_id else None,
+                "state": state,
+                "started_from": started_from.isoformat() if started_from else None,
+                "started_to": started_to.isoformat() if started_to else None,
+                "has_student": student is not None,  # No guardamos el valor del estudiante
+            },
+        },
+    )
+    await db.commit()
+
+    tz = ZoneInfo(settings.csv_timezone)
+
+    output = io.StringIO()
+    # BOM de UTF-8 para Excel
+    output.write("\ufeff")
+
+    # SRS: separador coma, 8 columnas exactas
+    writer = csv.writer(output, delimiter=",", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(["Estudiante", "Código", "Equipo", "Sala", "Inicio", "Fin", "Duración (min)", "Motivo de cierre"])
+
+    for sesion, usuario, codigo, lab in filas_datos:
+        nombre, codigo_enmascarado = sesiones.datos_estudiante(usuario)
+
+        # Formateamos las fechas
+        inicio_local = sesion.started_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
+        fin_local = sesion.ended_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if sesion.ended_at else ""
+
+        # Duración en minutos (vacía si no ha terminado)
+        duracion_s = sesiones.duracion_s(sesion.started_at, sesion.ended_at)
+        duracion_min = round(duracion_s / 60) if duracion_s is not None else ""
+
+        motivo = sesion.end_reason.value if sesion.end_reason else ""
+
+        writer.writerow(
+            [
+                _neutralizar_formula(nombre),
+                _neutralizar_formula(codigo_enmascarado),
+                _neutralizar_formula(codigo),
+                _neutralizar_formula(lab or sesiones.LAB_SIN_ASIGNAR),
+                inicio_local,
+                fin_local,
+                duracion_min,
+                motivo,
+            ]
+        )
+
+    cabeceras = {"Content-Disposition": 'attachment; filename="accesos.csv"'}
+    if truncado:
+        cabeceras["X-Export-Truncated"] = "true"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers=cabeceras,
+    )

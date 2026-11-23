@@ -11,6 +11,7 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 import org.internetcafe.desktop.contract.ChallengeWaitResponse;
+import org.internetcafe.desktop.signing.TestRequestSigner;
 import org.junit.jupiter.api.Test;
 
 class ApiClientWaitTest {
@@ -31,7 +32,7 @@ class ApiClientWaitTest {
     AtomicReference<String> requestUri = new AtomicReference<>();
     HttpServer server = serve(APPROVED_JSON, machineCode, requestUri);
     try {
-      ApiClient client = new ApiClient(HttpClient.newHttpClient(), baseUrl(server));
+      ApiClient client = signedClient(server);
 
       ChallengeWaitResponse response = client.waitForChallenge("LAB1-PC03");
 
@@ -52,7 +53,7 @@ class ApiClientWaitTest {
   void waitForChallengeParsesWaitingResponse() throws Exception {
     HttpServer server = serve(WAITING_JSON, new AtomicReference<>(), new AtomicReference<>());
     try {
-      ApiClient client = new ApiClient(HttpClient.newHttpClient(), baseUrl(server));
+      ApiClient client = signedClient(server);
 
       ChallengeWaitResponse response = client.waitForChallenge("LAB1-PC03");
 
@@ -83,5 +84,13 @@ class ApiClientWaitTest {
 
   private static String baseUrl(HttpServer server) {
     return "http://127.0.0.1:" + server.getAddress().getPort();
+  }
+
+  private static ApiClient signedClient(HttpServer server) {
+    return new ApiClient(
+        HttpClient.newHttpClient(),
+        baseUrl(server),
+        new ClockSkewAdjuster(),
+        TestRequestSigner.create());
   }
 }

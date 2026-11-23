@@ -346,12 +346,14 @@ async def registrar(
     if existente is None:
         ahora = datetime.now(UTC)
         activa = not settings.require_email_verification
+        uid = uuid.uuid4()
         usuario = User(
-            email_ct=pii.proteger(datos.email),
+            id=uid,
+            email_ct=pii.proteger(datos.email, aad=f"users.email_ct.{uid}"),
             email_bidx=email_bidx,
-            student_code_ct=pii.proteger(datos.student_code),
+            student_code_ct=pii.proteger(datos.student_code, aad=f"users.student_code_ct.{uid}"),
             student_code_bidx=codigo_bidx,
-            full_name_ct=pii.proteger(datos.full_name),
+            full_name_ct=pii.proteger(datos.full_name, aad=f"users.full_name_ct.{uid}"),
             password_hash=password_hash,
             role=UserRole.student,
             status=UserStatus.active if activa else UserStatus.pending_verification,
@@ -447,7 +449,7 @@ async def iniciar_sesion(
         expires_in=_expira_en(),
         user=UsuarioSesion(
             id=usuario.id,
-            full_name=pii.revelar(usuario.full_name_ct),
+            full_name=pii.revelar(usuario.full_name_ct, aad=f"users.full_name_ct.{usuario.id}"),
             role=usuario.role,
         ),
     )

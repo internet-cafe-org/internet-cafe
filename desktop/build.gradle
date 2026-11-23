@@ -3,6 +3,7 @@ plugins {
     id 'org.openjfx.javafxplugin' version '0.1.0'
     id 'org.beryx.jlink' version '3.0.1'
     id 'com.diffplug.spotless' version '6.25.0'
+    id 'checkstyle'
 }
 
 group = 'org.internetcafe'
@@ -53,6 +54,11 @@ spotless {
     java {
         googleJavaFormat()
     }
+}
+
+checkstyle {
+    toolVersion = '10.17.0'
+    configFile = file('config/checkstyle/checkstyle.xml')
 }
 
 tasks.named('check') {

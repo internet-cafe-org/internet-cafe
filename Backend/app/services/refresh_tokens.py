@@ -98,6 +98,32 @@ async def revocar_familia(db: AsyncSession, family_id: uuid.UUID) -> None:
     )
 
 
+async def revocar_todas_menos(
+    db: AsyncSession, user_id: uuid.UUID, token_actual: str | None
+) -> None:
+    """Revoca los refresh tokens vigentes del usuario, salvo los de la sesión actual.
+
+    Lo usa el cambio de contraseña (SEC-02): las demás sesiones web se cierran y la
+    que hizo el cambio sigue abierta. No hace commit.
+
+    Args:
+        db: Sesión de base de datos.
+        user_id: Dueño de los tokens.
+        token_actual: Refresh token de la sesión que hace el cambio, si lo trae.
+    """
+    familia_actual = None
+    if token_actual:
+        familia_actual = await db.scalar(
+            select(RefreshToken.family_id).where(
+                RefreshToken.token_hash == hash_token(token_actual),
+                RefreshToken.user_id == user_id,
+            )
+        )
+    condiciones = [RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None)]
+    if familia_actual is not None:
+        condiciones.append(RefreshToken.family_id != familia_actual)
+    await db.execute(update(RefreshToken).where(*condiciones).values(revoked_at=_ahora()))
+
 async def rotar(
     db: AsyncSession, token: str, user_agent: str | None = None
 ) -> Rotacion:
