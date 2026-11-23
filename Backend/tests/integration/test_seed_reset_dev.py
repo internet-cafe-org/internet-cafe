@@ -1,5 +1,7 @@
 """Semilla idempotente y reset de dev contra PostgreSQL real (QA-02a, OPS-11)."""
 
+import secrets
+
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -10,7 +12,7 @@ from app.services.passwords import verify_password
 from tools.reset_dev import vaciar_esquema
 from tools.seed_dev import sembrar
 
-CLAVE_BIDX = "0" * 64  # ficticia, solo para la prueba
+CLAVE_BIDX = secrets.token_hex(32)
 EMAIL = "admin@dev.invalid"
 
 

@@ -1,0 +1,322 @@
+/* ── Dark mode overrides (applied when Windows dark mode is detected) ─────── */
+
+/* Global */
+.root {
+    -fx-background-color: #0f172a;
+}
+
+.label {
+    -fx-text-fill: #e2e8f0;
+}
+
+/* QR Screen */
+.qr-screen {
+    -fx-background-color: #0f172a;
+}
+
+.qr-header {
+    -fx-background-color: #020617;
+    -fx-border-color: #1e293b;
+}
+
+.qr-body {
+    -fx-background-color: transparent;
+}
+
+/* Card (passive mode) */
+.qr-card {
+    -fx-background-color: #1e293b;
+    -fx-border-color: #334155;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 12, 0, 0, 2);
+}
+
+/* QR frame */
+.qr-frame {
+    -fx-background-color: #0f172a;
+    -fx-border-color: #3b82f6;
+}
+
+/* Ready badge */
+.qr-ready-badge {
+    -fx-background-color: #1e3a5f;
+    -fx-text-fill: #93c5fd;
+}
+
+/* Countdown bar */
+.qr-countdown-bar .track {
+    -fx-background-color: #334155;
+}
+
+.qr-countdown-bar .bar {
+    -fx-background-color: #3b82f6;
+}
+
+.qr-countdown {
+    -fx-text-fill: #94a3b8;
+}
+
+/* Machine info */
+.qr-machine-code {
+    -fx-text-fill: #cbd5e1;
+}
+
+.qr-lab {
+    -fx-text-fill: #64748b;
+}
+
+/* Right panel */
+.qr-cred-label {
+    -fx-text-fill: #64748b;
+}
+
+.qr-instr-title {
+    -fx-text-fill: #f1f5f9;
+}
+
+.qr-instr-desc {
+    -fx-text-fill: #94a3b8;
+}
+
+.qr-step-icon {
+    -fx-text-fill: #64748b;
+}
+
+.qr-step-title {
+    -fx-text-fill: #e2e8f0;
+}
+
+.qr-step-desc {
+    -fx-text-fill: #64748b;
+}
+
+/* Omitir row */
+.qr-omitir-row {
+    -fx-background-color: #0f172a;
+    -fx-border-color: #1e293b;
+}
+
+.qr-skip-hint {
+    -fx-text-fill: #64748b;
+}
+
+/* Kiosk panel */
+.qr-kiosk-panel {
+    -fx-background-color: #1e293b;
+    -fx-border-color: #334155;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 12, 0, 0, 2);
+}
+
+.qr-kiosk-mode-label {
+    -fx-text-fill: #64748b;
+}
+
+.qr-kiosk-title {
+    -fx-text-fill: #f1f5f9;
+}
+
+.qr-kiosk-sub {
+    -fx-text-fill: #94a3b8;
+}
+
+.qr-kiosk-confirm {
+    -fx-text-fill: #64748b;
+}
+
+/* Legal footer */
+.qr-legal-footer {
+    -fx-background-color: #020617;
+    -fx-border-color: #1e293b;
+}
+
+.qr-legal {
+    -fx-text-fill: #475569;
+}
+
+/* Connection badge */
+.qr-connection.online {
+    -fx-background-color: #14532d;
+    -fx-text-fill: #86efac;
+}
+
+.qr-connection.connecting {
+    -fx-background-color: #451a03;
+    -fx-text-fill: #fcd34d;
+}
+
+.qr-connection.offline {
+    -fx-background-color: #450a0a;
+    -fx-text-fill: #fca5a5;
+}
+
+/* Board screen */
+.board-screen {
+    -fx-background-color: #0f172a;
+}
+
+/* Offline screen */
+.offline-screen {
+    -fx-background-color: #0f172a;
+}
+
+.offline-card {
+    -fx-background-color: #1e293b;
+    -fx-border-color: #334155;
+}
+
+.offline-title {
+    -fx-text-fill: #f1f5f9;
+}
+
+.offline-message {
+    -fx-text-fill: #94a3b8;
+}
+
+
+/* ── Board screen ────────────────────────────────────────────────────────── */
+.board-title {
+    -fx-text-fill: #f1f5f9;
+}
+.board-name {
+    -fx-text-fill: #e2e8f0;
+}
+.board-code {
+    -fx-text-fill: #94a3b8;
+}
+.board-start {
+    -fx-text-fill: #64748b;
+}
+.board-elapsed {
+    -fx-text-fill: #94a3b8;
+}
+.board-recent-sessions {
+    -fx-background-color: #1e293b;
+    -fx-border-color: #334155;
+}
+.board-recent-row {
+    -fx-border-color: #334155;
+}
+.board-logout {
+    -fx-background-color: #7f1d1d;
+    -fx-text-fill: #fca5a5;
+}
+.board-back {
+    -fx-text-fill: #94a3b8;
+}
+
+/* ── Offline screen (compact card) ──────────────────────────────────────── */
+.offline-icon.tone-info {
+    -fx-background-color: #1e3a5f;
+    -fx-text-fill: #93c5fd;
+}
+.offline-icon.tone-warning {
+    -fx-background-color: #451a03;
+    -fx-text-fill: #fcd34d;
+}
+.offline-icon.tone-success {
+    -fx-background-color: #14532d;
+    -fx-text-fill: #86efac;
+}
+.offline-subtitle {
+    -fx-text-fill: #64748b;
+}
+.offline-detail {
+    -fx-text-fill: #475569;
+}
+.offline-banner.tone-info {
+    -fx-background-color: #1e3a5f;
+    -fx-border-color: #2563eb;
+}
+.offline-banner.tone-warning {
+    -fx-background-color: #451a03;
+    -fx-border-color: #d97706;
+}
+.offline-banner.tone-success {
+    -fx-background-color: #14532d;
+    -fx-border-color: #16a34a;
+}
+.offline-banner-title {
+    -fx-text-fill: #f1f5f9;
+}
+.offline-banner.tone-warning .offline-banner-title {
+    -fx-text-fill: #fcd34d;
+}
+.offline-banner.tone-warning .offline-banner-text {
+    -fx-text-fill: #fbbf24;
+}
+.offline-banner.tone-success .offline-banner-title {
+    -fx-text-fill: #86efac;
+}
+.offline-banner-text {
+    -fx-text-fill: #94a3b8;
+}
+.offline-retry:disabled {
+    -fx-background-color: #334155;
+    -fx-text-fill: #64748b;
+}
+.offline-home {
+    -fx-text-fill: #60a5fa;
+}
+
+/* ── Fail-open (fo-*) ───────────────────────────────────────────────────── */
+.fo-card {
+    -fx-background-color: #1e293b;
+    -fx-border-color: #334155;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 14, 0, 0, 3);
+}
+.fo-banner {
+    -fx-background-color: #451a03;
+    -fx-border-color: #d97706;
+}
+.fo-banner-title {
+    -fx-text-fill: #fcd34d;
+}
+.fo-banner-text {
+    -fx-text-fill: #fbbf24;
+}
+.fo-badge {
+    -fx-background-color: #451a03;
+    -fx-text-fill: #fcd34d;
+}
+.fo-cols {
+    -fx-border-color: #334155;
+}
+.fo-left {
+    -fx-background-color: #0f172a;
+    -fx-border-color: #334155;
+}
+.fo-qr-icon {
+    -fx-text-fill: #334155;
+}
+.fo-qr-label {
+    -fx-text-fill: #64748b;
+}
+.fo-qr-hint {
+    -fx-text-fill: #475569;
+}
+.fo-right-title {
+    -fx-text-fill: #f1f5f9;
+}
+.fo-right-desc {
+    -fx-text-fill: #94a3b8;
+}
+.fo-cred-box {
+    -fx-background-color: #0f172a;
+    -fx-border-color: #334155;
+}
+.fo-cred-title {
+    -fx-text-fill: #e2e8f0;
+}
+.fo-cred-desc {
+    -fx-text-fill: #64748b;
+}
+.fo-footer {
+    -fx-background-color: #0f172a;
+}
+.fo-status {
+    -fx-text-fill: #475569;
+}
+.fo-contact-btn {
+    -fx-background-color: #1e293b;
+    -fx-text-fill: #e2e8f0;
+    -fx-border-color: #334155;
+}

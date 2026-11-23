@@ -144,8 +144,12 @@ async def test_contrasena_actual_incorrecta_no_cambia_nada(
         headers=_bearer(claves, datos.ana),
     )
 
-    assert resp.status_code == 422
-    assert resp.json()["code"] == "VALIDATION_ERROR"
+    # RF-AUT-10: 401 con un código propio, distinto de los del token (el cliente no
+    # debe renovar ni cerrar la sesión por una contraseña mal escrita)
+    assert resp.status_code == 401
+    assert resp.json()["code"] == "AUTH_CURRENT_PASSWORD_INVALID"
+    assert resp.json()["detail"] == "La contraseña actual no es correcta."
+    assert resp.headers["content-type"].startswith("application/problem+json")
     assert CLAVE_NUEVA not in resp.text
     assert "OtraClave-incorrecta" not in resp.text
     assert verify_password(CLAVE_ACTUAL, await _hash_guardado(sesiones, datos.ana))
