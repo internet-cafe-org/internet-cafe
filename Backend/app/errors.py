@@ -55,6 +55,8 @@ class ErrorCode(StrEnum):
     # Genérico del contrato v0.2 (BE-18): el recurso existe pero la operación choca
     # con su estado (nombre de sala repetido, activar un equipo sin enrolar)
     CONFLICT = "CONFLICT"
+    # BE-21: Endurecimiento (el cuerpo de la petición supera el límite permitido)
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
 
     @property
     def spec(self) -> ErrorSpec:
@@ -144,6 +146,10 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
     ),
     ErrorCode.CONFLICT: ErrorSpec(
         409, "Conflicto", "La operación no es posible en el estado actual del recurso."
+    ),
+    # BE-21: Catálogo para el error de cuerpo demasiado grande
+    ErrorCode.PAYLOAD_TOO_LARGE: ErrorSpec(
+        413, "Cuerpo demasiado grande", "El cuerpo de la petición supera el límite permitido."
     ),
 }
 

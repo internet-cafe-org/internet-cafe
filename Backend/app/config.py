@@ -89,6 +89,14 @@ class Settings(BaseSettings):
     rate_limit_saltos_web: int = 2
     rate_limit_saltos_equipo: int = 1
 
+    # Endurecimiento de la API (BE-21, SRS §12.9).
+    # Hosts que la API acepta en la cabecera Host, separados por comas
+    # (p. ej. "internet-cafe-tq03.onrender.com").
+    # Vacío: no se restringe (desarrollo local, pruebas y CI).
+    allowed_hosts: str = ""
+    # Tamaño máximo del cuerpo de una petición, en bytes; si se supera, responde 413.
+    max_body_bytes: int = 65536
+
     # Exportación CSV (ST-BE-03): zona horaria con la que se muestran las fechas.
     # Ej: "America/Bogota", "UTC", "Europe/Madrid".
     csv_timezone: str = "America/Bogota"
@@ -106,6 +114,16 @@ class Settings(BaseSettings):
             for d in self.allowed_email_domains.split(",")
             if d.strip()
         )
+
+    @property
+    def hosts_permitidos(self) -> list[str]:
+        """Devuelve los hosts de ``ALLOWED_HOSTS`` normalizados.
+
+        Returns:
+            Lista de hosts en minúsculas y sin espacios; vacía si no se configuró
+            ninguno (en ese caso no se restringe la cabecera Host).
+        """
+        return [h.strip().lower() for h in self.allowed_hosts.split(",") if h.strip()]
 
     @model_validator(mode="after")
     def _validar_timezone(self) -> "Settings":
