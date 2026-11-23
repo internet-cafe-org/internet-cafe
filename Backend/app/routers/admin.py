@@ -75,6 +75,8 @@ class LabPatch(BaseModel):
     def _al_menos_un_campo(self) -> "LabPatch":
         if not self.model_fields_set:
             raise ValueError("Envía al menos un campo para modificar.")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("El nombre no puede ser null.")
         return self
 
 
@@ -86,6 +88,7 @@ class MachineCreate(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     lab_id: uuid.UUID | None = None
     mode: MachineMode = MachineMode.passive
+
 
 class MachinePatch(BaseModel):
     """Edición de un equipo: sala, modo o estado (activar/deshabilitar)."""
@@ -300,7 +303,7 @@ async def editar_sala(
         lab_id: UUID de la sala a editar.
         body: Campos a modificar (name y/o building).
         admin: Administrador autenticado.
-        db: Sesion de base de datos.
+        db: Sesión de base de datos.
 
     Returns:
         La sala con los datos actualizados.
@@ -359,15 +362,15 @@ async def crear_equipo(
     """Crea un equipo en estado `pending_enrollment` y lo audita.
 
     Args:
-        body: Codigo, sala y modo inicial del equipo.
+        body: Código, sala y modo inicial del equipo.
         admin: Administrador autenticado.
-        db: Sesion de base de datos.
+        db: Sesión de base de datos.
 
     Returns:
         El equipo creado con todos sus campos.
 
     Raises:
-        AppError: `CONFLICT` si ya existe un equipo con ese codigo.
+        AppError: `CONFLICT` si ya existe un equipo con ese código.
         AppError: `NOT_FOUND` si la sala indicada no existe.
     """
     if body.lab_id is not None:
@@ -378,7 +381,7 @@ async def crear_equipo(
         await db.execute(select(Machine.id).where(Machine.code == body.code))
     ).scalar_one_or_none()
     if existente is not None:
-        raise AppError(ErrorCode.CONFLICT, detail="Ya existe un equipo con ese codigo.")
+        raise AppError(ErrorCode.CONFLICT, detail="Ya existe un equipo con ese código.")
 
     equipo = Machine(
         code=body.code,
@@ -391,7 +394,7 @@ async def crear_equipo(
         await db.flush()
     except IntegrityError:
         await db.rollback()
-        raise AppError(ErrorCode.CONFLICT, detail="Ya existe un equipo con ese codigo.") from None
+        raise AppError(ErrorCode.CONFLICT, detail="Ya existe un equipo con ese código.") from None
 
     await audit(
         db,
@@ -401,8 +404,15 @@ async def crear_equipo(
         target_type="machine",
         target_id=equipo.id,
     )
+    # Consultar el nombre de la sala para incluirlo en la respuesta
+    lab_name = None
+    if equipo.lab_id is not None:
+        lab_name = (
+            await db.execute(select(Lab.name).where(Lab.id == equipo.lab_id))
+        ).scalar_one_or_none()
     await db.commit()
-    return _item_equipo(equipo, None)
+    return _item_equipo(equipo, lab_name)
+
 
 @router.get("/machines", response_model=MachinesPage)
 async def listar_equipos(
