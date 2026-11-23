@@ -79,8 +79,9 @@ services:
         value: "true"
 
       # Base con la que el equipo firma @target-uri (no la URL interna del proxy).
+      # Corregido al host real de Render.
       - key: PUBLIC_API_BASE_URL
-        value: https://internet-cafe-backend-dev.onrender.com
+        value: https://internet-cafe-tq03.onrender.com
 
       # Previews de Vercel aceptados en /auth/refresh y /auth/logout (solo con APP_ENV=dev).
       - key: ORIGEN_PREVIEW_REGEX
@@ -88,6 +89,16 @@ services:
 
       - key: RATE_LIMIT_ENABLED
         value: "true"
+
+      # BE-21: endurecimiento de la API (SRS §12.9)
+      # Hosts aceptados en la cabecera Host: solo el host real de Render.
+      # El de Vercel no hace falta: el rewrite de /api llega a Render con el host de Render.
+      - key: ALLOWED_HOSTS
+        value: internet-cafe-tq03.onrender.com
+
+      # Tamaño máximo del cuerpo de una petición (64 KB).
+      - key: MAX_BODY_BYTES
+        value: "65536"
 
       # -----------------------------------------------------------------------
       # Secretos: sync: false → Render los marca como requeridos pero NO los
@@ -128,3 +139,4 @@ services:
     # Render llama a este endpoint para confirmar que el contenedor arrancó bien.
     # Solo /healthz es el healthCheckPath; /readyz lo verifica el pipeline deploy-dev.
     healthCheckPath: /healthz
+

@@ -2,6 +2,7 @@
 entregables/
 desktop/.gradle/
 desktop/build/
+desktop/mock-api.log
 
 # Secretos locales: nunca se suben
 .env

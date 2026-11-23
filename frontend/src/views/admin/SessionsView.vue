@@ -5,6 +5,8 @@ import { RouterLink } from 'vue-router'
 import { useSignOut } from '@/composables/useSignOut'
 import { ApiError } from '@/errors/problem-details'
 import {
+  downloadBlob,
+  exportAdminSessionsCsv,
   forceEndSession,
   getAdminLabs,
   getAdminSessions,
@@ -21,6 +23,8 @@ const loading = ref(true)
 const labsLoading = ref(true)
 const error = ref<string | null>(null)
 const successBanner = ref<string | null>(null)
+const isExporting = ref(false)
+const exportError = ref<string | null>(null)
 const labs = ref<LabItem[]>([])
 const sessions = ref<AdminSession[]>([])
 const totalSessions = ref(0)
@@ -192,7 +196,66 @@ function onClearFilters() {
   filters.started_from = ''
   filters.started_to = ''
   dateValidationError.value = null
+  exportError.value = null
   void loadSessions(true)
+}
+
+async function onExportCsv() {
+  if (isExporting.value) return
+
+  dateValidationError.value = null
+  if (filters.started_from && filters.started_to && filters.started_from > filters.started_to) {
+    dateValidationError.value = 'La fecha "desde" no puede ser posterior a la fecha "hasta".'
+    return
+  }
+
+  isExporting.value = true
+  exportError.value = null
+
+  let startedFromIso: string | undefined
+  let startedToIso: string | undefined
+
+  if (filters.started_from) {
+    startedFromIso = `${filters.started_from}T00:00:00Z`
+  }
+  if (filters.started_to) {
+    startedToIso = `${filters.started_to}T23:59:59Z`
+  }
+
+  try {
+    const result = await exportAdminSessionsCsv({
+      machine_code: filters.machine_code.trim() || undefined,
+      lab_id: filters.lab_id || undefined,
+      state: (filters.state as 'active' | 'ended') || undefined,
+      started_from: startedFromIso,
+      started_to: startedToIso,
+      student: filters.student.trim() || undefined,
+    })
+
+    downloadBlob(result.blob, result.filename)
+
+    if (result.truncated) {
+      successBanner.value = `Archivo ${result.filename} descargado. Nota: El resultado superó el límite y fue truncado por el servidor.`
+    } else {
+      successBanner.value = `Archivo ${result.filename} descargado con éxito.`
+    }
+  } catch (err) {
+    if (err instanceof ApiError) {
+      if (err.status === 401) {
+        exportError.value = 'No autorizado para exportar. Tu sesión puede haber expirado.'
+      } else if (err.status === 403) {
+        exportError.value = 'No tienes permisos de administrador para exportar datos.'
+      } else {
+        exportError.value = err.message || 'Error al exportar los datos.'
+      }
+    } else if (err instanceof Error) {
+      exportError.value = err.message
+    } else {
+      exportError.value = 'No se pudo conectar con el servidor para exportar el archivo.'
+    }
+  } finally {
+    isExporting.value = false
+  }
 }
 
 function goToNextPage() {
@@ -372,6 +435,29 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div
+          v-if="exportError"
+          class="alert-banner alert-banner--error"
+          role="alert"
+          aria-live="assertive"
+        >
+          <div class="alert-banner__content">
+            <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+            <div>
+              <strong>Error al exportar accesos</strong>
+              <p>{{ exportError }}</p>
+            </div>
+          </div>
+          <button
+            class="alert-banner__close"
+            type="button"
+            aria-label="Cerrar notificación"
+            @click="exportError = null"
+          >
+            <i class="pi pi-times" aria-hidden="true"></i>
+          </button>
+        </div>
+
         <!-- Panel de filtros -->
         <section class="filters-card" aria-labelledby="filters-title">
           <h2 id="filters-title" class="sr-only">Filtros de búsqueda</h2>
@@ -437,18 +523,31 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="filters-actions">
-              <button class="btn-primary" type="submit" :disabled="loading">
+              <button class="btn-primary" type="submit" :disabled="loading || isExporting">
                 <i class="pi pi-filter" aria-hidden="true"></i>
                 Aplicar filtros
               </button>
               <button
                 class="btn-secondary"
                 type="button"
-                :disabled="loading"
+                :disabled="loading || isExporting"
                 @click="onClearFilters"
               >
                 <i class="pi pi-filter-slash" aria-hidden="true"></i>
                 Limpiar filtros
+              </button>
+              <button
+                class="btn-export"
+                type="button"
+                :disabled="loading || isExporting"
+                :aria-busy="isExporting"
+                @click="onExportCsv"
+              >
+                <i
+                  :class="isExporting ? 'pi pi-spin pi-spinner' : 'pi pi-download'"
+                  aria-hidden="true"
+                ></i>
+                <span>{{ isExporting ? 'Exportando…' : 'Exportar CSV' }}</span>
               </button>
             </div>
           </form>
@@ -1053,6 +1152,27 @@ onBeforeUnmount(() => {
   background-color: #f8fafc;
 }
 
+.btn-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #ffffff;
+  color: var(--admin-action);
+  border: 1px solid var(--admin-action);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-export:hover:not(:disabled) {
+  background-color: #eff6ff;
+  border-color: var(--admin-action-hover);
+  color: var(--admin-action-hover);
+}
+
 .btn-danger {
   display: inline-flex;
   align-items: center;
@@ -1470,7 +1590,8 @@ button:disabled {
   }
 
   .btn-primary,
-  .btn-secondary {
+  .btn-secondary,
+  .btn-export {
     width: 100%;
     justify-content: center;
   }
