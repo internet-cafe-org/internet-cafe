@@ -1,4 +1,4 @@
-﻿"""Funciones de administración (contrato v0.2 / BE-18, SRS §10.3).
+"""Funciones de administración (contrato v0.2 / BE-18, SRS §10.3).
 
 Denegación por defecto: `require_admin` va a nivel de router, así que ninguna ruta
 nueva queda abierta por olvido. Las respuestas de administración nunca incluyen
@@ -74,7 +74,7 @@ class LabPatch(BaseModel):
     @model_validator(mode="after")
     def _al_menos_un_campo(self) -> "LabPatch":
         if not self.model_fields_set:
-            raise ValueError("Envia al menos un campo para modificar.")
+            raise ValueError("Envía al menos un campo para modificar.")
         return self
 
 
@@ -329,6 +329,12 @@ async def editar_sala(
 
     if "building" in body.model_fields_set:
         sala.building = body.building
+
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise AppError(ErrorCode.CONFLICT, detail="Ya existe una sala con ese nombre.") from None
 
     await audit(
         db,

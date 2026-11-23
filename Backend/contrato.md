@@ -1,102 +1,5 @@
-﻿# Contrato de Backend y Especificación de Datos / OpenAPI v0.2.1 - Sprint 2
-
-> Fuente de verdad: el bloque YAML de este documento es idéntico a `openapi.yaml`.
-> Estado: **borrador para aprobación** de los líderes de UI, Desktop y Seguridad.
-
-## 1. Objetivo del Módulo
-Contrato técnico y de datos de la API REST del sistema Internet Café, acordado con los equipos de UI, Desktop y Seguridad.
-
-| Entrega | Contenido |
-|---|---|
-| **v0.2 · lunes 02/11** | Latido del equipo con `mode` y estado de sesión; sesión actual del equipo; cierres (`user_logout_pc`, `machine_shutdown`, y el aviso de cierres remotos por latido). |
-| **v0.2 · martes 03/11** | `/me` (perfil, historial, sesión activa, cierre propio); administración (salas, equipos, sesiones y cierre forzado); firma por petición del equipo. |
-| **v0.2.1 · sábado 14/11** | `/auth/*` y `/machine/enroll` según el SRS §10.3; autenticación de `/scan/*` y `/machine/challenges`; retiro de las rutas de v0.1 que nunca existieron en la API. |
-
-## 2. Cambios
-
-### v0.2.1 respecto a v0.2
-- **Nuevo** `POST /auth/register` y `POST /auth/login` (SEC-02).
-- **Documentados** `POST /auth/refresh` y `POST /auth/logout` (SEC-03a), que ya existían en la API pero no estaban en el YAML.
-- **Nuevo** `POST /machine/enroll` (SEC-05), con la forma del SRS §8.4 y §12.4.
-- **Documentados** `GET /healthz` y `GET /readyz`, fuera del prefijo `/api/v1`.
-- **Cambia** `/scan/preview` y `/scan/claim`: exigen `bearerAuth`. El usuario sale del access token; se elimina la cabecera `X-User-Id`.
-- **Cambia** `/machine/challenges` y `/machine/challenges/wait`: usan la misma autenticación que el resto de `/machine/*` (`machineSignature` o `machineProvisional`); ya no basta con `X-Machine-Code`.
-- **Cambia** la cookie de refresh: se llama `__Secure-rt` (SRS §12.2); antes era `refresh_token`.
-- **Nuevas** respuestas `Locked` (423), `TooManyRequests` (429) y `ServiceUnavailable` (503), y los esquemas `AccessToken`, `SessionUser`, `LoginResponse` y `MachineJwk`.
-- **Retiradas** `/registro`, `/enroll`, `/credencial-provisional` y `/long-poll`: venían del borrador v0.1 y la API nunca las implementó. Sus reemplazos son `/auth/register`, `/machine/enroll`, la credencial que devuelve `/machine/enroll` y `/machine/challenges/wait`.
-
-### v0.2 respecto a v0.1
-- **Nuevo** `POST /machine/heartbeat`, `GET /machine/sessions/current`, `POST /machine/sessions/current/end`.
-- **Nuevo** `GET /me`, `GET /me/sessions`, `GET /me/sessions/active`, `POST /me/sessions/{id}/end`.
-- **Nuevo** `GET|POST /admin/labs`, `PATCH /admin/labs/{id}`, `GET|POST /admin/machines`, `PATCH /admin/machines/{id}`, `GET /admin/sessions`, `POST /admin/sessions/{id}/end`.
-- **Nuevo** código de error genérico `CONFLICT` (409). Los demás vienen del catálogo del SRS §10.5.
-- `ProblemDetails` pasa a llamarse `ProblemDetail` y es el único esquema de error (antes convivían los dos nombres); se añade `FieldError`.
-
-### Impacto en los clientes
-- **UI:** regenerar `frontend/src/api/schema.d.ts`; `services/auth.ts` ya usa la forma de `/auth/register` y `/auth/login`. La cookie cambia de nombre, pero la web no la lee (es HttpOnly).
-- **Desktop:** `EnrollmentRequest` pasa a `{enrollment_code, jwk, proof, hostname?, app_version?}` y `EnrollmentResponse` a `{machine_id, code, lab, mode, keyid, provisional_credential}`, en `POST /machine/enroll`. `/machine/challenges` y `/machine/challenges/wait` deben enviar `X-Machine-Key` además de `X-Machine-Code`.
-
-## 3. Autenticación por actor
-| Esquema | Rutas | Detalle |
-|---|---|---|
-| Ninguno (público, con rate limit) | `/healthz`, `/readyz`, `/auth/register`, `/auth/login` | El rate limit llega con SEC-09 (`RATE_LIMIT_ENABLED`). |
-| Cookie `__Secure-rt` + `Origin` | `/auth/refresh`, `/auth/logout` | Ver la sección 4. |
-| `bearerAuth` | `/me/*`, `/scan/*`, `/admin/*` | Access token ES256 de 10 min (`alg` fijo, `iss`, `aud = web`, `sub`, `role`, `jti`). `/admin/*` exige `role = admin` (`FORBIDDEN` si no). |
-| Código de un solo uso + prueba de posesión | `/machine/enroll` | Ver la sección 5. |
-| `machineSignature` | `/machine/*` excepto enroll (objetivo) | RFC 9421 con `@method`, `@target-uri` y `content-digest` (RFC 9530). `created` ±30 s (`MACHINE_CLOCK_SKEW`); nonce no repetido en 60 s; firma ausente, inválida o repetida → `MACHINE_SIGNATURE_INVALID`. |
-| `machineProvisional` | `/machine/*` excepto enroll (transitorio) | `X-Machine-Code` + `X-Machine-Key`. El servidor guarda solo el SHA-256 y compara en tiempo constante. Se retira con SEC-14, cuando la firma sea obligatoria (`MACHINE_AUTH_MODE=signature`). |
-
-Los routers no cambian al activar la firma: solo se reemplaza la dependencia `require_machine`.
-
-**Modo de autenticación del equipo (`MACHINE_AUTH_MODE`, SEC-07):**
-- `token`: solo `X-Machine-Code` + `X-Machine-Key`.
-- `dual` (dev hoy): si la petición trae `Signature-Input` y `Signature`, la firma debe ser válida; si no, se acepta la credencial provisional.
-- `signature` (producción, y dev tras OPS-16): solo la firma.
-
-**Salida transitoria (solo dev):** con `RETOS_ACEPTAN_SOLO_CODIGO=true`, `/machine/challenges` y `/machine/challenges/wait` aceptan una petición con solo `X-Machine-Code`, para no dejar sin QR al escritorio actual mientras se actualiza. Se ignora con `APP_ENV=prod`, cada uso queda en el log (`machine.retos_solo_codigo`) y se elimina con SEC-14.
-
-Perfil de la firma (vectores en `contracts/test-vectors`, SEC-08): `sig1`, `ecdsa-p256-sha256`, componentes `@method`, `@target-uri` y, solo con cuerpo, `content-digest`; parámetros `created`, `keyid` (huella RFC 7638), `alg` y `nonce`; `@target-uri` = `PUBLIC_API_BASE_URL` + ruta + query; firma `r||s` de 64 bytes en base64.
-
-## 4. Sesión web: registro, login, refresh y logout
-- **Registro** (`POST /auth/register`): con datos válidos responde siempre 202 con el cuerpo vacío, también si el correo o el código estudiantil ya existen (no se crea otra cuenta ni se revela cuál existe). Contraseña de 10 a 128 caracteres (Argon2id); `privacy_consent` debe ser `true`; un dominio de correo no permitido devuelve 422. En el MVP la cuenta queda activa (`REQUIRE_EMAIL_VERIFICATION=false`, backlog §4) y la web inicia sesión sola.
-- **Login** (`POST /auth/login`): devuelve `{access_token, token_type: "Bearer", expires_in, user: {id, full_name, role}}` y pone la cookie. Credenciales inválidas o cuenta bloqueada → 401 `AUTH_INVALID_CREDENTIALS`, sin distinguir si el correo existe.
-- **Cookie:** `__Secure-rt`, HttpOnly, Secure, SameSite=Strict, `Path=/api/v1/auth`, 7 días. El refresh es opaco (256 bits), la API guarda solo su hash y nunca viaja en el cuerpo. El access token se entrega en el cuerpo y el cliente lo guarda en memoria.
-
-| Método y ruta | Descripción | Respuestas |
-|---|---|---|
-| `POST /api/v1/auth/refresh` | Rota el refresh (revoca el usado y emite otro en la misma familia) y devuelve `{access_token, token_type, expires_in}` | 200; 401 `AUTH_INVALID_CREDENTIALS` (sin cookie, desconocido, revocado o reutilizado); 401 `AUTH_TOKEN_EXPIRED` (vencido); 403 `FORBIDDEN` (`Origin` no permitido) |
-| `POST /api/v1/auth/logout` | Revoca la familia del token y borra la cookie. Idempotente | 204; 403 `FORBIDDEN` (`Origin` no permitido) |
-
-Si se presenta un refresh token ya revocado **fuera de la gracia de 10 s** se considera robo y se revoca toda la familia. Dentro de la gracia (dos pestañas que renuevan a la vez) se emite otro token de la misma familia (SEC-03b). `Origin` se valida contra `FRONTEND_BASE_URL`, `ALLOWED_ORIGIN` y, solo en dev, `ORIGEN_PREVIEW_REGEX`.
-
-**Bloqueo y límites (SEC-09):** 5 contraseñas fallidas seguidas bloquean la cuenta 15 min (423 `AUTH_ACCOUNT_LOCKED`). `/auth/*`, `/scan/claim` y `/machine/enroll` admiten 10 peticiones por minuto por cuenta y por IP (429 `RATE_LIMITED` con `Retry-After`); el refresh solo cuenta por su token.
-
-## 5. Enrolamiento del equipo (`POST /machine/enroll`)
-1. El administrador genera un código de un solo uso que vence en 24 h. En el MVP lo genera la semilla de dev (QA-02a); el endpoint de administración llega con BE-13.
-2. El equipo genera un par ECDSA P-256 y envía `{enrollment_code, jwk, proof}`. `jwk` es la clave pública (`kty = EC`, `crv = P-256`, `x`, `y`; sin `d`). `proof` es la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y base64url sin relleno.
-3. La API valida el JWK, verifica la firma, calcula la huella RFC 7638 (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional y audita `machine.enroll`. Todo en una transacción.
-4. Respuesta 201: `{machine_id, code, lab, mode, keyid, provisional_credential}`. La credencial se muestra una sola vez; la API guarda solo su hash.
-
-Errores: código inexistente, usado o vencido → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido → 422 `VALIDATION_ERROR`; clave ya registrada por otro equipo → 409 `CONFLICT`.
-
-## 6. Latido y cierres
-- `POST /machine/heartbeat` (cada 60 s): `{ "server_time", "mode", "session_status", "session_id?", "end_reason?" }`.
-  `session_status`: `active` | `ended` | `none`. El equipo envía `session_id` con la sesión que cree tener; si ya cerró, recibe `ended` y el `end_reason`, que es como se entera de un cierre remoto (web, administrador o reemplazo).
-- Motivos de cierre (`end_reason`): `user_logout_pc`, `user_logout_web`, `superseded`, `heartbeat_timeout`, `admin_forced`, `machine_shutdown`.
-- Un cierre es atómico e idempotente: el primero gana y un reintento devuelve el estado final sin error.
-- Sin latido durante 3 min la API cierra la sesión con `ended_at = last_heartbeat_at` (RN-07; tarea periódica).
-
-## 7. Formato de errores (QA-03)
-- Todos los errores salen como `application/problem+json` con el esquema `ProblemDetail`.
-- `type` se arma con `ERRORS_BASE_URL` más el `code` en kebab-case (`CHALLENGE_EXPIRED` → `/challenge-expired`).
-- Los 422 llevan `code: VALIDATION_ERROR` y `errors[]` con `field` y `message`. No devuelven `input` ni `ctx`, para no repetir contraseñas u otros datos del cliente. Los cuerpos de `/auth/*`, `/machine/enroll`, `/machine/heartbeat`, `/me` y `/admin` rechazan campos desconocidos.
-- Además del catálogo del SRS §10.5 existen los códigos genéricos `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `INTERNAL_ERROR` y `CONFLICT`.
-- Un 500 no incluye la traza; el servidor registra un `request_id` que viaja en la cabecera `X-Request-ID`.
-- Ninguna respuesta incluye contraseñas, hashes, refresh tokens, claves privadas ni el código de estudiante completo (siempre `student_code_masked`). La única excepción es `provisional_credential`, que `/machine/enroll` entrega una sola vez.
-
-## 8. Especificación OpenAPI v0.2.1
-```yaml
-openapi: 3.0.3
+﻿# Contr```yaml
+﻿openapi: 3.0.3
 info:
   title: Internet Cafe API - Contrato
   version: 0.2.1
@@ -957,7 +860,8 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
-          $ref: '#/components/responses/ValidationError'  /api/v1/admin/machines:
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines:
     post:
       tags:
       - admin

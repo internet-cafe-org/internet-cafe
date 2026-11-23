@@ -1,4 +1,4 @@
-"""Pruebas de integración para BE-12: admin de salas y equipos (HU-14).
+﻿"""Pruebas de integración para BE-12: admin de salas y equipos (HU-14).
 
 Verifica el camino feliz de los endpoints de administración de salas y equipos
 contra la API real (/api/v1/admin) con una base de datos PostgreSQL de pruebas.
@@ -40,7 +40,6 @@ from app.models import (
     Lab,
     LoginChallenge,
     Machine,
-    MachineMode,
     MachineStatus,
     SessionEndReason,
     User,
