@@ -89,7 +89,10 @@ describe('Servicio adminSessions', () => {
     setAccessToken('mock-admin-token')
     const result = await exportAdminSessionsCsv({ machine_code: 'LAB3-PC12' })
 
-    expect(result.blob).toBeInstanceOf(Blob)
+    expect(result.blob).toBeDefined()
+    expect(result.blob.size).toBeGreaterThan(0)
+    expect(result.blob.type).toContain('text/csv')
+    expect(typeof result.blob.text).toBe('function')
     expect(result.filename).toBe('accesos.csv')
     expect(result.truncated).toBe(false)
 
