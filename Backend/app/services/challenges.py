@@ -26,7 +26,7 @@ from app.models import (
     SessionEndReason,
     User,
 )
-from app.services import events
+from app.services import events, pii
 
 CHALLENGE_TTL_S = 60
 ROTATE_AFTER_S = 45
@@ -378,17 +378,8 @@ async def reclamar_reto_qr(
     user_res = await db.execute(select(User).where(User.id == user_id))
     user_obj = user_res.scalar_one_or_none()
     if user_obj:
-        if user_obj.full_name_ct:
-            try:
-                full_name = user_obj.full_name_ct.decode("utf-8", errors="ignore") or "Estudiante"
-            except Exception:
-                full_name = "Estudiante"
-        if user_obj.student_code_ct:
-            try:
-                raw_code = user_obj.student_code_ct.decode("utf-8", errors="ignore")
-                student_code_masked = mask_student_code(raw_code)
-            except Exception:
-                pass
+        full_name = pii.revelar(user_obj.full_name_ct, "Estudiante", aad=f"users.full_name_ct.{user_obj.id}")
+        student_code_masked = mask_student_code(pii.revelar(user_obj.student_code_ct, "", aad=f"users.student_code_ct.{user_obj.id}"))
 
     session_payload = {
         "status": "approved",
@@ -445,17 +436,14 @@ async def obtener_sesion_activa_equipo(
         user_res = await db.execute(select(User).where(User.id == sesion.user_id))
         user_obj = user_res.scalar_one_or_none()
         if user_obj:
-            if user_obj.full_name_ct:
-                try:
-                    full_name = user_obj.full_name_ct.decode("utf-8", errors="ignore") or "Estudiante"
-                except Exception:
-                    full_name = "Estudiante"
-            if user_obj.student_code_ct:
-                try:
-                    raw_code = user_obj.student_code_ct.decode("utf-8", errors="ignore")
-                    student_code_masked = mask_student_code(raw_code)
-                except Exception:
-                    pass
+            full_name = pii.revelar(
+                user_obj.full_name_ct, "Estudiante", aad=f"users.full_name_ct.{user_obj.id}"
+            )
+            student_code_masked = mask_student_code(
+                pii.revelar(
+                    user_obj.student_code_ct, "", aad=f"users.student_code_ct.{user_obj.id}"
+                )
+            )
 
     return {
         "status": "approved",
