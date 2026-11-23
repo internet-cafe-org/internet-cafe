@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
-interface Cuenta {
-  nombre: string
-  correo: string
-  codigo: string
-}
+import { useSignOut } from '@/composables/useSignOut'
+import { fetchMyProfile, type UserProfile } from '@/services/me'
+import { changeMyPassword, passwordChangeFailure } from '@/services/password'
+import { useSessionStore } from '@/stores/session'
+import { PASSWORD_MAX, PASSWORD_MIN, registerPasswordError } from '@/utils/validation'
 
-const cuenta: Cuenta = {
-  nombre: 'Estudiante de ejemplo',
-  correo: 'estudiante@example.edu',
-  codigo: '••••••42',
-}
+const session = useSessionStore()
+const signOut = useSignOut()
+
+const profile = ref<UserProfile | null>(null)
+const loadingProfile = ref(true)
+const profileError = ref('')
+const signingOut = ref(false)
+const changingPassword = ref(false)
+const actualInput = ref<HTMLInputElement | null>(null)
 
 const form = reactive({
   actual: '',
@@ -21,13 +25,42 @@ const form = reactive({
 
 const infoMessage = ref('')
 const errorMessage = ref('')
+const actualError = ref('')
 
-function cambiarContrasena() {
+async function loadProfile(): Promise<void> {
+  loadingProfile.value = true
+  profileError.value = ''
+
+  try {
+    const data = await fetchMyProfile()
+    profile.value = data
+    if (!session.fullName) {
+      session.setUser(data.full_name, data.role)
+    }
+  } catch {
+    profileError.value = 'No pudimos cargar los datos de tu perfil. Inténtalo de nuevo.'
+  } finally {
+    loadingProfile.value = false
+  }
+}
+
+async function cambiarContrasena(): Promise<void> {
+  if (changingPassword.value) {
+    return
+  }
+
   infoMessage.value = ''
   errorMessage.value = ''
+  actualError.value = ''
 
   if (!form.actual.trim() || !form.nueva.trim() || !form.confirmar.trim()) {
     errorMessage.value = 'Completa todos los campos de contraseña.'
+    return
+  }
+
+  const passwordValidation = registerPasswordError(form.nueva)
+  if (passwordValidation) {
+    errorMessage.value = passwordValidation
     return
   }
 
@@ -36,18 +69,48 @@ function cambiarContrasena() {
     return
   }
 
-  if (form.nueva.length < 8) {
-    errorMessage.value = 'La nueva contraseña debe tener al menos 8 caracteres.'
+  if (form.nueva === form.actual) {
+    errorMessage.value = 'La nueva contraseña debe ser diferente a la actual.'
     return
   }
 
-  infoMessage.value =
-    'Los campos se validaron correctamente, pero el cambio de contraseña todavía no está conectado al servicio.'
+  changingPassword.value = true
+  try {
+    await changeMyPassword(form.actual, form.nueva)
+    form.actual = ''
+    form.nueva = ''
+    form.confirmar = ''
+    infoMessage.value =
+      'Contraseña actualizada. Se cerraron tus otras sesiones web; esta sigue abierta.'
+  } catch (error) {
+    const failure = passwordChangeFailure(error)
+    if (failure.field === 'actual') {
+      actualError.value = failure.message
+      actualInput.value?.focus()
+    } else {
+      errorMessage.value = failure.message
+    }
+  } finally {
+    changingPassword.value = false
+  }
 }
 
-function cerrarSesionWeb() {
-  infoMessage.value = 'El cierre de sesión web todavía no está conectado al servicio.'
+async function cerrarSesionWeb(): Promise<void> {
+  if (signingOut.value) {
+    return
+  }
+
+  signingOut.value = true
+  try {
+    await signOut()
+  } finally {
+    signingOut.value = false
+  }
 }
+
+onMounted(() => {
+  void loadProfile()
+})
 </script>
 
 <template>
@@ -57,23 +120,35 @@ function cerrarSesionWeb() {
     <div class="card">
       <h2>Datos de la cuenta</h2>
 
-      <div class="fields">
+      <div v-if="loadingProfile" class="state" role="status" aria-live="polite">
+        Cargando datos de tu perfil...
+      </div>
+
+      <div v-else-if="profileError" class="feedback error" role="alert">
+        <i class="pi pi-exclamation-circle"></i>
+        <div class="feedback-body">
+          <span>{{ profileError }}</span>
+          <button class="retry" type="button" @click="loadProfile">Reintentar</button>
+        </div>
+      </div>
+
+      <div v-else-if="profile" class="fields">
         <div class="field">
           <label for="nombre">Nombre completo</label>
-          <input id="nombre" class="ro" :value="cuenta.nombre" readonly />
-          <p class="ro-text">{{ cuenta.nombre }}</p>
+          <input id="nombre" class="ro" :value="profile.full_name" readonly />
+          <p class="ro-text">{{ profile.full_name }}</p>
         </div>
 
         <div class="field">
           <label for="correo">Correo institucional</label>
-          <input id="correo" class="ro" :value="cuenta.correo" readonly />
-          <p class="ro-text">{{ cuenta.correo }}</p>
+          <input id="correo" class="ro" :value="profile.email" readonly />
+          <p class="ro-text">{{ profile.email }}</p>
         </div>
 
         <div class="field">
           <label for="codigo">Código estudiantil</label>
-          <input id="codigo" class="ro" :value="cuenta.codigo" readonly />
-          <p class="ro-text">{{ cuenta.codigo }}</p>
+          <input id="codigo" class="ro" :value="profile.student_code_masked" readonly />
+          <p class="ro-text">{{ profile.student_code_masked }}</p>
         </div>
       </div>
 
@@ -84,11 +159,17 @@ function cerrarSesionWeb() {
           <label for="actual">Contraseña actual</label>
           <input
             id="actual"
+            ref="actualInput"
             v-model="form.actual"
             type="password"
             autocomplete="current-password"
+            :aria-invalid="actualError ? 'true' : undefined"
+            :aria-describedby="actualError ? 'actual-error' : undefined"
             required
           />
+          <p v-if="actualError" id="actual-error" class="field-error" role="alert">
+            {{ actualError }}
+          </p>
         </div>
 
         <div class="field">
@@ -98,7 +179,8 @@ function cerrarSesionWeb() {
             v-model="form.nueva"
             type="password"
             autocomplete="new-password"
-            minlength="8"
+            :minlength="PASSWORD_MIN"
+            :maxlength="PASSWORD_MAX"
             required
           />
         </div>
@@ -110,7 +192,8 @@ function cerrarSesionWeb() {
             v-model="form.confirmar"
             type="password"
             autocomplete="new-password"
-            minlength="8"
+            :minlength="PASSWORD_MIN"
+            :maxlength="PASSWORD_MAX"
             required
           />
         </div>
@@ -125,10 +208,12 @@ function cerrarSesionWeb() {
           {{ infoMessage }}
         </div>
 
-        <button class="btn change" type="submit">Cambiar contraseña</button>
+        <button class="btn change" type="submit" :disabled="changingPassword">
+          {{ changingPassword ? 'Cambiando contraseña...' : 'Cambiar contraseña' }}
+        </button>
       </form>
 
-      <button class="btn logout" type="button" @click="cerrarSesionWeb">
+      <button class="btn logout" type="button" :disabled="signingOut" @click="cerrarSesionWeb">
         <svg
           viewBox="0 0 24 24"
           width="18"
@@ -145,7 +230,7 @@ function cerrarSesionWeb() {
           <path d="M21 12H9" />
         </svg>
 
-        Cerrar sesión web
+        {{ signingOut ? 'Cerrando sesión...' : 'Cerrar sesión web' }}
       </button>
 
       <aside class="warn" role="note">
@@ -178,16 +263,10 @@ function cerrarSesionWeb() {
   --c-muted: var(--muted, #64748b);
   --c-card: var(--surface, #ffffff);
   --c-card-border: var(--border, #e2e8f0);
-  --c-row: var(--inner, #f1f5f9);
   --c-row-alt: var(--inner, #f8fafc);
   --c-primary: var(--primary, #2563eb);
   --c-primary-text: #ffffff;
   --c-link: var(--primary, #2563eb);
-  --c-icon-bg: var(--hover, #e8effc);
-  --c-ok-bg: var(--success-bg, #dcfce7);
-  --c-ok: var(--success, #15803d);
-
-  /* Solo se usan en Perfil */
   --c-input: var(--inner, #f8fafc);
   --c-input-border: var(--border, #e2e8f0);
   --c-warn-bg: var(--warning-bg, #fef6e4);
@@ -216,6 +295,13 @@ h2 {
   font-size: 1.1rem;
   font-weight: 700;
   margin: 0 0 1rem;
+}
+
+.state {
+  padding: 1rem 0;
+  margin-bottom: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--c-muted);
 }
 
 .fields {
@@ -252,6 +338,16 @@ input {
   padding: 0.7rem 0.75rem;
 }
 
+.field-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--c-error);
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--c-error);
+}
+
 .ro-text {
   display: none;
   margin: 0;
@@ -280,12 +376,18 @@ input {
   cursor: pointer;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .btn:focus-visible,
-input:focus-visible {
+input:focus-visible,
+.retry:focus-visible {
   outline: 2px solid var(--c-link);
   outline-offset: 2px;
 }
@@ -316,6 +418,26 @@ input:focus-visible {
   color: var(--c-error);
   background: var(--c-error-bg);
   border-color: var(--c-error-border);
+}
+
+.feedback-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.retry {
+  background: none;
+  border: 1px solid currentColor;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 0.25rem 0.65rem;
+  cursor: pointer;
 }
 
 .warn {

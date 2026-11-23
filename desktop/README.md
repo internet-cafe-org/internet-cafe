@@ -102,12 +102,16 @@ Las peticiones del equipo que usan `/api/v1/machine/challenges`, `/api/v1/machin
 `/api/v1/machine/heartbeat` y `/api/v1/machine/sessions/current/end` deben estar protegidas con
 RFC 9421 y el perfil `ecdsa-p256-sha256`, etiqueta `sig1`. El contenido y la URL firmada deben
 mantenerse idénticos a los enviados por el cliente. Cada intento usa un nonce nuevo y el reloj
-ajustado por la cabecera `Date` cuando el servidor indica desfase.
+ajustado por la cabecera `Date` cuando el servidor indica desfase. Las peticiones con cuerpo incluyen
+`Content-Digest`; los GET y el POST vacío de desafíos no incluyen ese digest. No se envía la
+credencial provisional.
 
 El cliente no puede continuar sin el enrolamiento local, su contraseña protegida, el thumbprint
 correcto ni el `keyid` guardado. En modo `dual`, la firma válida de una petición se debe validar;
 una firma inválida no debe volver al fallback de credencial provisional. El endpoint de enrolamiento
-conserva su propia prueba de posesión y no usa esta firma de máquina.
+conserva su propia prueba de posesión y no usa esta firma de máquina. Para Render dev, configura
+`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend, mantenlo
+en `MACHINE_AUTH_MODE=dual` y usa un equipo enrolado de prueba.
 
 ## Modo kiosco (DSK-11)
 

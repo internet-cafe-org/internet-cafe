@@ -1,3 +1,4 @@
+/* ── Global ─────────────────────────────────────────────────────────────── */
 .root {
     -fx-font-family: "Segoe UI";
     -fx-background-color: #f4f6f8;
@@ -9,6 +10,11 @@
     -fx-background-color: #2563eb;
     -fx-text-fill: white;
     -fx-font-weight: 700;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: #1d4ed8;
 }
 
 .text-field {
@@ -20,25 +26,41 @@
     -fx-text-fill: #0f172a;
 }
 
+/* ── QR Screen ───────────────────────────────────────────────────────────── */
 .qr-screen {
-    -fx-background-color: #f4f6f8;
+    -fx-background-color: #f8fafc;
 }
 
+/* Header */
 .qr-header {
-    -fx-padding: 20 28;
+    -fx-padding: 14 28;
     -fx-background-color: #0f172a;
+    -fx-border-color: #1e293b;
+    -fx-border-width: 0 0 1 0;
 }
 
 .qr-brand {
     -fx-text-fill: #f8fafc;
-    -fx-font-size: 18px;
+    -fx-font-size: 15px;
     -fx-font-weight: 700;
 }
 
-.qr-connection {
-    -fx-padding: 6 12;
-    -fx-background-radius: 999;
+.qr-brand-sub {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 12px;
+}
+
+.qr-title {
+    -fx-text-fill: #94a3b8;
     -fx-font-size: 13px;
+    -fx-font-weight: 600;
+}
+
+/* Connectivity badge */
+.qr-connection {
+    -fx-padding: 5 12;
+    -fx-background-radius: 999;
+    -fx-font-size: 12px;
     -fx-font-weight: 700;
 }
 
@@ -57,53 +79,211 @@
     -fx-text-fill: #991b1b;
 }
 
+/* Body wrapper */
 .qr-body {
-    -fx-padding: 28 24 12 24;
+    -fx-padding: 32 48 0 48;
 }
 
+/* ── Passive mode layout ─────────────────────────────────────────────────── */
+.qr-card {
+    -fx-background-color: white;
+    -fx-background-radius: 16;
+    -fx-border-color: #e2e8f0;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-padding: 32;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.06), 12, 0, 0, 2);
+}
+
+.qr-passive-content {
+    -fx-spacing: 0;
+}
+
+/* Left QR panel */
+.qr-left-panel {
+    -fx-min-width: 320;
+    -fx-pref-width: 340;
+}
+
+/* QR ready badge */
+.qr-ready-badge {
+    -fx-background-color: #eff6ff;
+    -fx-text-fill: #1d4ed8;
+    -fx-font-size: 12px;
+    -fx-font-weight: 700;
+    -fx-padding: 4 12;
+    -fx-background-radius: 999;
+}
+
+/* QR image frame */
 .qr-frame {
     -fx-background-color: white;
-    -fx-padding: 16;
+    -fx-padding: 14;
     -fx-background-radius: 12;
-    -fx-border-color: #cbd5e1;
+    -fx-border-color: #2563eb;
     -fx-border-radius: 12;
-    -fx-border-width: 1;
+    -fx-border-width: 2;
+}
+
+/* Countdown bar */
+.qr-countdown-bar {
+    -fx-pref-height: 6;
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 999;
+    -fx-accent: #2563eb;
+}
+
+.qr-countdown-bar .track {
+    -fx-background-color: #e2e8f0;
+    -fx-background-radius: 999;
+}
+
+.qr-countdown-bar .bar {
+    -fx-background-color: #2563eb;
+    -fx-background-radius: 999;
+    -fx-background-insets: 0;
 }
 
 .qr-countdown {
-    -fx-font-size: 16px;
-    -fx-text-fill: #475569;
+    -fx-font-size: 13px;
+    -fx-text-fill: #64748b;
+    -fx-font-weight: 600;
 }
 
 .qr-machine-code {
-    -fx-font-size: 32px;
+    -fx-font-size: 14px;
+    -fx-font-weight: 600;
+    -fx-text-fill: #334155;
+}
+
+.qr-lab {
+    -fx-font-size: 13px;
+    -fx-text-fill: #94a3b8;
+}
+
+/* Right instruction panel */
+.qr-right-panel {
+    -fx-padding: 8 0 0 24;
+}
+
+.qr-cred-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #94a3b8;
+    -fx-letter-spacing: 1.2;
+}
+
+.qr-instr-title {
+    -fx-font-size: 26px;
     -fx-font-weight: 700;
     -fx-text-fill: #0f172a;
 }
 
-.qr-lab {
+.qr-instr-desc {
+    -fx-font-size: 14px;
+    -fx-text-fill: #475569;
+    -fx-wrap-text: true;
+}
+
+.qr-step {
+    -fx-padding: 8 0;
+}
+
+.qr-step-icon {
     -fx-font-size: 18px;
-    -fx-text-fill: #334155;
+    -fx-text-fill: #94a3b8;
+    -fx-min-width: 28;
+}
+
+.qr-step-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #0f172a;
+}
+
+.qr-step-desc {
+    -fx-font-size: 12px;
+    -fx-text-fill: #64748b;
+}
+
+/* Omitir row */
+.qr-omitir-row {
+    -fx-padding: 16 32;
+    -fx-background-color: #f8fafc;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 1 0 0 0;
 }
 
 .qr-skip {
     -fx-background-color: transparent;
     -fx-text-fill: #2563eb;
-    -fx-border-color: #2563eb;
-    -fx-border-radius: 8;
-    -fx-background-radius: 8;
+    -fx-border-color: transparent;
+    -fx-font-weight: 600;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
 }
 
-.qr-footer {
-    -fx-padding: 16 28 24 28;
-}
-
-.qr-back {
-    -fx-background-color: #e2e8f0;
-    -fx-text-fill: #0f172a;
+.qr-skip:hover {
+    -fx-text-fill: #1d4ed8;
 }
 
 .qr-skip-hint {
-  -fx-text-fill: #475569;
-  -fx-font-size: 13px;
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+    -fx-wrap-text: true;
+    -fx-max-width: 420;
+}
+
+/* ── Kiosk mode layout ───────────────────────────────────────────────────── */
+.qr-kiosk-panel {
+    -fx-background-color: white;
+    -fx-background-radius: 16;
+    -fx-border-color: #e2e8f0;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-padding: 32 48;
+    -fx-max-width: 560;
+    -fx-alignment: center;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.06), 12, 0, 0, 2);
+}
+
+.qr-kiosk-mode-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #94a3b8;
+    -fx-letter-spacing: 1.2;
+}
+
+.qr-kiosk-title {
+    -fx-font-size: 28px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #0f172a;
+}
+
+.qr-kiosk-sub {
+    -fx-font-size: 14px;
+    -fx-text-fill: #64748b;
+}
+
+.qr-kiosk-confirm {
+    -fx-font-size: 13px;
+    -fx-text-fill: #64748b;
+}
+
+/* ── Legal footer ────────────────────────────────────────────────────────── */
+.qr-legal-footer {
+    -fx-padding: 12 32;
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 1 0 0 0;
+}
+
+.qr-legal {
+    -fx-font-size: 11px;
+    -fx-text-fill: #94a3b8;
+}
+
+/* ── Board screen ────────────────────────────────────────────────────────── */
+.board-screen {
+    -fx-background-color: #f8fafc;
 }

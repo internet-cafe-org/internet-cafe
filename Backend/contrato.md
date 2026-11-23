@@ -745,6 +745,56 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/me/password:
+    patch:
+      tags:
+      - me
+      security:
+      - bearerAuth: []
+      summary: Cambiar la contraseña propia (SEC-02)
+      description: >-
+        Cambia la contraseña del usuario autenticado. Exige la contraseña actual.
+        La nueva debe tener entre 10 y 128 caracteres y ser distinta de la actual.
+        Al cambiarla se cierran las demás sesiones web (refresh tokens); la sesión
+        que hizo el cambio sigue abierta. Una contraseña actual incorrecta responde
+        401 `AUTH_CURRENT_PASSWORD_INVALID` (RF-AUT-10); un token inválido responde
+        401 `AUTH_INVALID_CREDENTIALS` y uno vencido 401 `AUTH_TOKEN_EXPIRED`, así que el
+        cliente los distingue por `code` y no cierra la sesión por una contraseña mal
+        escrita. La nueva
+        igual a la actual o fuera de 10 a 128 caracteres responde 422
+        `VALIDATION_ERROR`. Límite por cuenta, 429 `RATE_LIMITED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - current_password
+              - new_password
+              properties:
+                current_password:
+                  type: string
+                  format: password
+                  minLength: 1
+                  maxLength: 128
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 10
+                  maxLength: 128
+      responses:
+        '204':
+          description: Contraseña cambiada. Sin cuerpo.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Demasiados intentos. Espera lo indicado en `Retry-After`.
   /api/v1/me/sessions:
     get:
       tags:
@@ -973,6 +1023,12 @@ paths:
         name: started_to
         schema: *id002
         description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
       - *id006
       - *id007
       responses:
@@ -1019,6 +1075,56 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/sessions/export:
+    get:
+      tags:
+      - admin
+      security: *id005
+      summary: Exportar accesos a CSV (ST-BE-03)
+      description: Exporta los accesos filtrados. Devuelve un archivo CSV (UTF-8 con BOM, separador coma).
+      parameters:
+      - in: query
+        name: machine_code
+        schema:
+          type: string
+          maxLength: 40
+      - in: query
+        name: lab_id
+        schema: *id001
+      - in: query
+        name: state
+        schema:
+          type: string
+          enum:
+          - active
+          - ended
+      - in: query
+        name: started_from
+        schema: *id002
+        description: Inclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: started_to
+        schema: *id002
+        description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
+      responses:
+        '200':
+          description: Archivo CSV.
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
 components:

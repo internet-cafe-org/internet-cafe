@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import type { components } from '@/api/schema'
+import { meHandlers } from './me'
 
 const API_URL = 'http://localhost:8000'
 
@@ -11,13 +12,17 @@ type MachinePatch = components['schemas']['MachinePatch']
 // ESTADO INICIAL: SIN DATOS PRECARGADOS
 // ============================================================
 
-const labs: Lab[] = []
+const labs: Lab[] = [
+  { id: 'lab-001', name: 'Sala 1', building: null },
+  { id: 'lab-002', name: 'Sala 2', building: null },
+  { id: 'lab-003', name: 'Sala 3', building: null },
+]
 
 // No se precargan equipos ficticios.
 const machines: Machine[] = []
 
 // ============================================================
-// ESTADO INICIAL: HISTORIAL DE ACCESOS VACÍO
+// ESTADO INICIAL: HISTORIAL DE ACCESOS VACIO
 // ============================================================
 
 interface MockAccessSession {
@@ -42,7 +47,7 @@ interface MockAccessSession {
   close_reason: string | null
 }
 
-// El historial comienza vacío.
+// El historial comienza vacio.
 const accessSessions: MockAccessSession[] = []
 
 // ============================================================
@@ -100,8 +105,24 @@ function filterAccessSessions(url: URL): MockAccessSession[] {
 // ============================================================
 
 export const apiHandlers = [
+  ...meHandlers,
   // ----------------------------------------------------------
-  // CREAR DESAFÍO DE UNA MÁQUINA
+  // W-09: PERFIL DEL ESTUDIANTE AUTENTICADO
+  // ----------------------------------------------------------
+
+  http.get('*/api/v1/me', () => {
+    return HttpResponse.json({
+      id: '0192f0c4-0000-7000-8000-000000000001',
+      full_name: 'Ana Pérez',
+      email: 'ana.perez@universidad.edu.co',
+      student_code_masked: '2021****34',
+      role: 'student',
+      status: 'active',
+    })
+  }),
+
+  // ----------------------------------------------------------
+  // CREAR DESAFÃƒÂO DE UNA MÃƒÂQUINA
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/machine/challenges`, ({ request }) => {
@@ -113,7 +134,7 @@ export const apiHandlers = [
           type: 'about:blank',
           title: 'No autorizado',
           status: 401,
-          detail: 'La firma de la máquina no es válida.',
+          detail: 'La firma de la mÃƒÂ¡quina no es vÃƒÂ¡lida.',
           code: 'MACHINE_SIGNATURE_INVALID',
         },
         {
@@ -127,9 +148,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'Máquina deshabilitada',
+          title: 'MÃƒÂ¡quina deshabilitada',
           status: 403,
-          detail: 'La máquina está deshabilitada.',
+          detail: 'La mÃƒÂ¡quina estÃƒÂ¡ deshabilitada.',
           code: 'MACHINE_DISABLED',
         },
         {
@@ -151,7 +172,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // CONSULTAR LA INFORMACIÓN DE UN ESCANEO
+  // CONSULTAR LA INFORMACIÃƒâ€œN DE UN ESCANEO
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/scan/preview`, async ({ request }) => {
@@ -163,7 +184,7 @@ export const apiHandlers = [
           type: 'about:blank',
           title: 'No encontrado',
           status: 404,
-          detail: 'El desafío no existe.',
+          detail: 'El desafÃƒÂ­o no existe.',
           code: 'CHALLENGE_NOT_FOUND',
         },
         {
@@ -177,9 +198,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'Desafío vencido',
+          title: 'DesafÃƒÂ­o vencido',
           status: 410,
-          detail: 'El desafío ha expirado.',
+          detail: 'El desafÃƒÂ­o ha expirado.',
           code: 'CHALLENGE_EXPIRED',
         },
         {
@@ -193,9 +214,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'Desafío utilizado',
+          title: 'DesafÃƒÂ­o utilizado',
           status: 409,
-          detail: 'El desafío ya fue utilizado.',
+          detail: 'El desafÃƒÂ­o ya fue utilizado.',
           code: 'CHALLENGE_ALREADY_USED',
         },
         {
@@ -216,7 +237,7 @@ export const apiHandlers = [
       })
     }
 
-    return problem(404, 'No encontrado', 'El desafío no existe.', 'CHALLENGE_NOT_FOUND')
+    return problem(404, 'No encontrado', 'El desafÃƒÂ­o no existe.', 'CHALLENGE_NOT_FOUND')
   }),
 
   // ----------------------------------------------------------
@@ -292,7 +313,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // W-13: CONSULTAR DETALLE DE UNA SESIÓN
+  // W-13: CONSULTAR DETALLE DE UNA SESIÃƒâ€œN
   // ----------------------------------------------------------
 
   http.get(`${API_URL}/api/v1/admin/access-sessions/:id`, ({ params }) => {
@@ -302,7 +323,7 @@ export const apiHandlers = [
       return problem(
         404,
         'No encontrado',
-        'La sesión de acceso no existe.',
+        'La sesiÃƒÂ³n de acceso no existe.',
         'ACCESS_SESSION_NOT_FOUND',
       )
     }
@@ -311,7 +332,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // W-13: FORZAR CIERRE DE UNA SESIÓN
+  // W-13: FORZAR CIERRE DE UNA SESIÃƒâ€œN
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/admin/access-sessions/:id/force-close`, ({ params }) => {
@@ -321,7 +342,7 @@ export const apiHandlers = [
       return problem(
         404,
         'No encontrado',
-        'La sesión de acceso no existe.',
+        'La sesiÃƒÂ³n de acceso no existe.',
         'ACCESS_SESSION_NOT_FOUND',
       )
     }
@@ -330,7 +351,7 @@ export const apiHandlers = [
       return problem(
         409,
         'Conflicto',
-        'La sesión ya está cerrada.',
+        'La sesiÃƒÂ³n ya estÃƒÂ¡ cerrada.',
         'ACCESS_SESSION_ALREADY_CLOSED',
       )
     }
@@ -380,7 +401,7 @@ export const apiHandlers = [
     if (!name) {
       return problem(
         422,
-        'Error de validación',
+        'Error de validaciÃƒÂ³n',
         'El nombre de la sala es obligatorio.',
         'VALIDATION_ERROR',
       )
@@ -448,7 +469,7 @@ export const apiHandlers = [
     if (Object.keys(patch).length === 0) {
       return problem(
         422,
-        'Error de validación',
+        'Error de validaciÃƒÂ³n',
         'Debe proporcionar al menos un campo para actualizar.',
         'VALIDATION_ERROR',
       )
@@ -458,7 +479,7 @@ export const apiHandlers = [
       return problem(
         409,
         'Conflicto',
-        'No se puede activar un equipo que todavía no está enrolado.',
+        'No se puede activar un equipo que todavÃƒÂ­a no estÃƒÂ¡ enrolado.',
         'MACHINE_NOT_ENROLLED',
       )
     }
@@ -483,5 +504,241 @@ export const apiHandlers = [
     }
 
     return HttpResponse.json(machine)
+  }),
+
+  http.get(`${API_URL}/api/v1/admin/sessions`, ({ request }) => {
+    const url = new URL(request.url)
+    const machineCode = url.searchParams.get('machine_code')
+    const labId = url.searchParams.get('lab_id')
+    const state = url.searchParams.get('state')
+    const startedFrom = url.searchParams.get('started_from')
+    const startedTo = url.searchParams.get('started_to')
+    const limit = Number(url.searchParams.get('limit') ?? '20')
+    const offset = Number(url.searchParams.get('offset') ?? '0')
+
+    const allSessions = [
+      {
+        id: 'sess-001',
+        user: {
+          id: 'user-001',
+          full_name: 'Ana Pérez',
+          student_code_masked: '2021****34',
+        },
+        machine_code: 'LAB3-PC12',
+        lab: 'Sala 3',
+        started_at: '2026-11-20T10:00:00Z',
+        last_heartbeat_at: '2026-11-20T10:20:00Z',
+        ended_at: null,
+        end_reason: null,
+        duration_s: null,
+      },
+      {
+        id: 'sess-002',
+        user: {
+          id: 'user-002',
+          full_name: 'Carlos Gómez',
+          student_code_masked: '2022****56',
+        },
+        machine_code: 'LAB1-PC05',
+        lab: 'Sala 1',
+        started_at: '2026-11-19T08:30:00Z',
+        last_heartbeat_at: '2026-11-19T09:30:00Z',
+        ended_at: '2026-11-19T09:30:00Z',
+        end_reason: 'user_logout_pc',
+        duration_s: 3600,
+      },
+      {
+        id: 'sess-003',
+        user: {
+          id: 'user-003',
+          full_name: 'Beatriz Silva',
+          student_code_masked: '2020****12',
+        },
+        machine_code: 'LAB2-PC01',
+        lab: 'Sala 2',
+        started_at: '2026-11-18T14:00:00Z',
+        last_heartbeat_at: '2026-11-18T14:45:00Z',
+        ended_at: '2026-11-18T14:45:00Z',
+        end_reason: 'admin_forced',
+        duration_s: 2700,
+      },
+    ]
+
+    let filtered = [...allSessions]
+    if (machineCode) {
+      filtered = filtered.filter((s) => s.machine_code === machineCode)
+    }
+    if (labId) {
+      const labMap: Record<string, string> = {
+        'lab-001': 'Sala 1',
+        'lab-002': 'Sala 2',
+        'lab-003': 'Sala 3',
+      }
+      filtered = filtered.filter((s) => s.lab === labMap[labId])
+    }
+    if (state === 'active') {
+      filtered = filtered.filter((s) => s.ended_at === null)
+    } else if (state === 'ended') {
+      filtered = filtered.filter((s) => s.ended_at !== null)
+    }
+    if (startedFrom) {
+      filtered = filtered.filter((s) => s.started_at >= startedFrom)
+    }
+    if (startedTo) {
+      filtered = filtered.filter((s) => s.started_at < startedTo)
+    }
+
+    const items = filtered.slice(offset, offset + limit)
+    return HttpResponse.json({
+      items,
+      total: filtered.length,
+      limit,
+      offset,
+    })
+  }),
+
+  http.get(`${API_URL}/api/v1/admin/sessions/export`, ({ request }) => {
+    const authHeader = request.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'No autorizado',
+          status: 401,
+          detail: 'No autenticado o token inválido.',
+          code: 'AUTH_UNAUTHORIZED',
+        },
+        { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    }
+
+    const url = new URL(request.url)
+    const machineCode = url.searchParams.get('machine_code')
+
+    if (machineCode === 'SERVER_ERROR') {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Error interno',
+          status: 500,
+          detail: 'Fallo al generar el archivo de exportación.',
+          code: 'EXPORT_INTERNAL_ERROR',
+        },
+        { status: 500, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    }
+
+    // Archivo CSV con UTF-8 BOM según RF-ADM-06 y ST-BE-03
+    let csv =
+      '\uFEFFestudiante,código,equipo,sala,inicio,fin,duración en minutos,motivo de cierre\r\n'
+    if (machineCode !== 'NO_EXISTE') {
+      csv += 'Ana Pérez,2021****34,LAB3-PC12,Sala 3,2026-11-20 05:00:00,,,\r\n'
+      if (!machineCode || machineCode === 'LAB1-PC05') {
+        csv +=
+          'Carlos Gómez,2022****56,LAB1-PC05,Sala 1,2026-11-19 03:30:00,2026-11-19 04:30:00,60,Cerrada desde el equipo\r\n'
+      }
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="accesos.csv"',
+    }
+
+    if (machineCode === 'TRUNCATED') {
+      headers['X-Export-Truncated'] = 'true'
+    }
+
+    return new HttpResponse(csv, { status: 200, headers })
+  }),
+
+  http.post(`${API_URL}/api/v1/admin/sessions/:id/end`, ({ params }) => {
+    const { id } = params
+
+    if (id === 'not-found') {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'SesiÃƒÂ³n no encontrada',
+          status: 404,
+          detail: 'La sesiÃƒÂ³n no existe.',
+          code: 'SESSION_NOT_FOUND',
+        },
+        {
+          status: 404,
+          headers: { 'Content-Type': 'application/problem+json' },
+        },
+      )
+    }
+
+    return HttpResponse.json({
+      session: {
+        id: String(id),
+        user: {
+          id: 'user-001',
+          full_name: 'Ana Pérez',
+          student_code_masked: '2021****34',
+        },
+        machine_code: 'LAB3-PC12',
+        lab: 'Sala 3',
+        started_at: '2026-11-20T10:00:00Z',
+        last_heartbeat_at: '2026-11-20T10:20:00Z',
+        ended_at: '2026-11-20T10:25:00Z',
+        end_reason: 'admin_forced',
+        duration_s: 1500,
+      },
+    })
+  }),
+  // ----------------------------------------------------------
+  // UI-11: CÃƒâ€œDIGO DE ENROLAMIENTO DE UN SOLO USO
+  // BE-13 (#130) aÃƒÂºn no publica este endpoint: la ruta es una propuesta.
+  // ----------------------------------------------------------
+
+  http.post(`${API_URL}/api/v1/admin/machines/:id/enrollment-code`, ({ params }) => {
+    const machine = machines.find((item) => item.id === params.id)
+
+    if (!machine) {
+      return problem(404, 'No encontrado', 'El equipo no existe.', 'MACHINE_NOT_FOUND')
+    }
+
+    if (machine.status === 'disabled') {
+      return problem(
+        409,
+        'Conflicto',
+        'No se puede generar un cÃƒÂ³digo para un equipo deshabilitado.',
+        'CONFLICT',
+      )
+    }
+
+    const part = () => crypto.randomUUID().slice(0, 4).toUpperCase()
+
+    return HttpResponse.json(
+      {
+        code: `${part()}-${part()}`,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+      { status: 201 },
+    )
+  }),
+
+  // ----------------------------------------------------------
+  // UI-11: REVOCAR LA CLAVE DE UN EQUIPO
+  // Supuesto: el equipo vuelve a quedar pendiente de enrolamiento.
+  // ----------------------------------------------------------
+
+  http.post(`${API_URL}/api/v1/admin/machines/:id/revoke-key`, ({ params }) => {
+    const machine = machines.find((item) => item.id === params.id)
+
+    if (!machine) {
+      return problem(404, 'No encontrado', 'El equipo no existe.', 'MACHINE_NOT_FOUND')
+    }
+
+    if (machine.status === 'pending_enrollment') {
+      return problem(409, 'Conflicto', 'El equipo todavÃƒÂ­a no tiene una clave.', 'CONFLICT')
+    }
+
+    machine.status = 'pending_enrollment'
+    machine.enrolled_at = null
+
+    return new HttpResponse(null, { status: 204 })
   }),
 ]

@@ -33,6 +33,9 @@ class ErrorCode(StrEnum):
     AUTH_EMAIL_NOT_VERIFIED = "AUTH_EMAIL_NOT_VERIFIED"
     AUTH_ACCOUNT_LOCKED = "AUTH_ACCOUNT_LOCKED"
     AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"
+    # Contraseña actual incorrecta en PATCH /me/password (RF-AUT-10). Código propio para
+    # que el cliente no lo confunda con un token inválido y no cierre la sesión.
+    AUTH_CURRENT_PASSWORD_INVALID = "AUTH_CURRENT_PASSWORD_INVALID"
     FORBIDDEN = "FORBIDDEN"
     RATE_LIMITED = "RATE_LIMITED"
     CHALLENGE_NOT_FOUND = "CHALLENGE_NOT_FOUND"
@@ -85,6 +88,11 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
         "Demasiados intentos fallidos. Espera 15 minutos.",
     ),
     ErrorCode.AUTH_TOKEN_EXPIRED: ErrorSpec(401, "Sesión vencida", "El token de acceso venció."),
+    ErrorCode.AUTH_CURRENT_PASSWORD_INVALID: ErrorSpec(
+        401,
+        "Contraseña actual incorrecta",
+        "La contraseña actual no es correcta.",
+    ),
     ErrorCode.FORBIDDEN: ErrorSpec(403, "Acceso denegado", "No tienes permisos para este recurso."),
     ErrorCode.RATE_LIMITED: ErrorSpec(
         429,

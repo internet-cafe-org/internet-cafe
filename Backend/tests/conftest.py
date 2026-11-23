@@ -39,3 +39,13 @@ def db_cleanup():
     """Limpieza de base de datos usando TRUNCATE."""
     yield
     # <- aquí va el código que tenías después del yield (el TRUNCATE real)
+
+@pytest.fixture(autouse=True)
+def llaves_pii_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configura llaves PII por defecto si están vacías (SEC-06)."""
+    from app.config import settings
+
+    if not settings.data_enc_keys:
+        monkeypatch.setattr(settings, "data_enc_keys", '{"1": "' + "a" * 64 + '"}')
+    if not settings.blind_index_key:
+        monkeypatch.setattr(settings, "blind_index_key", "a" * 64)

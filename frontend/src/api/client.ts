@@ -6,7 +6,7 @@ import { ApiError, normalizeApiError } from '../errors/problem-details'
  * Cliente HTTP tipado.
  * El access token permanece exclusivamente en memoria.
  */
-const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
+export const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
 const REFRESH_URL = `${API_BASE_URL}/api/v1/auth/refresh`
 const REFRESH_LOCK_NAME = 'internet-cafe-auth-refresh'
@@ -257,7 +257,7 @@ export function refreshAccessToken(): Promise<string> {
  *
  * La petición original solamente se reintenta una vez.
  */
-async function fetchWithTokenRefresh(
+export async function fetchWithTokenRefresh(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<Response> {

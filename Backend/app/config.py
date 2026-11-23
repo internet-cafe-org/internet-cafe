@@ -1,7 +1,9 @@
 """Módulo de configuración de variables de entorno."""
 
 from typing import Literal
+from zoneinfo import ZoneInfo
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -95,6 +97,10 @@ class Settings(BaseSettings):
     # Tamaño máximo del cuerpo de una petición, en bytes; si se supera, responde 413.
     max_body_bytes: int = 65536
 
+    # Exportación CSV (ST-BE-03): zona horaria con la que se muestran las fechas.
+    # Ej: "America/Bogota", "UTC", "Europe/Madrid".
+    csv_timezone: str = "America/Bogota"
+
     @property
     def dominios_correo_permitidos(self) -> frozenset[str]:
         """Devuelve los dominios de ``ALLOWED_EMAIL_DOMAINS`` normalizados.
@@ -118,6 +124,22 @@ class Settings(BaseSettings):
             ninguno (en ese caso no se restringe la cabecera Host).
         """
         return [h.strip().lower() for h in self.allowed_hosts.split(",") if h.strip()]
+
+    @model_validator(mode="after")
+    def _validar_timezone(self) -> "Settings":
+        """Valida que ``CSV_TIMEZONE`` sea una zona horaria reconocida.
+
+        Returns:
+            La propia configuración, sin cambios.
+
+        Raises:
+            ValueError: Si ``CSV_TIMEZONE`` no es una zona horaria válida.
+        """
+        try:
+            ZoneInfo(self.csv_timezone)
+        except Exception as exc:
+            raise ValueError(f"CSV_TIMEZONE inválida: {self.csv_timezone}") from exc
+        return self
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -45,6 +45,10 @@ public final class MachineIdentityPasswordStore {
     }
   }
 
+  public char[] loadExisting() throws IOException, GeneralSecurityException {
+    return decodePassword(protectedFile.read());
+  }
+
   private static char[] decodePassword(byte[] encoded) throws GeneralSecurityException {
     byte[] decoded = null;
     try {

@@ -282,6 +282,7 @@ async def test_servicio_claim_superseded():
     def mock_execute(stmt):
         res = MagicMock()
         res.first.return_value = None
+        res.scalar_one_or_none.return_value = None
         s = str(stmt)
         if "app.login_challenges.token_hash" in s:
             res.scalar_one_or_none.return_value = reto_m2

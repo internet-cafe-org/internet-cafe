@@ -9,8 +9,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.internetcafe.desktop.AppConfig;
 import org.internetcafe.desktop.contract.ChallengeResponse;
 import org.internetcafe.desktop.contract.ChallengeWaitResponse;
@@ -21,7 +26,10 @@ import org.internetcafe.desktop.contract.HeartbeatResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.RegistrationResponse;
+import org.internetcafe.desktop.contract.RecentSession;
 import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
+import org.internetcafe.desktop.signing.RequestSigner;
+import org.internetcafe.desktop.signing.RequestSigner.SignedRequest;
 
 public class ApiClient {
   static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(35);
@@ -31,23 +39,42 @@ public class ApiClient {
   private static final String API_PATH = "/api/v1";
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private static final String CLOCK_SKEW_CODE = "MACHINE_CLOCK_SKEW";
+  private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
   private final HttpClient httpClient;
   private final String apiBaseUrl;
   private final ClockSkewAdjuster skewAdjuster;
+  private final RequestSigner requestSigner;
 
   public ApiClient() {
-    this(SecureHttpClient.create(REQUEST_TIMEOUT), AppConfig.getApiBaseUrl());
+    this(SecureHttpClient.create(REQUEST_TIMEOUT), AppConfig.getApiBaseUrl(), (RequestSigner) null);
+  }
+
+  public ApiClient(RequestSigner requestSigner) {
+    this(SecureHttpClient.create(REQUEST_TIMEOUT), AppConfig.getApiBaseUrl(), requestSigner);
+  }
+
+  private ApiClient(HttpClient httpClient, String apiBaseUrl, RequestSigner requestSigner) {
+    this(httpClient, apiBaseUrl, new ClockSkewAdjuster(), requestSigner);
   }
 
   ApiClient(HttpClient httpClient, String apiBaseUrl) {
-    this(httpClient, apiBaseUrl, new ClockSkewAdjuster());
+    this(httpClient, apiBaseUrl, new ClockSkewAdjuster(), null);
   }
 
   ApiClient(HttpClient httpClient, String apiBaseUrl, ClockSkewAdjuster skewAdjuster) {
+    this(httpClient, apiBaseUrl, skewAdjuster, null);
+  }
+
+  ApiClient(
+      HttpClient httpClient,
+      String apiBaseUrl,
+      ClockSkewAdjuster skewAdjuster,
+      RequestSigner requestSigner) {
     this.httpClient = httpClient;
     this.apiBaseUrl = apiBaseUrl;
     this.skewAdjuster = skewAdjuster;
+    this.requestSigner = requestSigner;
   }
 
   /** Returns the clock-skew adjuster so callers can read the current offset when signing. */
@@ -81,12 +108,8 @@ public class ApiClient {
 
   public ChallengeResponse createChallenge(String machineCode)
       throws IOException, InterruptedException {
-    HttpRequest request =
-        requestBuilder(API_PATH + "/machine/challenges")
-            .header("X-Machine-Code", machineCode)
-            .POST(HttpRequest.BodyPublishers.noBody())
-            .build();
-    return send(request, ChallengeResponse.class);
+    return sendMachineRequest(
+        "POST", API_PATH + "/machine/challenges", machineCode, null, null, ChallengeResponse.class);
   }
 
   /**
@@ -95,12 +118,13 @@ public class ApiClient {
    */
   public ChallengeWaitResponse waitForChallenge(String machineCode)
       throws IOException, InterruptedException {
-    HttpRequest request =
-        requestBuilder(API_PATH + "/machine/challenges/wait?timeout=" + WAIT_TIMEOUT_SECONDS)
-            .header("X-Machine-Code", machineCode)
-            .GET()
-            .build();
-    return send(request, ChallengeWaitResponse.class);
+    return sendMachineRequest(
+        "GET",
+        API_PATH + "/machine/challenges/wait?timeout=" + WAIT_TIMEOUT_SECONDS,
+        machineCode,
+        null,
+        null,
+        ChallengeWaitResponse.class);
   }
 
   /**
@@ -114,14 +138,13 @@ public class ApiClient {
         sessionId == null || sessionId.isBlank()
             ? "{}"
             : OBJECT_MAPPER.writeValueAsString(Map.of("session_id", sessionId));
-    HttpRequest request =
-        requestBuilder(API_PATH + "/machine/heartbeat")
-            .timeout(HEARTBEAT_TIMEOUT)
-            .header("X-Machine-Code", machineCode)
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-            .build();
-    return send(request, HeartbeatResponse.class);
+    return sendMachineRequest(
+        "POST",
+        API_PATH + "/machine/heartbeat",
+        machineCode,
+        json.getBytes(StandardCharsets.UTF_8),
+        HEARTBEAT_TIMEOUT,
+        HeartbeatResponse.class);
   }
 
   /** Closes the machine's open session (reason {@code user_logout_pc}). */
@@ -138,14 +161,49 @@ public class ApiClient {
   private void endCurrentSession(String machineCode, String reason, Duration timeout)
       throws IOException, InterruptedException {
     String json = OBJECT_MAPPER.writeValueAsString(Map.of("reason", reason));
+    sendMachineRequest(
+        "POST",
+        API_PATH + "/machine/sessions/current/end",
+        machineCode,
+        json.getBytes(StandardCharsets.UTF_8),
+        timeout,
+        JsonNode.class);
+  }
+
+  /**
+   * Returns the last {@code limit} closed sessions for this machine (RF-EQU-09: últimos 5 accesos).
+   *
+   * <p>Calls {@code GET /api/v1/machine/sessions/recent?limit=<n>}. Returns an empty list when the
+   * endpoint does not exist yet or the response cannot be parsed, so the board degrades gracefully.
+   */
+  public java.util.List<org.internetcafe.desktop.contract.RecentSession> getRecentSessions(
+      String machineCode, int limit) throws IOException, InterruptedException {
     HttpRequest request =
-        requestBuilder(API_PATH + "/machine/sessions/current/end")
-            .timeout(timeout)
+        requestBuilder(API_PATH + "/machine/sessions/recent?limit=" + limit)
             .header("X-Machine-Code", machineCode)
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+            .GET()
             .build();
-    send(request, JsonNode.class);
+    try {
+      JsonNode root = send(request, JsonNode.class);
+      java.util.List<org.internetcafe.desktop.contract.RecentSession> sessions =
+          new java.util.ArrayList<>();
+      JsonNode items = root.isArray() ? root : root.path("items");
+      if (items.isArray()) {
+        for (JsonNode node : items) {
+          String startedAt = node.path("started_at").asText(null);
+          String endedAt = node.path("ended_at").asText(null);
+          String endReason = node.path("end_reason").asText(null);
+          if (startedAt != null) {
+            sessions.add(
+                new org.internetcafe.desktop.contract.RecentSession(startedAt, endedAt, endReason));
+          }
+        }
+      }
+      return sessions;
+    } catch (ApiException e) {
+      // Backend aún no tiene el endpoint (404) u otro error — lista vacía.
+      return java.util.List.of();
+    }
   }
 
   public LongPollResponse longPoll(String lastEventId) throws IOException, InterruptedException {
@@ -177,9 +235,74 @@ public class ApiClient {
         .header("Accept", "application/json");
   }
 
+  private <T> T sendMachineRequest(
+      String method,
+      String path,
+      String machineCode,
+      byte[] body,
+      Duration timeout,
+      Class<T> responseType)
+      throws IOException, InterruptedException {
+    if (requestSigner == null) {
+      throw new IllegalStateException("Machine request signing is not configured");
+    }
+    Supplier<HttpRequest> requestFactory =
+        () -> {
+          try {
+            return buildSignedRequest(method, path, machineCode, body, timeout);
+          } catch (GeneralSecurityException exception) {
+            throw new RequestSigningException(exception);
+          }
+        };
+    try {
+      return send(requestFactory, responseType, true);
+    } catch (RequestSigningException exception) {
+      throw new IOException("Unable to sign machine request", exception.getCause());
+    }
+  }
+
+  private HttpRequest buildSignedRequest(
+      String method, String path, String machineCode, byte[] body, Duration timeout)
+      throws GeneralSecurityException {
+    byte[] nonceBytes = new byte[16];
+    SECURE_RANDOM.nextBytes(nonceBytes);
+    String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
+    String targetUri = apiBaseUrl + path;
+    SignedRequest signed =
+        requestSigner.sign(
+            method,
+            targetUri,
+            body,
+            Instant.now().plusMillis(skewAdjuster.offsetMillis()).getEpochSecond(),
+            nonce);
+    HttpRequest.Builder builder =
+        requestBuilder(path)
+            .header("X-Machine-Code", machineCode)
+            .header("Signature-Input", signed.signatureInput())
+            .header("Signature", signed.signatureHeader());
+    if (signed.contentDigest() != null) {
+      builder.header("Content-Digest", signed.contentDigest());
+    }
+    if (timeout != null) {
+      builder.timeout(timeout);
+    }
+    if (body == null) {
+      if ("GET".equals(method)) {
+        builder.GET();
+      } else {
+        builder.POST(HttpRequest.BodyPublishers.noBody());
+      }
+    } else {
+      builder
+          .header("Content-Type", "application/json")
+          .method(method, HttpRequest.BodyPublishers.ofByteArray(body));
+    }
+    return builder.build();
+  }
+
   private <T> T send(HttpRequest request, Class<T> responseType)
       throws IOException, InterruptedException {
-    return send(request, responseType, true);
+    return send(() -> request, responseType, true);
   }
 
   /**
@@ -192,8 +315,10 @@ public class ApiClient {
    *
    * @param retryOnSkew {@code false} on the retry itself to prevent infinite loops
    */
-  private <T> T send(HttpRequest request, Class<T> responseType, boolean retryOnSkew)
+  private <T> T send(
+      Supplier<HttpRequest> requestFactory, Class<T> responseType, boolean retryOnSkew)
       throws IOException, InterruptedException {
+    HttpRequest request = requestFactory.get();
     HttpResponse<String> response =
         httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
@@ -201,7 +326,7 @@ public class ApiClient {
       if (retryOnSkew && response.statusCode() == 401 && isClockSkewError(response.body())) {
         String dateHeader = response.headers().firstValue("Date").orElse(null);
         if (skewAdjuster.applyFromDateHeader(dateHeader)) {
-          return send(request, responseType, false);
+          return send(requestFactory, responseType, false);
         }
         // Date header missing or unparseable — surface with the header attached
         throw new ApiException(response.statusCode(), dateHeader);
@@ -210,6 +335,12 @@ public class ApiClient {
     }
 
     return OBJECT_MAPPER.readValue(response.body(), responseType);
+  }
+
+  private static final class RequestSigningException extends RuntimeException {
+    private RequestSigningException(GeneralSecurityException cause) {
+      super(cause);
+    }
   }
 
   /**
