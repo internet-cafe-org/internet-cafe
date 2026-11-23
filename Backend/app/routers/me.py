@@ -122,7 +122,7 @@ async def perfil(
     return ProfileResponse(
         id=fila.id,
         full_name=nombre,
-        email=sesiones.texto_plano(fila.email_ct, ""),
+        email=sesiones.texto_plano(fila.email_ct, "", aad=f"users.email_ct.{fila.id}"),
         student_code_masked=codigo,
         role=fila.role,
         status=fila.status,
@@ -228,9 +228,11 @@ async def cambiar_contrasena(
 ) -> None:
     """Cambia la contraseña propia (SEC-02).
 
-    Exige la contraseña actual. Con la actual incorrecta responde 422 y no 401, para
-    que el cliente no lo confunda con un token vencido. Al terminar cierra las demás
-    sesiones web; la que hizo el cambio sigue abierta.
+    Exige la contraseña actual. Con la actual incorrecta responde 401
+    ``AUTH_CURRENT_PASSWORD_INVALID``, como pide el SRS (RF-AUT-10, decisión del PO del
+    22/11). Es un código propio para que el cliente no lo confunda con un token inválido
+    (``AUTH_INVALID_CREDENTIALS``) o vencido (``AUTH_TOKEN_EXPIRED``) y no cierre la
+    sesión. Al terminar cierra las demás sesiones web; la que hizo el cambio sigue abierta.
 
     Args:
         datos: Contraseña actual y nueva.
@@ -240,8 +242,8 @@ async def cambiar_contrasena(
         db: Sesión de base de datos.
 
     Raises:
-        AppError: 429 ``RATE_LIMITED``; 422 ``VALIDATION_ERROR`` si la actual no
-            coincide o la nueva es igual a la actual.
+        AppError: 401 ``AUTH_CURRENT_PASSWORD_INVALID`` si la actual no coincide; 422
+            ``VALIDATION_ERROR`` si la nueva es igual a la actual; 429 ``RATE_LIMITED``.
     """
     limites.limitar(request, "me.password", cuenta=str(usuario.id), contar_ip=False)
     fila = (
@@ -252,7 +254,7 @@ async def cambiar_contrasena(
     if fila.status != UserStatus.active:
         raise AppError(ErrorCode.FORBIDDEN)
     if not verify_password(datos.current_password, fila.password_hash):
-        raise AppError(ErrorCode.VALIDATION_ERROR, "La contraseña actual no es correcta.")
+        raise AppError(ErrorCode.AUTH_CURRENT_PASSWORD_INVALID)
     if datos.new_password == datos.current_password:
         raise AppError(
             ErrorCode.VALIDATION_ERROR,

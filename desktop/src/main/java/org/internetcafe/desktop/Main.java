@@ -25,9 +25,7 @@ import org.internetcafe.desktop.qr.ConnectionMonitor;
 import org.internetcafe.desktop.qr.HeartbeatService;
 import org.internetcafe.desktop.screens.BoardScreen;
 import org.internetcafe.desktop.screens.ConnectionStatus;
-import org.internetcafe.desktop.screens.DashboardScreen;
 import org.internetcafe.desktop.screens.EnrollScreen;
-import org.internetcafe.desktop.screens.LoginScreen;
 import org.internetcafe.desktop.screens.MachineMode;
 import org.internetcafe.desktop.screens.OfflineScreen;
 import org.internetcafe.desktop.screens.PassiveCard;
@@ -58,25 +56,34 @@ public class Main extends Application {
       return;
     }
 
+    // ── Dev mode: saltar enrolamiento con valores de prueba ──────────────
+    final boolean devMode = "dev".equals(System.getProperty("app.profile"));
     EnrolledMachine enrolledMachine;
-    try {
-      enrolledMachine = loadEnrolledMachine();
-    } catch (IOException
-        | GeneralSecurityException
-        | IllegalArgumentException
-        | IllegalStateException exception) {
-      LOG.warning("Machine identity could not be loaded: " + exception.getClass().getSimpleName());
-      Alert alert = new Alert(Alert.AlertType.ERROR);
-      alert.setTitle("Equipo no disponible");
-      alert.setHeaderText("No se pudo cargar la identidad enrolada");
-      alert.setContentText(
-          "No se enviarán peticiones del equipo. Verifica el enrolamiento o contacta a TI.");
-      alert.showAndWait();
-      Platform.exit();
-      return;
+    if (devMode) {
+      // Permite cambiar el modo de prueba con -Ddev.mode=kiosk (por defecto: passive)
+      String devModeStr = System.getProperty("dev.mode", "passive");
+      MachineMode devMachineMode =
+          "kiosk".equalsIgnoreCase(devModeStr) ? MachineMode.KIOSK : MachineMode.PASSIVE;
+      enrolledMachine = new EnrolledMachine("AC-024", "Laboratorio 1", devMachineMode, null);
+    } else {
+      try {
+        enrolledMachine = loadEnrolledMachine();
+      } catch (IOException
+          | GeneralSecurityException
+          | IllegalArgumentException
+          | IllegalStateException exception) {
+        LOG.warning("Machine identity could not be loaded: " + exception.getClass().getSimpleName());
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Equipo no disponible");
+        alert.setHeaderText("No se pudo cargar la identidad enrolada");
+        alert.setContentText(
+            "No se enviará peticiones del equipo. Verifica el enrolamiento o contacta a TI.");
+        alert.showAndWait();
+        Platform.exit();
+        return;
+      }
     }
 
-    LoginScreen loginScreen = new LoginScreen();
     QrScreenModel qrModel =
         new QrScreenModel(
             enrolledMachine.code(),
@@ -85,15 +92,13 @@ public class Main extends Application {
             45,
             enrolledMachine.mode());
     QrScreen qrScreen = new QrScreen(qrModel);
-    DashboardScreen dashboardScreen = new DashboardScreen();
-    BoardScreen boardScreen = new BoardScreen("dev".equals(System.getProperty("app.profile")));
+    BoardScreen boardScreen = new BoardScreen(devMode);
     OfflineScreen offlineScreen = new OfflineScreen();
-    ApiClient apiClient = new ApiClient(enrolledMachine.requestSigner());
+    ApiClient apiClient =
+        devMode ? new ApiClient() : new ApiClient(enrolledMachine.requestSigner());
     String machineCode = enrolledMachine.code();
-    Scene scene = new Scene(loginScreen.getRoot(), 1280, 800);
-    scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
-
-    stage.setScene(scene);
+    final boolean darkMode = WindowsDarkMode.isSystemDarkMode();
+    stage.setScene(makeScene(qrScreen.getRoot(), darkMode));
     KioskController kioskController =
         new KioskController(
             locked -> applyKioskWindow(stage, locked),
@@ -101,7 +106,7 @@ public class Main extends Application {
               offlineScreen.setFailOpen(failOpen);
               if (failOpen && stage.getScene().getRoot() != offlineScreen.getRoot()) {
                 qrScreen.stopRotation();
-                stage.setScene(new Scene(offlineScreen.getRoot(), 1280, 800));
+                stage.setScene(makeScene(offlineScreen.getRoot(), darkMode));
               }
             },
             System::nanoTime);
@@ -121,14 +126,14 @@ public class Main extends Application {
                   event -> {
                     if (stage.getScene().getRoot() == offlineScreen.getRoot()) {
                       qrScreen.startRotation(apiClient, machineCode);
-                      stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
+                      stage.setScene(makeScene(qrScreen.getRoot(), darkMode));
                     }
                   });
               pause.play();
             }
           } else if (!offlineVisible) {
             qrScreen.stopRotation();
-            stage.setScene(new Scene(offlineScreen.getRoot(), 1280, 800));
+            stage.setScene(makeScene(offlineScreen.getRoot(), darkMode));
           }
         };
     ConnectionMonitor connectionMonitor =
@@ -157,23 +162,15 @@ public class Main extends Application {
               }
             });
     stage.show();
+    // D-02: arranca la rotación del QR en cuanto la ventana es visible (RF-QR-01, RF-EQU-04).
+    qrScreen.startRotation(apiClient, machineCode);
     kioskFailOpenTicker =
         new Timeline(new KeyFrame(Duration.seconds(1), event -> kioskController.tick()));
     kioskFailOpenTicker.setCycleCount(Timeline.INDEFINITE);
     kioskFailOpenTicker.play();
 
-    loginScreen.setOnLoginSuccess(
-        () -> {
-          stage.setScene(new Scene(dashboardScreen.getRoot(), 1280, 800));
-          dashboardScreen.setStatus("Sesión iniciada");
-        });
-
-    qrScreen.setOnBack(
-        () -> {
-          connectionMonitor.stop();
-          qrScreen.stopRotation();
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
-        });
+    // El QR es la pantalla de inicio: no hay pantalla anterior a la que volver.
+    // En modo pasivo el usuario puede omitir via el botón "Omitir".
 
     qrScreen.setOnConnectionLost(connectionMonitor::reportFailure);
 
@@ -205,7 +202,7 @@ public class Main extends Application {
               trayManager.remove();
               stage.setIconified(false);
               if (stage.getScene().getRoot() != qrScreen.getRoot()) {
-                stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
+                stage.setScene(makeScene(qrScreen.getRoot(), darkMode));
               }
               stage.show();
               stage.toFront();
@@ -226,11 +223,13 @@ public class Main extends Application {
     qrScreen.setOnSkip(() -> modeManager.applyMode(MachineMode.PASSIVE));
 
     offlineScreen.setOnRetry(connectionMonitor::retryNow);
+    // "Inicio" desde la pantalla offline vuelve al QR (D-02), que es la pantalla raíz.
     offlineScreen.setOnHome(
         () -> {
           connectionMonitor.stop();
           qrScreen.stopRotation();
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
+          qrScreen.startRotation(apiClient, machineCode);
+          stage.setScene(makeScene(qrScreen.getRoot(), darkMode));
         });
 
     boardScreen.setOnBackToQr(
@@ -238,7 +237,7 @@ public class Main extends Application {
           boardScreen.stop();
           kioskController.setSessionActive(false);
           qrScreen.startRotation(apiClient, machineCode);
-          stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
+          stage.setScene(makeScene(qrScreen.getRoot(), darkMode));
         });
 
     Runnable backToQr =
@@ -247,7 +246,7 @@ public class Main extends Application {
           heartbeatService.setSessionId(null);
           kioskController.setSessionActive(false);
           qrScreen.startRotation(apiClient, machineCode);
-          stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
+          stage.setScene(makeScene(qrScreen.getRoot(), darkMode));
         };
     heartbeatService =
         new HeartbeatService(
@@ -286,14 +285,21 @@ public class Main extends Application {
           kioskController.setSessionActive(true);
           heartbeatService.setSessionId(
               response.session() == null ? null : response.session().id());
-          stage.setScene(new Scene(boardScreen.getRoot(), 1280, 800));
+          stage.setScene(makeScene(boardScreen.getRoot(), darkMode));
           boardScreen.show(response.displayName(), response.maskedStudentCode(), approvedAt);
+          // Carga los últimos 5 accesos en segundo plano (RF-EQU-09).
+          Thread.startVirtualThread(
+              () -> {
+                try {
+                  var sessions = apiClient.getRecentSessions(machineCode, 5);
+                  Platform.runLater(() -> boardScreen.showRecentSessions(sessions));
+                } catch (Exception ex) {
+                  LOG.warning("No se pudieron cargar los accesos recientes: " + ex.getMessage());
+                  Platform.runLater(() -> boardScreen.showRecentSessions(java.util.List.of()));
+                }
+              });
         });
 
-    dashboardScreen.setOnLogout(
-        () -> {
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
-        });
   }
 
   @Override
@@ -311,9 +317,7 @@ public class Main extends Application {
 
   private void startEnrollment(Stage stage) {
     EnrollScreen enrollScreen = new EnrollScreen();
-    Scene scene = new Scene(enrollScreen.getRoot(), 1280, 800);
-    scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
-    stage.setScene(scene);
+    stage.setScene(makeScene(enrollScreen.getRoot(), WindowsDarkMode.isSystemDarkMode()));
     stage.show();
     enrollScreen.setOnClose(Platform::exit);
 
@@ -435,6 +439,19 @@ public class Main extends Application {
       stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
     }
     stage.setFullScreen(locked);
+  }
+
+  /**
+   * Crea una escena con los estilos base y, si el sistema está en modo oscuro, aplica también
+   * el override oscuro.
+   */
+  private Scene makeScene(javafx.scene.Parent root, boolean darkMode) {
+    Scene scene = new Scene(root, 1280, 800);
+    scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+    if (darkMode) {
+      scene.getStylesheets().add(getClass().getResource("/styles-dark.css").toExternalForm());
+    }
+    return scene;
   }
 
   public static void main(String[] args) {

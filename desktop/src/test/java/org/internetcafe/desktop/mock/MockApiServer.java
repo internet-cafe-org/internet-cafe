@@ -37,6 +37,8 @@ public final class MockApiServer implements AutoCloseable {
   private static final String LONG_POLL =
       "{\"evento_id\":\"evt-456\",\"tipo\":\"sesion_autorizada\","
           + "\"datos\":{\"terminal\":\"PC-05\",\"tiempo_restante\":3600}}";
+  private static final String CHALLENGE_WAIT_TIMEOUT =
+      "{\"status\":\"waiting\",\"session\":null,\"user\":null}";
 
   private static final Reply NOT_FOUND = new Reply(404, "{}");
   private static final Reply METHOD_NOT_ALLOWED = new Reply(405, "{}");
@@ -112,6 +114,8 @@ public final class MockApiServer implements AutoCloseable {
           !is(exchange, "POST")
               ? METHOD_NOT_ALLOWED
               : hasHeader(exchange, "X-Machine-Code") ? challenge() : BAD_REQUEST;
+      case "/api/v1/machine/challenges/wait" ->
+          is(exchange, "GET") ? challengeWait() : METHOD_NOT_ALLOWED;
       default -> NOT_FOUND;
     };
   }
@@ -125,6 +129,22 @@ public final class MockApiServer implements AutoCloseable {
       }
     }
     return new Reply(200, LONG_POLL);
+  }
+
+  /**
+   * Simula el long-poll de espera de challenge: bloquea {@code longPollDelayMillis} ms (o 25 s si
+   * es 0, para simular un timeout real) y responde con {@code "waiting"} para que el cliente
+   * renueve el QR y vuelva a esperar. En un entorno real el backend respondería {@code "approved"}
+   * cuando un usuario escanea el QR.
+   */
+  private Reply challengeWait() {
+    long delay = longPollDelayMillis > 0 ? longPollDelayMillis : 25_000L;
+    try {
+      Thread.sleep(delay);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    return new Reply(200, CHALLENGE_WAIT_TIMEOUT);
   }
 
   private static Reply challenge() {

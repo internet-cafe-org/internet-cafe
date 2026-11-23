@@ -659,8 +659,12 @@ paths:
         La nueva debe tener entre 10 y 128 caracteres y ser distinta de la actual.
         Al cambiarla se cierran las demás sesiones web (refresh tokens); la sesión
         que hizo el cambio sigue abierta. Una contraseña actual incorrecta responde
-        422 `VALIDATION_ERROR` (no 401, para que el cliente no lo confunda con un
-        token vencido). Límite por cuenta, 429 `RATE_LIMITED`.
+        401 `AUTH_CURRENT_PASSWORD_INVALID` (RF-AUT-10); un token inválido responde
+        401 `AUTH_INVALID_CREDENTIALS` y uno vencido 401 `AUTH_TOKEN_EXPIRED`, así que el
+        cliente los distingue por `code` y no cierra la sesión por una contraseña mal
+        escrita. La nueva
+        igual a la actual o fuera de 10 a 128 caracteres responde 422
+        `VALIDATION_ERROR`. Límite por cuenta, 429 `RATE_LIMITED`.
       requestBody:
         required: true
         content:
@@ -826,7 +830,69 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/labs/{id}:
+    patch:
+      tags:
+      - admin
+      security: *id005
+      summary: Editar nombre o edificio de una sala (BE-12)
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabPatch'
+      responses:
+        '200':
+          description: Sala actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lab'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/admin/machines:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Crear un equipo (BE-12)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineCreate'
+      responses:
+        '201':
+          description: Equipo creado en estado pending_enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
     get:
       tags:
       - admin
@@ -921,6 +987,12 @@ paths:
         name: started_to
         schema: *id002
         description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
       - *id006
       - *id007
       responses:
@@ -969,7 +1041,57 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
-  /admin/users:
+  /api/v1/admin/sessions/export:
+    get:
+      tags:
+      - admin
+      security: *id005
+      summary: Exportar accesos a CSV (ST-BE-03)
+      description: Exporta los accesos filtrados. Devuelve un archivo CSV (UTF-8 con BOM, separador coma).
+      parameters:
+      - in: query
+        name: machine_code
+        schema:
+          type: string
+          maxLength: 40
+      - in: query
+        name: lab_id
+        schema: *id001
+      - in: query
+        name: state
+        schema:
+          type: string
+          enum:
+          - active
+          - ended
+      - in: query
+        name: started_from
+        schema: *id002
+        description: Inclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: started_to
+        schema: *id002
+        description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
+      responses:
+        '200':
+          description: Archivo CSV.
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/users:
     get:
       tags:
       - admin
@@ -1038,7 +1160,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
-  /admin/users/{id}:
+  /api/v1/admin/users/{id}:
     patch:
       tags:
       - admin
@@ -1077,7 +1199,6 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
-
 components:
   securitySchemes:
     bearerAuth:
@@ -1376,6 +1497,19 @@ components:
           type: string
           maxLength: 80
           nullable: true
+    LabPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        building:
+          type: string
+          maxLength: 80
+          nullable: true
     Lab:
       type: object
       required:
@@ -1406,6 +1540,22 @@ components:
           type: integer
         offset:
           type: integer
+    MachineCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+        lab_id:
+          type: string
+          format: uuid
+          nullable: true
+        mode:
+          $ref: '#/components/schemas/MachineMode'
     MachinePatch:
       type: object
       additionalProperties: false
@@ -1650,7 +1800,6 @@ components:
           type: string
           enum: [pending_verification, active, blocked]
           nullable: true
-
   responses:
     BadRequest:
       description: Petición inválida.

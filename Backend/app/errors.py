@@ -33,6 +33,9 @@ class ErrorCode(StrEnum):
     AUTH_EMAIL_NOT_VERIFIED = "AUTH_EMAIL_NOT_VERIFIED"
     AUTH_ACCOUNT_LOCKED = "AUTH_ACCOUNT_LOCKED"
     AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"
+    # Contraseña actual incorrecta en PATCH /me/password (RF-AUT-10). Código propio para
+    # que el cliente no lo confunda con un token inválido y no cierre la sesión.
+    AUTH_CURRENT_PASSWORD_INVALID = "AUTH_CURRENT_PASSWORD_INVALID"
     FORBIDDEN = "FORBIDDEN"
     RATE_LIMITED = "RATE_LIMITED"
     CHALLENGE_NOT_FOUND = "CHALLENGE_NOT_FOUND"
@@ -52,6 +55,8 @@ class ErrorCode(StrEnum):
     # Genérico del contrato v0.2 (BE-18): el recurso existe pero la operación choca
     # con su estado (nombre de sala repetido, activar un equipo sin enrolar)
     CONFLICT = "CONFLICT"
+    # BE-21: Endurecimiento (el cuerpo de la petición supera el límite permitido)
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
 
     @property
     def spec(self) -> ErrorSpec:
@@ -83,6 +88,11 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
         "Demasiados intentos fallidos. Espera 15 minutos.",
     ),
     ErrorCode.AUTH_TOKEN_EXPIRED: ErrorSpec(401, "Sesión vencida", "El token de acceso venció."),
+    ErrorCode.AUTH_CURRENT_PASSWORD_INVALID: ErrorSpec(
+        401,
+        "Contraseña actual incorrecta",
+        "La contraseña actual no es correcta.",
+    ),
     ErrorCode.FORBIDDEN: ErrorSpec(403, "Acceso denegado", "No tienes permisos para este recurso."),
     ErrorCode.RATE_LIMITED: ErrorSpec(
         429,
@@ -136,6 +146,10 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
     ),
     ErrorCode.CONFLICT: ErrorSpec(
         409, "Conflicto", "La operación no es posible en el estado actual del recurso."
+    ),
+    # BE-21: Catálogo para el error de cuerpo demasiado grande
+    ErrorCode.PAYLOAD_TOO_LARGE: ErrorSpec(
+        413, "Cuerpo demasiado grande", "El cuerpo de la petición supera el límite permitido."
     ),
 }
 

@@ -207,14 +207,6 @@ describe('ProfileView (W-09)', () => {
     await wrapper.find('form.pass').trigger('submit')
 
     expect(wrapper.text()).toContain('La nueva contraseña debe ser diferente a la actual.')
-
-    await wrapper.find('input#nueva').setValue('NuevaContrasena123')
-    await wrapper.find('input#confirmar').setValue('NuevaContrasena123')
-    await wrapper.find('form.pass').trigger('submit')
-
-    expect(wrapper.text()).toContain(
-      'El cambio de contraseña aún no está disponible en esta versión del servicio.',
-    )
   })
 
   it('permite reintentar si falla la carga inicial del perfil', async () => {
