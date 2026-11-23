@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
+from app.crypto import compute_blind_index
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.models import (
@@ -27,11 +28,14 @@ from app.models import (
     Machine,
     MachineMode,
     MachineStatus,
+    RefreshToken,
     SessionEndReason,
     User,
+    UserRole,
+    UserStatus,
 )
 from app.security.dependencies import CurrentUser, require_admin
-from app.services import challenges, sesiones
+from app.services import challenges, pii, sesiones
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -469,3 +473,191 @@ async def cerrar_sesion_forzada(
     item = _item_sesion(sesion, usuario, codigo, lab)
     await db.commit()
     return AdminSessionResponse(session=item)
+
+
+# ------------------------------------------------------------------------- usuarios
+class AdminUserItem(BaseModel):
+    """Usuario en las respuestas de administración."""
+
+    id: uuid.UUID
+    email: str
+    full_name: str
+    student_code_masked: str
+    role: UserRole
+    status: UserStatus
+    created_at: datetime
+
+
+class AdminUsersPage(BaseModel):
+    """Página de usuarios."""
+
+    items: list[AdminUserItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class UserPatch(BaseModel):
+    """Cuerpo de ``PATCH /admin/users/{id}``: editar rol y/o estado."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: UserRole | None = None
+    status: UserStatus | None = None
+
+    @model_validator(mode="after")
+    def _al_menos_un_campo(self) -> "UserPatch":
+        """Valida que se envíe al menos un campo a modificar.
+
+        Returns:
+            La instancia validada.
+
+        Raises:
+            ValueError: Si no se envía ningún campo.
+        """
+        if not self.model_fields_set:
+            raise ValueError("Envía al menos un campo para modificar.")
+        return self
+
+
+def _aad_usuario(user_id: uuid.UUID, campo: str) -> str:
+    return f"users.{campo}.{user_id}"
+
+
+def _item_usuario(user: User) -> AdminUserItem:
+    """Construye AdminUserItem descifrando los datos personales."""
+    email = pii.revelar(user.email_ct, defecto="", aad=_aad_usuario(user.id, "email_ct"))
+    full_name = pii.revelar(user.full_name_ct, defecto="", aad=_aad_usuario(user.id, "full_name_ct"))
+    student_code: str | None = None
+    if user.student_code_ct:
+        raw = pii.revelar(user.student_code_ct, defecto="", aad=_aad_usuario(user.id, "student_code_ct"))
+        student_code = raw if raw else None
+    from app.services.challenges import mask_student_code
+
+    return AdminUserItem(
+        id=user.id,
+        email=email,
+        full_name=full_name,
+        student_code_masked=mask_student_code(student_code),
+        role=user.role,
+        status=user.status,
+        created_at=user.created_at,
+    )
+
+
+@router.get("/users", response_model=AdminUsersPage)
+async def listar_usuarios(
+    email: str | None = Query(default=None, max_length=254),
+    student_code: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> AdminUsersPage:
+    """Lista usuarios; búsqueda exacta por correo o código a través del índice ciego.
+
+    Args:
+        email: Correo electrónico exacto para filtrar.
+        student_code: Código de estudiante exacto para filtrar.
+        limit: Máximo de usuarios por página (1 a 100).
+        offset: Usuarios que se saltan.
+        db: Sesión de base de datos.
+
+    Returns:
+        La página de usuarios con el total.
+    """
+    condiciones: list[Any] = []
+    if email is not None:
+        bidx = compute_blind_index(email)
+        condiciones.append(User.email_bidx == bidx)
+    if student_code is not None:
+        bidx = compute_blind_index(student_code)
+        condiciones.append(User.student_code_bidx == bidx)
+
+    total = (
+        await db.execute(select(func.count()).select_from(User).where(*condiciones))
+    ).scalar_one()
+    filas = (
+        await db.execute(
+            select(User).where(*condiciones).order_by(User.created_at.desc()).limit(limit).offset(offset)
+        )
+    ).scalars().all()
+    return AdminUsersPage(
+        items=[_item_usuario(u) for u in filas],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserItem)
+async def editar_usuario(
+    user_id: uuid.UUID,
+    body: UserPatch,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> AdminUserItem:
+    """Edita el rol y/o el estado de un usuario.
+
+    Bloquear un usuario (``status=blocked``) revoca todos sus refresh tokens y cierra
+    su sesión de acceso activa con motivo ``admin_forced`` (RF-ADM-08, RN-12).
+
+    Args:
+        user_id: UUID del usuario a editar.
+        body: Campos a modificar (role y/o status).
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El usuario con los datos actualizados.
+
+    Raises:
+        AppError: ``NOT_FOUND`` si el usuario no existe.
+        AppError: ``CONFLICT`` si se intenta bloquear al propio administrador.
+    """
+    usuario = (
+        await db.execute(select(User).where(User.id == user_id).with_for_update())
+    ).scalar_one_or_none()
+    if usuario is None:
+        raise AppError(ErrorCode.NOT_FOUND, detail="El usuario no existe.")
+
+    if body.status == UserStatus.blocked and usuario.id == admin.id:
+        raise AppError(ErrorCode.CONFLICT, detail="No puedes bloquearte a ti mismo.")
+
+    cambios = sorted(body.model_fields_set)
+    bloquear = False
+
+    if body.role is not None:
+        usuario.role = body.role
+    if body.status is not None:
+        if body.status == UserStatus.blocked and usuario.status != UserStatus.blocked:
+            bloquear = True
+        usuario.status = body.status
+
+    if bloquear:
+        # Revocar todos los refresh tokens del usuario
+        ahora = challenges.ahora()
+        await db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == usuario.id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=ahora)
+        )
+        # Cerrar la sesión de acceso activa del usuario (si existe)
+        await db.execute(
+            update(AccessSession)
+            .where(AccessSession.user_id == usuario.id, AccessSession.ended_at.is_(None))
+            .values(ended_at=ahora, end_reason=SessionEndReason.admin_forced)
+            .execution_options(synchronize_session=False)
+        )
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="user_updated",
+        target_type="user",
+        target_id=usuario.id,
+        metadata_info={"fields": cambios},
+    )
+    await db.commit()
+    await db.refresh(usuario)
+    return _item_usuario(usuario)

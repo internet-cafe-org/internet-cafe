@@ -1067,6 +1067,115 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /admin/users:
+    get:
+      tags:
+      - admin
+      security: *id005
+      summary: Listar y buscar usuarios (ST-BE-02)
+      description: >-
+        Lista usuarios paginados. Con email o student_code hace busqueda
+        exacta por indice ciego (blind index HMAC-SHA256). Sin filtros devuelve
+        todos los usuarios ordenados por fecha de creacion descendente.
+      parameters:
+      - in: query
+        name: email
+        schema:
+          type: string
+          maxLength: 254
+        required: false
+        description: Correo electronico exacto.
+      - in: query
+        name: student_code
+        schema:
+          type: string
+          maxLength: 40
+        required: false
+        description: Codigo de estudiante exacto.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        required: false
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        required: false
+      responses:
+        '200':
+          description: Pagina de usuarios.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - total
+                - limit
+                - offset
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminUser'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /admin/users/{id}:
+    patch:
+      tags:
+      - admin
+      security: *id005
+      summary: Editar rol o estado de un usuario (ST-BE-02)
+      description: >-
+        Edita el role y/o el status de un usuario. Bloquear (status=blocked)
+        revoca todos sus refresh tokens y cierra su sesion de acceso activa con
+        motivo admin_forced (RF-ADM-08, RN-12). No se puede bloquear al
+        administrador que hace la peticion.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPatch'
+      responses:
+        '200':
+          description: Usuario actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1596,6 +1705,50 @@ components:
           type: string
           description: Coordenada y en base64url sin relleno (32 bytes).
           example: x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0
+    AdminUser:
+      type: object
+      required:
+      - id
+      - email
+      - full_name
+      - student_code_masked
+      - role
+      - status
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        student_code_masked:
+          type: string
+          description: Codigo enmascarado (*****XXXX).
+        role:
+          type: string
+          enum: [student, admin]
+        status:
+          type: string
+          enum: [pending_verification, active, blocked]
+        created_at:
+          type: string
+          format: date-time
+    UserPatch:
+      type: object
+      description: Campos a modificar en un usuario (al menos uno).
+      properties:
+        role:
+          type: string
+          enum: [student, admin]
+          nullable: true
+        status:
+          type: string
+          enum: [pending_verification, active, blocked]
+          nullable: true
+
   responses:
     BadRequest:
       description: Petición inválida.
@@ -1662,4 +1815,6 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+
 ```
+
