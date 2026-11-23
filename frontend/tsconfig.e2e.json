@@ -1,0 +1,13 @@
+// TSConfig para las pruebas E2E de Playwright (QA-10).
+{
+  "extends": "@tsconfig/node24/tsconfig.json",
+  "include": ["e2e/**/*"],
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["es2024", "dom"],
+    "types": ["node"],
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo"
+  }
+}
