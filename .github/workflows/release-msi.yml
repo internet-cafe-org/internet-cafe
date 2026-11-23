@@ -5,6 +5,9 @@ name: release-msi
 #   environment prod, que exige la aprobación del PO o el SM) y lo publica con su SHA-256.
 # - Pull request que toca desktop/ o este workflow: construye el .msi para comprobar que el
 #   instalador se arma, pero no publica nada.
+# Antes de subir cualquier .msi, .github/scripts/verificar-msi.ps1 lo extrae sin instalarlo y
+# exige que el lanzador fije -Dapi.base.url con la URL pedida: un instalador que apunte a otra
+# API nunca se publica.
 # Windows solo acepta versiones numéricas (X.Y.Z): el .msi usa X.Y de la etiqueta y el
 # número de ejecución como tercer campo, para que cada versión candidata actualice a la
 # anterior (DSK-14a: versiones crecientes). La etiqueta completa queda en el release.
@@ -17,6 +20,7 @@ on:
     paths:
       - 'desktop/**'
       - '.github/workflows/release-msi.yml'
+      - '.github/scripts/verificar-msi.ps1'
 
 permissions:
   contents: read
@@ -48,11 +52,18 @@ jobs:
           fi
           echo "$wix" >> "$GITHUB_PATH"
       - name: Construir el .msi
-        run: gradle -p desktop jpackageMsi "-PappVersion=0.0.${GITHUB_RUN_NUMBER}"
+        env:
+          # URL ficticia: la verificación comprueba que la URL pedida quede en el lanzador
+          URL_PRUEBA: https://api.prueba.invalid
+        run: gradle -p desktop jpackageMsi "-PapiBaseUrl=$URL_PRUEBA" "-PappVersion=0.0.${GITHUB_RUN_NUMBER}"
+      - name: Verificar el .msi
+        id: verificar
+        shell: pwsh
+        run: ./.github/scripts/verificar-msi.ps1 -Directorio desktop/build/installer -UrlEsperada https://api.prueba.invalid
       - uses: actions/upload-artifact@v4
         with:
           name: msi-prueba
-          path: desktop/build/installer/*.msi
+          path: ${{ steps.verificar.outputs.msi }}
           retention-days: 3
 
   release:
@@ -119,14 +130,22 @@ jobs:
           fi
           gradle -p desktop jpackageMsi "-PapiBaseUrl=$PROD_API_URL" "-PappVersion=$VERSION_MSI"
 
+      - name: Verificar el .msi de prod
+        id: verificar
+        shell: pwsh
+        env:
+          PROD_API_URL: ${{ vars.PROD_API_URL }}
+        run: ./.github/scripts/verificar-msi.ps1 -Directorio desktop/build/installer -UrlEsperada $env:PROD_API_URL
+
       - name: Publicar en GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
           ETIQUETA: ${{ github.ref_name }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
           VERSION_MSI: ${{ steps.version.outputs.msi }}
+          ORIGEN: ${{ steps.verificar.outputs.msi }}
         run: |
-          origen="$(ls desktop/build/installer/*.msi | head -n 1)"
+          origen="$(cygpath -u "$ORIGEN")"
           msi="internet-cafe-desktop-${ETIQUETA}.msi"
           cp "$origen" "$msi"
           sha256sum "$msi" > "$msi.sha256"
