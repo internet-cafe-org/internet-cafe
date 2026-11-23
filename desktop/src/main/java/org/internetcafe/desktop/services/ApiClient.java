@@ -26,6 +26,7 @@ import org.internetcafe.desktop.contract.HeartbeatResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.RegistrationResponse;
+import org.internetcafe.desktop.contract.RecentSession;
 import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
 import org.internetcafe.desktop.signing.RequestSigner;
 import org.internetcafe.desktop.signing.RequestSigner.SignedRequest;
@@ -167,6 +168,42 @@ public class ApiClient {
         json.getBytes(StandardCharsets.UTF_8),
         timeout,
         JsonNode.class);
+  }
+
+  /**
+   * Returns the last {@code limit} closed sessions for this machine (RF-EQU-09: últimos 5 accesos).
+   *
+   * <p>Calls {@code GET /api/v1/machine/sessions/recent?limit=<n>}. Returns an empty list when the
+   * endpoint does not exist yet or the response cannot be parsed, so the board degrades gracefully.
+   */
+  public java.util.List<org.internetcafe.desktop.contract.RecentSession> getRecentSessions(
+      String machineCode, int limit) throws IOException, InterruptedException {
+    HttpRequest request =
+        requestBuilder(API_PATH + "/machine/sessions/recent?limit=" + limit)
+            .header("X-Machine-Code", machineCode)
+            .GET()
+            .build();
+    try {
+      JsonNode root = send(request, JsonNode.class);
+      java.util.List<org.internetcafe.desktop.contract.RecentSession> sessions =
+          new java.util.ArrayList<>();
+      JsonNode items = root.isArray() ? root : root.path("items");
+      if (items.isArray()) {
+        for (JsonNode node : items) {
+          String startedAt = node.path("started_at").asText(null);
+          String endedAt = node.path("ended_at").asText(null);
+          String endReason = node.path("end_reason").asText(null);
+          if (startedAt != null) {
+            sessions.add(
+                new org.internetcafe.desktop.contract.RecentSession(startedAt, endedAt, endReason));
+          }
+        }
+      }
+      return sessions;
+    } catch (ApiException e) {
+      // Backend aún no tiene el endpoint (404) u otro error — lista vacía.
+      return java.util.List.of();
+    }
   }
 
   public LongPollResponse longPoll(String lastEventId) throws IOException, InterruptedException {
