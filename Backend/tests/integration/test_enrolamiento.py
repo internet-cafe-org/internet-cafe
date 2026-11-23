@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -88,6 +88,44 @@ class Equipo:
         cuerpo = {"enrollment_code": codigo, "jwk": dict(self.jwk), "proof": self.firmar(codigo)}
         cuerpo.update(cambios)
         return cuerpo
+
+
+def _entero(valor: int) -> str:
+    """Codifica un entero de un JWK RSA: big-endian, sin ceros a la izquierda.
+
+    Args:
+        valor: Entero positivo.
+
+    Returns:
+        Texto base64url sin ``=``.
+    """
+    return _b64(valor.to_bytes((valor.bit_length() + 7) // 8, "big"))
+
+
+class EquipoRsa(Equipo):
+    """Par RSA como la clave del TPM de ST-DSK-01: firma ``SHA256withRSA``."""
+
+    def __init__(self, bits: int = 2048, exponente: int = 65537) -> None:
+        """Genera un par RSA nuevo.
+
+        Args:
+            bits: Tamaño del módulo.
+            exponente: Exponente público.
+        """
+        self.clave = rsa.generate_private_key(public_exponent=exponente, key_size=bits)
+        numeros = self.clave.public_key().public_numbers()
+        self.jwk = {"kty": "RSA", "n": _entero(numeros.n), "e": _entero(numeros.e)}
+
+    def firmar(self, mensaje: str) -> str:
+        """Firma el mensaje como SunMSCAPI: RSASSA-PKCS1-v1_5 con SHA-256.
+
+        Args:
+            mensaje: Texto que se firma (el código de enrolamiento).
+
+        Returns:
+            Firma del largo del módulo en base64url sin relleno.
+        """
+        return _b64(self.clave.sign(mensaje.encode(), padding.PKCS1v15(), hashes.SHA256()))
 
 
 @pytest.fixture
@@ -229,6 +267,124 @@ async def test_reenrolar_con_un_codigo_nuevo_reemplaza_la_clave(cliente, sesione
     machine = await _equipo(sesiones, pendiente.id)
     assert machine.key_thumbprint == r2.json()["keyid"] != r1.json()["keyid"]
     assert machine.credential_hash == hash_machine_credential(r2.json()["provisional_credential"])
+
+
+# ---------------------------------------------------------------- clave RSA del TPM (ST-SEC-04)
+
+
+async def test_enrolar_con_clave_rsa_del_tpm(cliente, sesiones, pendiente):
+    """Una clave RSA 2048 (la del TPM) se enrola y queda guardada con su huella RFC 7638."""
+    equipo = EquipoRsa()
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=equipo.cuerpo(codigo))
+
+    assert resp.status_code == 201
+    keyid = resp.json()["keyid"]
+    assert keyid == enrolamiento.huella_jwk(equipo.jwk)
+    machine = await _equipo(sesiones, pendiente.id)
+    assert machine.status == MachineStatus.active
+    assert machine.public_key_jwk == equipo.jwk
+    assert machine.key_thumbprint == keyid
+    async with sesiones() as db:
+        auditoria = await db.scalar(select(AuditLog))
+    assert auditoria.metadata_info["kty"] == "RSA"
+
+
+def test_huella_rsa_de_rfc_7638():
+    """La huella de un JWK RSA es la del ejemplo de RFC 7638 §3.1."""
+    n = (
+        "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECP"
+        "ebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY"
+        "368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0f"
+        "M4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw"
+    )
+    jwk = {"kty": "RSA", "n": n, "e": "AQAB"}
+
+    assert enrolamiento.huella_jwk(jwk) == "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs"
+    assert enrolamiento.jwk_publico({**jwk, "alg": "RS256"}) == jwk
+
+
+async def test_clave_rsa_con_firma_de_otra_clave_responde_401(cliente, sesiones, pendiente):
+    """La prueba RSA debe ser de la misma clave; si no, el código no se quema."""
+    equipo, intruso = EquipoRsa(), EquipoRsa()
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=equipo.cuerpo(codigo, proof=intruso.firmar(codigo)))
+    reintento = await cliente.post(RUTA, json=equipo.cuerpo(codigo))
+
+    assert resp.status_code == 401
+    assert resp.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+    assert reintento.status_code == 201
+
+
+async def test_clave_rsa_con_prueba_ecdsa_responde_401(cliente, sesiones, pendiente):
+    """No se mezclan tipos: una prueba ``r||s`` no sirve para una clave RSA."""
+    equipo = EquipoRsa()
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=equipo.cuerpo(codigo, proof=Equipo().firmar(codigo)))
+
+    assert resp.status_code == 401
+    assert resp.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+
+
+@pytest.mark.parametrize(
+    "cambio",
+    [
+        {"d": _b64(b"\x01" * 256)},
+        {"p": _b64(b"\x01" * 128)},
+        {"e": "AQAA"},
+        {"n": "!" * 342},
+        {"crv": "P-256"},
+    ],
+    ids=["con-d", "con-primo", "exponente-distinto", "n-no-base64url", "miembro-extra"],
+)
+async def test_jwk_rsa_invalido_responde_422(cliente, sesiones, pendiente, cambio):
+    """El JWK RSA debe ser público, sin miembros extra, con base64url y e = 65537."""
+    equipo = EquipoRsa()
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=equipo.cuerpo(codigo, jwk={**equipo.jwk, **cambio}))
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "VALIDATION_ERROR"
+
+
+async def test_clave_rsa_menor_de_2048_bits_responde_422(cliente, sesiones, pendiente):
+    """Una clave RSA de 1024 bits se rechaza aunque la prueba sea válida."""
+    equipo = EquipoRsa(bits=1024)
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=equipo.cuerpo(codigo))
+
+    assert resp.status_code == 422
+    assert (await _equipo(sesiones, pendiente.id)).status == MachineStatus.pending_enrollment
+
+
+def test_validacion_rsa_en_el_servicio():
+    """El servicio rechaza lo que el esquema no alcanza a ver: tamaño y ceros a la izquierda."""
+    equipo = EquipoRsa()
+    with pytest.raises(ValueError, match="65537"):
+        enrolamiento.clave_publica_desde_jwk({**equipo.jwk, "e": _entero(3)})
+    with pytest.raises(ValueError, match="ceros"):
+        enrolamiento.clave_publica_desde_jwk({**equipo.jwk, "n": _b64(b"\x00" + _b64d(equipo.jwk["n"]))})
+    with pytest.raises(ValueError, match="bits"):
+        enrolamiento.clave_publica_desde_jwk({"kty": "RSA", "n": _entero(2**5000 + 1), "e": "AQAB"})
+    with pytest.raises(ValueError, match="EC P-256 o RSA"):
+        enrolamiento.clave_publica_desde_jwk({"kty": "OKP"})
+
+
+def _b64d(valor: str) -> bytes:
+    """Decodifica base64url sin relleno.
+
+    Args:
+        valor: Texto base64url.
+
+    Returns:
+        Los bytes.
+    """
+    return base64.urlsafe_b64decode(valor + "=" * (-len(valor) % 4))
 
 
 # ---------------------------------------------------------------- código

@@ -2,8 +2,10 @@
 
 Perfil acordado en los vectores de SEC-08 (``contracts/test-vectors``):
 
-- etiqueta ``sig1`` y algoritmo ``ecdsa-p256-sha256``; firma ``r||s`` de 64
-  bytes en base64 (``Signature: sig1=:<base64>:``);
+- etiqueta ``sig1`` y algoritmo según la clave enrolada: ``ecdsa-p256-sha256``
+  (firma ``r||s`` de 64 bytes) con una clave EC P-256, o ``rsa-v1_5-sha256``
+  (RFC 9421 §3.3.2, firma del largo del módulo) con la clave RSA del TPM
+  (ST-SEC-04); siempre en base64 (``Signature: sig1=:<base64>:``);
 - componentes ``@method``, ``@target-uri`` y, solo si hay cuerpo,
   ``content-digest`` (RFC 9530, SHA-256 de los bytes del cuerpo);
 - parámetros ``created``, ``keyid`` (huella RFC 7638 del JWK enrolado),
@@ -26,13 +28,19 @@ from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from fastapi import Request
 
 from app.config import settings
 
 ALGORITMO = "ecdsa-p256-sha256"
+ALGORITMO_RSA = "rsa-v1_5-sha256"
+# Algoritmo que corresponde a cada tipo de clave enrolada (``kty`` del JWK). RFC
+# 9421 §3.2: el ``alg`` declarado debe ser el de la clave; no se negocia.
+ALGORITMO_POR_KTY = {"EC": ALGORITMO, "RSA": ALGORITMO_RSA}
+# Largos válidos de la firma cruda: 64 (``r||s``) y RSA de 2048 a 4096 bits.
+_LARGOS_FIRMA = {64, 256, 384, 512}
 _ETIQUETA = r"[a-z][a-z0-9_-]*"
 _PATRON_INPUT = re.compile(
     rf'^(?P<etiqueta>{_ETIQUETA})=(?P<params>\((?P<componentes>[^()]*)\)(?P<resto>(?:;[a-z]+=(?:"[^"]*"|\d+))*))$'
@@ -153,7 +161,7 @@ def leer_firma(valor: str, etiqueta: str) -> bytes:
         etiqueta: Etiqueta de ``Signature-Input`` (p. ej. ``sig1``).
 
     Returns:
-        Los 64 bytes ``r||s``.
+        Los bytes de la firma: 64 (``r||s``) o los del módulo RSA.
 
     Raises:
         FirmaInvalida: Si el formato, la etiqueta o el largo no son válidos.
@@ -165,8 +173,8 @@ def leer_firma(valor: str, etiqueta: str) -> bytes:
         crudo = base64.b64decode(m.group("valor"), validate=True)
     except ValueError:
         raise FirmaInvalida("Signature no es base64") from None
-    if len(crudo) != 64:
-        raise FirmaInvalida("la firma no mide 64 bytes")
+    if len(crudo) not in _LARGOS_FIRMA:
+        raise FirmaInvalida("la firma no tiene un largo válido")
     return crudo
 
 
@@ -235,6 +243,8 @@ def verificar_r_s(jwk: dict, base: str, firma: bytes) -> bool:
     def coordenada(valor: str) -> int:
         return int.from_bytes(base64.urlsafe_b64decode(valor + "=" * (-len(valor) % 4)), "big")
 
+    if len(firma) != 64:
+        return False
     try:
         publica = ec.EllipticCurvePublicNumbers(
             coordenada(jwk["x"]), coordenada(jwk["y"]), ec.SECP256R1()
@@ -244,6 +254,59 @@ def verificar_r_s(jwk: dict, base: str, firma: bytes) -> bool:
     except (InvalidSignature, ValueError, KeyError):
         return False
     return True
+
+
+def _entero_b64url(valor: str) -> int:
+    """Convierte un entero de un JWK (base64url sin relleno) en ``int``.
+
+    Args:
+        valor: Texto base64url.
+
+    Returns:
+        El entero big-endian.
+    """
+    return int.from_bytes(base64.urlsafe_b64decode(valor + "=" * (-len(valor) % 4)), "big")
+
+
+def verificar_rsa(jwk: dict, base: str, firma: bytes) -> bool:
+    """Verifica una firma RSASSA-PKCS1-v1_5 / SHA-256 con un JWK RSA público.
+
+    Args:
+        jwk: Clave pública RSA del equipo (``n`` y ``e``).
+        base: Texto firmado.
+        firma: Firma cruda, del largo del módulo.
+
+    Returns:
+        ``True`` si la firma es válida.
+    """
+    try:
+        publica = rsa.RSAPublicNumbers(_entero_b64url(jwk["e"]), _entero_b64url(jwk["n"])).public_key()
+        if len(firma) != (publica.key_size + 7) // 8:
+            return False
+        publica.verify(firma, base.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
+    except (InvalidSignature, ValueError, KeyError):
+        return False
+    return True
+
+
+def verificar(jwk: dict, alg: str, base: str, firma: bytes) -> bool:
+    """Verifica la firma con la clave enrolada, si ``alg`` es el de su tipo.
+
+    Args:
+        jwk: JWK público guardado en el enrolamiento (EC P-256 o RSA).
+        alg: Algoritmo declarado en ``Signature-Input``.
+        base: Texto firmado.
+        firma: Firma cruda.
+
+    Returns:
+        ``True`` si el algoritmo corresponde a la clave y la firma es válida.
+    """
+    kty = jwk.get("kty", "EC")
+    if ALGORITMO_POR_KTY.get(kty) != alg:
+        return False
+    if kty == "RSA":
+        return verificar_rsa(jwk, base, firma)
+    return verificar_r_s(jwk, base, firma)
 
 
 async def preparar(request: Request) -> tuple[EntradaFirma, bytes, str]:
@@ -256,7 +319,7 @@ async def preparar(request: Request) -> tuple[EntradaFirma, bytes, str]:
         request: Petición entrante.
 
     Returns:
-        Los datos de la firma, los 64 bytes de la firma y la base a verificar.
+        Los datos de la firma, los bytes de la firma y la base a verificar.
 
     Raises:
         FirmaInvalida: Si falta algo o no coincide.
@@ -264,7 +327,7 @@ async def preparar(request: Request) -> tuple[EntradaFirma, bytes, str]:
     """
     entrada = leer_entrada(request.headers["signature-input"])
     firma = leer_firma(request.headers["signature"], entrada.etiqueta)
-    if entrada.alg != ALGORITMO:
+    if entrada.alg not in ALGORITMO_POR_KTY.values():
         raise FirmaInvalida("algoritmo no permitido")
     if not {"@method", "@target-uri"} <= set(entrada.componentes):
         raise FirmaInvalida("faltan componentes obligatorios")
