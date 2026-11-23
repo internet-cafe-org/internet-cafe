@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -30,6 +30,7 @@ from app.models import (
     SessionEndReason,
     User,
     UserRole,
+    UserStatus,
 )
 from app.services import pii
 
@@ -37,6 +38,7 @@ API = "/api/v1"
 
 
 # ------------------------------------------------------------------------- Fixtures
+
 
 @pytest.fixture(autouse=True)
 def configurar_llave_blind_index(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -71,9 +73,7 @@ def claves(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 @pytest.fixture
-async def cliente(
-    sesiones: async_sessionmaker[AsyncSession], claves: str
-) -> AsyncIterator[AsyncClient]:
+async def cliente(sesiones: async_sessionmaker[AsyncSession], claves: str) -> AsyncIterator[AsyncClient]:
     async def _db() -> AsyncIterator[AsyncSession]:
         async with sesiones() as db:
             yield db
@@ -103,10 +103,42 @@ async def admin_user(sesiones: async_sessionmaker[AsyncSession]) -> User:
         return admin
 
 
+# -------------------------------------------------------------------------- Helpers
+
+
 def _bearer_admin(claves: str, usuario: User) -> dict[str, str]:
     """Genera el token JWT de administrador."""
     token = create_access_token(subject=str(usuario.id), role="admin", private_key=claves)
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _crear_estudiante(
+    sesiones: async_sessionmaker[AsyncSession],
+    *,
+    correo: str,
+    nombre: str,
+    codigo: str,
+) -> User:
+    """Crea un estudiante con sus datos protegidos y su blind index real.
+
+    A diferencia de los de la fixture `datos`, este estudiante sí se puede
+    encontrar con el filtro `student` (correo o código exacto).
+    """
+    async with sesiones() as db:
+        estudiante = User(
+            email_ct=pii.proteger(correo),
+            email_bidx=pii.indice_ciego(correo),
+            full_name_ct=pii.proteger(nombre),
+            student_code_ct=pii.proteger(codigo),
+            student_code_bidx=pii.indice_ciego(codigo),
+            password_hash="no-es-un-hash",
+            role=UserRole.student,
+            status=UserStatus.active,
+            privacy_consent_at=datetime.now(UTC),
+        )
+        db.add(estudiante)
+        await db.commit()
+        return estudiante
 
 
 async def _crear_sesion(
@@ -153,7 +185,13 @@ async def _auditorias_de(sesiones: async_sessionmaker[AsyncSession], sesion_id: 
         ).scalar_one()
 
 
+def _ids(resp: Response) -> list[str]:
+    """Ids de las sesiones que devolvió el listado."""
+    return [item["id"] for item in resp.json()["items"]]
+
+
 # ------------------------------------------------------------------- GET /admin/sessions
+
 
 async def test_admin_lista_sesiones_con_filtros(
     cliente: AsyncClient,
@@ -183,16 +221,12 @@ async def test_admin_lista_sesiones_con_filtros(
     assert resp.json()["items"][0]["id"] == str(cerrada_pc02)
 
     # 4. Filtrar por equipo
-    resp = await cliente.get(
-        f"{API}/admin/sessions?machine_code={datos.pc01.code}", headers=cabeceras
-    )
+    resp = await cliente.get(f"{API}/admin/sessions?machine_code={datos.pc01.code}", headers=cabeceras)
     assert resp.json()["total"] == 1
     assert resp.json()["items"][0]["id"] == str(abierta_pc01)
 
     # 5. Filtrar por sala (lab_id)
-    resp = await cliente.get(
-        f"{API}/admin/sessions?lab_id={datos.lab.id}", headers=cabeceras
-    )
+    resp = await cliente.get(f"{API}/admin/sessions?lab_id={datos.lab.id}", headers=cabeceras)
     assert resp.json()["total"] == 2  # Ambas sesiones están en la misma sala
 
 
@@ -203,35 +237,25 @@ async def test_admin_filtra_por_estudiante_correo(
     datos: Any,
     admin_user: User,
 ) -> None:
-    """Filtro por estudiante (correo). Debe ser exacto e ignorar mayúsculas."""
-    # Creamos un usuario con correo indexado correctamente
-    async with sesiones() as db:
-        correo = "ana.test@universidad.edu.co"
-        ana = User(
-            email_ct=pii.proteger(correo),
-            email_bidx=pii.indice_ciego(correo),
-            full_name_ct=pii.proteger("Ana Test"),
-            student_code_ct=pii.proteger("111"),
-            student_code_bidx=pii.indice_ciego("111"),
-            password_hash="no-es-un-hash",
-            role=UserRole.student,
-            privacy_consent_at=datetime.now(UTC),
-        )
-        db.add(ana)
-        await db.commit()
-    
-    # Creamos dos sesiones (una de Ana, una de Beto) para verificar que filtra bien
-    await _crear_sesion(sesiones, ana, datos.pc01, hace_min=10)
-    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
+    """Filtro por estudiante (correo): exacto, ignora mayúsculas y no trae a otros."""
+    ana = await _crear_estudiante(
+        sesiones,
+        correo="ana.test@universidad.edu.co",
+        nombre="Ana Test",
+        codigo="111",
+    )
+    # Dos sesiones de estudiantes distintos: sin el filtro el total sería 2
+    sesion_ana = await _crear_sesion(sesiones, ana, datos.pc01, hace_min=10)
+    sesion_beto = await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
     cabeceras = _bearer_admin(claves, admin_user)
 
-    # Buscamos por el correo (con mayúsculas para probar que se normaliza)
-    resp = await cliente.get(
-        f"{API}/admin/sessions?student=ANA.TEST@UNIVERSIDAD.EDU.CO", headers=cabeceras
-    )
-    
+    # Buscamos con mayúsculas para comprobar que el correo se normaliza
+    resp = await cliente.get(f"{API}/admin/sessions?student=ANA.TEST@UNIVERSIDAD.EDU.CO", headers=cabeceras)
+
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
+    assert _ids(resp) == [str(sesion_ana)]
+    assert str(sesion_beto) not in _ids(resp)
     assert resp.json()["items"][0]["user"]["full_name"] == "Ana Test"
 
 
@@ -242,53 +266,64 @@ async def test_admin_filtra_por_estudiante_codigo(
     datos: Any,
     admin_user: User,
 ) -> None:
-    """Filtro por estudiante (código). Debe ser exacto y aceptar espacios."""
-    # Creamos un usuario con código indexado correctamente
-    async with sesiones() as db:
-        beto = User(
-            email_ct=pii.proteger("beto.test@universidad.edu.co"),
-            email_bidx=pii.indice_ciego("beto.test@universidad.edu.co"),
-            full_name_ct=pii.proteger("Beto Test"),
-            student_code_ct=pii.proteger("222"),
-            student_code_bidx=pii.indice_ciego("222"),
-            password_hash="no-es-un-hash",
-            role=UserRole.student,
-            privacy_consent_at=datetime.now(UTC),
-        )
-        db.add(beto)
-        await db.commit()
-
-    # Creamos dos sesiones (una de Ana, una de Beto) para verificar que filtra bien
-    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
-    await _crear_sesion(sesiones, beto, datos.pc02, hace_min=20)
+    """Filtro por estudiante (código): exacto, recorta espacios y no trae a otros."""
+    beto = await _crear_estudiante(
+        sesiones,
+        correo="beto.test@universidad.edu.co",
+        nombre="Beto Test",
+        codigo="222",
+    )
+    # Dos sesiones de estudiantes distintos: sin el filtro el total sería 2
+    sesion_ana = await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    sesion_beto = await _crear_sesion(sesiones, beto, datos.pc02, hace_min=20)
     cabeceras = _bearer_admin(claves, admin_user)
 
-    # Buscamos por el código (con espacios para probar que se normaliza)
+    # Buscamos con espacios alrededor para comprobar que el código se normaliza
     resp = await cliente.get(f"{API}/admin/sessions?student= 222 ", headers=cabeceras)
-    
+
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
+    assert _ids(resp) == [str(sesion_beto)]
+    assert str(sesion_ana) not in _ids(resp)
     assert resp.json()["items"][0]["user"]["full_name"] == "Beto Test"
 
 
-async def test_admin_filtra_por_estudiante_inexistente(
+async def test_admin_filtra_por_estudiante_correo_inexistente(
     cliente: AsyncClient,
     claves: str,
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
 ) -> None:
-    """Caso negativo: buscar un estudiante que no existe da total == 0."""
+    """Caso negativo: un correo que no existe da total == 0."""
     await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
     cabeceras = _bearer_admin(claves, admin_user)
 
-    resp = await cliente.get(
-        f"{API}/admin/sessions?student=no-existe@test.invalid", headers=cabeceras
-    )
-    
+    resp = await cliente.get(f"{API}/admin/sessions?student=no-existe@test.invalid", headers=cabeceras)
+
     assert resp.status_code == 200
     assert resp.json()["total"] == 0
-    assert len(resp.json()["items"]) == 0
+    assert resp.json()["items"] == []
+
+
+async def test_admin_filtra_por_estudiante_codigo_inexistente(
+    cliente: AsyncClient,
+    claves: str,
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+    admin_user: User,
+) -> None:
+    """Caso negativo: un código que no existe da total == 0."""
+    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
+    cabeceras = _bearer_admin(claves, admin_user)
+
+    resp = await cliente.get(f"{API}/admin/sessions?student=777777", headers=cabeceras)
+
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+    assert resp.json()["items"] == []
 
 
 async def test_admin_filtra_por_fechas_y_paginacion(
@@ -321,6 +356,7 @@ async def test_admin_filtra_por_fechas_y_paginacion(
 
 
 # ------------------------------------------------------- POST /admin/sessions/{id}/end
+
 
 async def test_admin_cierra_sesion_forzada_y_audita(
     cliente: AsyncClient,
@@ -372,13 +408,11 @@ async def test_admin_cierre_forzado_sesion_inexistente(
     assert resp.json()["code"] == "SESSION_NOT_FOUND"
 
 
-async def test_estudiante_no_puede_acceder_al_admin(
-    cliente: AsyncClient, claves: str, datos: Any
-) -> None:
+async def test_estudiante_no_puede_acceder_al_admin(cliente: AsyncClient, claves: str, datos: Any) -> None:
     token = create_access_token(subject=str(datos.ana.id), role="student", private_key=claves)
     cabeceras = {"Authorization": f"Bearer {token}"}
-    
+
     resp = await cliente.get(f"{API}/admin/sessions", headers=cabeceras)
-    
+
     assert resp.status_code == 403
     assert resp.json()["code"] == "FORBIDDEN"
