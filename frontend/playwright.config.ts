@@ -1,9 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// Sin E2E_BASE_URL, Playwright levanta la web local con Vite.
+// Sin E2E_BASE_URL, Playwright compila la web y la sirve en local (vite preview).
 // Con E2E_BASE_URL (por ejemplo la web de dev en Vercel), prueba contra esa URL.
 const urlExterna = process.env.E2E_BASE_URL
-const baseURL = urlExterna ?? 'http://localhost:5173'
+const baseURL = urlExterna ?? 'http://localhost:4173'
 
 export default defineConfig({
   testDir: './e2e',
@@ -28,9 +28,13 @@ export default defineConfig({
   webServer: urlExterna
     ? undefined
     : {
-        command: 'npm run dev -- --port 5173 --strictPort',
-        url: 'http://localhost:5173',
+        // Se prueba el sitio compilado: en producción no arranca MSW (solo en `vite dev`),
+        // así que page.route puede interceptar la API.
+        command: 'npm run build && npm run preview -- --port 4173 --strictPort',
+        url: 'http://localhost:4173',
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        timeout: 180_000,
+        // Mismo origen y sin filtro de dominios, igual que Vercel: no dependen del .env.local de cada quien.
+        env: { VITE_API_URL: '', VITE_ALLOWED_EMAIL_DOMAINS: '' },
       },
 })
