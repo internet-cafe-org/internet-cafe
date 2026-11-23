@@ -1,0 +1,27 @@
+/* ── Passive Card – dark mode overrides ──────────────────────────────────── */
+
+.passive-card {
+    -fx-background-color: #1e293b;
+    -fx-border-color: #334155;
+}
+
+.passive-machine {
+    -fx-text-fill: #64748b;
+}
+
+.passive-title {
+    -fx-text-fill: #f1f5f9;
+}
+
+.passive-status {
+    -fx-text-fill: #94a3b8;
+}
+
+.passive-register {
+    -fx-background-color: #2563eb;
+    -fx-text-fill: white;
+}
+
+.passive-register:hover {
+    -fx-background-color: #1d4ed8;
+}

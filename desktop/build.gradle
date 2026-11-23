@@ -50,6 +50,19 @@ tasks.register('mockApi', JavaExec) {
     mainClass = 'org.internetcafe.desktop.mock.MockApiServer'
 }
 
+// Perfil de desarrollo: salta el enrolamiento y usa datos de prueba.
+// Uso: gradlew run -Pdev            → modo pasivo (por defecto)
+//      gradlew run -Pdev -Pkiosk    → modo kiosco
+tasks.named('run') {
+    if (project.hasProperty('dev')) {
+        systemProperty 'app.profile', 'dev'
+        systemProperty 'api.base.url', 'http://localhost:8000'
+        if (project.hasProperty('kiosk')) {
+            systemProperty 'dev.mode', 'kiosk'
+        }
+    }
+}
+
 spotless {
     java {
         googleJavaFormat()
