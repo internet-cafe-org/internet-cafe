@@ -90,15 +90,28 @@ class CabecerasSeguridadMiddleware(BaseHTTPMiddleware):
             "max-age=31536000; includeSubDomains"
         )
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Se elimina X-XSS-Protection por ser obsoleta (OWASP recomienda no enviarla)
         return response
 
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
-    """Valida la configuración y arranca la tarea de inactividad."""
+    """Valida la configuración y arranca la tarea de inactividad.
+
+    Args:
+        _app: La aplicación que arranca.
+
+    Yields:
+        Control a FastAPI mientras la API está en marcha.
+
+    Raises:
+        LlavesInvalidas: Si faltan las llaves JWT o la del índice ciego; la
+            API no arranca (HU-07).
+    """
     verificar_llaves()
     tarea = None
     if settings.tarea_inactividad_activa:
+        # BE-09b: la actividad en memoria se pierde al reiniciar, así que se barre la base.
         await inactividad.barrido_inicial(SesionLocalAsync)
         tarea = asyncio.create_task(inactividad.tarea_periodica(SesionLocalAsync))
     logger.info(
@@ -124,6 +137,8 @@ app = FastAPI(
 registrar_manejadores(app)
 
 # BE-21: endurecimiento de la API (SRS §12.9).
+# En FastAPI los middlewares se ejecutan en orden inverso al registro, así que
+# el último agregado (TrustedHost) es el primero en validar la petición.
 app.add_middleware(CabecerasSeguridadMiddleware)
 app.add_middleware(LimiteCuerpoMiddleware)
 if settings.hosts_permitidos:
@@ -141,13 +156,27 @@ app.include_router(admin.router, prefix="/api/v1")
 
 @app.get("/healthz")
 def verificar_salud() -> dict:
-    """Liveness: responde sin tocar la base de datos ni escribir en el log."""
+    """Liveness: responde sin tocar la base de datos ni escribir en el log.
+
+    Returns:
+        ``{"status": "ok", "service": "backend"}``.
+    """
     return {"status": "ok", "service": "backend"}
 
 
 @app.get("/readyz")
 async def verificar_listo(db: AsyncSession = Depends(obtener_base_datos)) -> dict:
-    """Readiness: comprueba la conexión a la base de datos."""
+    """Readiness: comprueba la conexión a la base de datos.
+
+    Args:
+        db: Sesión de base de datos.
+
+    Returns:
+        ``{"status": "ready", "database": "connected"}``.
+
+    Raises:
+        AppError: 503 ``INTERNAL_ERROR`` si la base no responde.
+    """
     try:
         await db.execute(text("SELECT 1"))
     except Exception as exc:

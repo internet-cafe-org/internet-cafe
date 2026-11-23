@@ -139,4 +139,4 @@ services:
     # Render llama a este endpoint para confirmar que el contenedor arrancó bien.
     # Solo /healthz es el healthCheckPath; /readyz lo verifica el pipeline deploy-dev.
     healthCheckPath: /healthz
-    
+
