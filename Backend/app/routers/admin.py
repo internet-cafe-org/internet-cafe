@@ -39,6 +39,9 @@ from app.services import challenges, pii, sesiones
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
+# Máximo de filas que devuelve la exportación CSV; si hay más, se avisa en la respuesta.
+LIMITE_FILAS_CSV = 10_000
+
 
 # ------------------------------------------------------------------------- esquemas
 class LabCreate(BaseModel):
@@ -180,7 +183,20 @@ def _filtros_sesiones(
     started_to: datetime | None,
     student: str | None,
 ) -> list[Any]:
-    """Construye las condiciones para filtrar sesiones (compartido entre GET y CSV)."""
+    """Construye las condiciones para filtrar sesiones (compartido entre GET y CSV).
+
+    Args:
+        machine_code: Código exacto del equipo, si se filtra.
+        lab_id: Sala del equipo, si se filtra.
+        state: ``active`` (sin cerrar) o ``ended`` (cerrada), si se filtra.
+        started_from: Inicio mínimo, incluido. Sin zona horaria se toma como UTC.
+        started_to: Inicio máximo, excluido. Sin zona horaria se toma como UTC.
+        student: Correo o código exacto del estudiante; se busca por índice ciego.
+
+    Returns:
+        Lista de condiciones para unir con AND en el ``where``. La consulta que las
+        use debe unir ``Machine`` y ``User``.
+    """
     started_from, started_to = _utc(started_from), _utc(started_to)
     condiciones: list[Any] = []
     if machine_code is not None:
@@ -226,7 +242,17 @@ def _item_equipo(machine: Machine, lab_name: str | None) -> MachineItem:
 
 
 def _neutralizar_formula(valor: str | None) -> str:
-    """Antepone una comilla si el valor empieza con un carácter peligroso para Excel."""
+    """Antepone una comilla si el valor empieza con un carácter peligroso para Excel.
+
+    Evita la inyección de fórmulas en el CSV: Excel interpreta como fórmula las
+    celdas que empiezan con ``=``, ``+``, ``-``, ``@``, tabulador o retorno de carro.
+
+    Args:
+        valor: Texto de la celda, o ``None``.
+
+    Returns:
+        El texto listo para escribir, o cadena vacía si no hay valor.
+    """
     if not valor:
         return ""
     if valor[0] in ("=", "+", "-", "@", "\t", "\r"):
@@ -241,7 +267,16 @@ async def listar_salas(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> LabsPage:
-    """Lista las salas en orden alfabético, paginadas."""
+    """Lista las salas en orden alfabético, paginadas.
+
+    Args:
+        limit: Máximo de salas por página (1 a 100).
+        offset: Salas que se saltan.
+        db: Sesión de base de datos.
+
+    Returns:
+        La página de salas con el total.
+    """
     total = (await db.execute(select(func.count()).select_from(Lab))).scalar_one()
     salas = (
         await db.execute(select(Lab).order_by(Lab.name).limit(limit).offset(offset))
@@ -260,7 +295,19 @@ async def crear_sala(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> LabItem:
-    """Crea una sala y la audita."""
+    """Crea una sala y la audita.
+
+    Args:
+        body: Nombre y edificio de la sala.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        La sala creada.
+
+    Raises:
+        AppError: ``CONFLICT`` si ya existe una sala con ese nombre.
+    """
     existente = (
         await db.execute(select(Lab.id).where(Lab.name == body.name))
     ).scalar_one_or_none()
@@ -271,6 +318,7 @@ async def crear_sala(
     try:
         await db.flush()
     except IntegrityError:
+        # Carrera con otra petición que creó el mismo nombre entre el SELECT y el INSERT
         await db.rollback()
         raise AppError(ErrorCode.CONFLICT, detail="Ya existe una sala con ese nombre.") from None
     await audit(
@@ -294,7 +342,18 @@ async def listar_equipos(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachinesPage:
-    """Lista los equipos con su estado, filtrados por sala o estado y paginados."""
+    """Lista los equipos con su estado, filtrados por sala o estado y paginados.
+
+    Args:
+        lab_id: Sala, si se filtra.
+        status: Estado, si se filtra.
+        limit: Máximo de equipos por página (1 a 100).
+        offset: Equipos que se saltan.
+        db: Sesión de base de datos.
+
+    Returns:
+        La página de equipos con el total.
+    """
     condiciones: list[Any] = []
     if lab_id is not None:
         condiciones.append(Machine.lab_id == lab_id)
@@ -326,7 +385,12 @@ async def editar_equipo(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachineItem:
-    """Edita sala, modo o estado de un equipo."""
+    """Edita sala, modo o estado de un equipo.
+
+    Deshabilitar un equipo (RN-08) cancela sus retos pendientes y cierra su sesión
+    abierta con `admin_forced`. El equipo se bloquea primero con FOR UPDATE: respeta el
+    orden de bloqueos de `services.challenges` (equipo -> retos -> sesiones).
+    """
     machine = (
         await db.execute(
             select(Machine)
@@ -442,7 +506,10 @@ async def cerrar_sesion_forzada(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> AdminSessionResponse:
-    """Cierre forzado (`admin_forced`). Idempotente: si ya estaba cerrada la devuelve igual."""
+    """Cierre forzado (`admin_forced`). Idempotente: si ya estaba cerrada la devuelve igual.
+
+    El equipo se entera en su próximo latido (≤ 60 s).
+    """
     motivo = SessionEndReason.admin_forced
     cerrada = await sesiones.cerrar_sesion_abierta(db, session_id, motivo, challenges.ahora())
     if cerrada:
@@ -475,19 +542,37 @@ async def exportar_sesiones_csv(
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> Response:
     """Exporta los accesos filtrados a un archivo CSV (UTF-8 con BOM).
-    
+
     Las fechas se convierten a la zona horaria definida en `settings.csv_timezone`.
+    El archivo trae como máximo `LIMITE_FILAS_CSV` filas; si hay más, se corta y se
+    avisa con la cabecera `X-Export-Truncated: true`.
+
+    Args:
+        machine_code: Código exacto del equipo, si se filtra.
+        lab_id: Sala del equipo, si se filtra.
+        state: ``active`` o ``ended``, si se filtra.
+        started_from: Inicio mínimo, incluido.
+        started_to: Inicio máximo, excluido.
+        student: Correo o código exacto del estudiante, si se filtra.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El CSV como descarga adjunta (``accesos.csv``).
     """
     condiciones = _filtros_sesiones(machine_code, lab_id, state, started_from, started_to, student)
-    
-    # Límite de seguridad para no cargar toda la tabla en memoria
+
+    # Se pide una fila de más para saber si el resultado se cortó
     filas = await db.execute(
         _consulta_sesiones(*condiciones)
         .order_by(AccessSession.started_at.desc(), AccessSession.id)
-        .limit(10000)
+        .limit(LIMITE_FILAS_CSV + 1)
     )
     filas_datos = filas.all()
-    
+    truncado = len(filas_datos) > LIMITE_FILAS_CSV
+    if truncado:
+        filas_datos = filas_datos[:LIMITE_FILAS_CSV]
+
     # Auditoría
     await audit(
         db,
@@ -498,55 +583,60 @@ async def exportar_sesiones_csv(
         target_id=None,
         metadata_info={
             "filas": len(filas_datos),
+            "truncado": truncado,
             "filtros": {
                 "machine_code": machine_code,
                 "lab_id": str(lab_id) if lab_id else None,
                 "state": state,
                 "started_from": started_from.isoformat() if started_from else None,
                 "started_to": started_to.isoformat() if started_to else None,
-                "has_student": student is not None, # No guardamos el valor del estudiante
-            }
+                "has_student": student is not None,  # No guardamos el valor del estudiante
+            },
         },
     )
     await db.commit()
 
     tz = ZoneInfo(settings.csv_timezone)
-    
+
     output = io.StringIO()
     # BOM de UTF-8 para Excel
-    output.write('\ufeff')
-    
+    output.write("\ufeff")
+
     # SRS: separador coma, 8 columnas exactas
-    writer = csv.writer(output, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+    writer = csv.writer(output, delimiter=",", quoting=csv.QUOTE_MINIMAL)
     writer.writerow(["Estudiante", "Código", "Equipo", "Sala", "Inicio", "Fin", "Duración (min)", "Motivo de cierre"])
-    
+
     for sesion, usuario, codigo, lab in filas_datos:
         nombre, codigo_enmascarado = sesiones.datos_estudiante(usuario)
-        
+
         # Formateamos las fechas
         inicio_local = sesion.started_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
         fin_local = sesion.ended_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if sesion.ended_at else ""
-        
-        # Duración en minutos (None si no ha terminado)
+
+        # Duración en minutos (vacía si no ha terminado)
         duracion_s = sesiones.duracion_s(sesion.started_at, sesion.ended_at)
         duracion_min = round(duracion_s / 60) if duracion_s is not None else ""
-        
+
         motivo = sesion.end_reason.value if sesion.end_reason else ""
-        
-        writer.writerow([
-            _neutralizar_formula(nombre),
-            _neutralizar_formula(codigo_enmascarado),
-            _neutralizar_formula(codigo),
-            _neutralizar_formula(lab or sesiones.LAB_SIN_ASIGNAR),
-            inicio_local,
-            fin_local,
-            duracion_min,
-            motivo
-        ])
-    
-    contenido = output.getvalue()
+
+        writer.writerow(
+            [
+                _neutralizar_formula(nombre),
+                _neutralizar_formula(codigo_enmascarado),
+                _neutralizar_formula(codigo),
+                _neutralizar_formula(lab or sesiones.LAB_SIN_ASIGNAR),
+                inicio_local,
+                fin_local,
+                duracion_min,
+                motivo,
+            ]
+        )
+
+    cabeceras = {"Content-Disposition": 'attachment; filename="accesos.csv"'}
+    if truncado:
+        cabeceras["X-Export-Truncated"] = "true"
     return Response(
-        content=contenido,
+        content=output.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="accesos.csv"'}
+        headers=cabeceras,
     )

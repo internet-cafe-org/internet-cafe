@@ -151,14 +151,14 @@ async def test_exportar_csv_camino_feliz(
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "text/csv; charset=utf-8"
     assert "attachment; filename=\"accesos.csv\"" in resp.headers["content-disposition"]
-    
+
     contenido_bytes = resp.content
     assert contenido_bytes.startswith(b'\xef\xbb\xbf'), "Falta el BOM de UTF-8"
 
     texto = contenido_bytes.decode("utf-8-sig")
     lector = csv.reader(io.StringIO(texto), delimiter=',')
     filas = list(lector)
-    
+
     assert len(filas) == 2  # Cabecera + 1 fila
     assert filas[0] == ["Estudiante", "Código", "Equipo", "Sala", "Inicio", "Fin", "Duración (min)", "Motivo de cierre"]
     assert filas[1][0] == "Estudiante Prueba 1"
@@ -196,7 +196,7 @@ async def test_exportar_csv_inyeccion_formulas(
     resp = await cliente.get(f"{API}/admin/sessions/export", headers=cabeceras)
     texto = resp.content.decode("utf-8-sig")
     filas = list(csv.reader(io.StringIO(texto), delimiter=','))
-    
+
     # El nombre debe tener la comilla simple al inicio
     assert filas[1][0] == "'=SUM(A1:A2)"
 

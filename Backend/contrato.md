@@ -973,6 +973,12 @@ paths:
         name: started_to
         schema: *id002
         description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
       - *id006
       - *id007
       responses:
@@ -1021,7 +1027,7 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
-  /api/v1/admin/sessions/export:  
+  /api/v1/admin/sessions/export:
     get:
       tags:
       - admin
@@ -1071,7 +1077,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
-components:                         
+components:
   securitySchemes:
     bearerAuth:
       type: http

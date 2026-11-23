@@ -95,7 +95,12 @@ class Settings(BaseSettings):
 
     @property
     def dominios_correo_permitidos(self) -> frozenset[str]:
-        """Devuelve los dominios de ``ALLOWED_EMAIL_DOMAINS`` normalizados."""
+        """Devuelve los dominios de ``ALLOWED_EMAIL_DOMAINS`` normalizados.
+
+        Returns:
+            Conjunto de dominios en minúsculas, sin espacios ni ``@``; vacío si
+            no se configuró ninguno.
+        """
         return frozenset(
             d.strip().lower().lstrip("@")
             for d in self.allowed_email_domains.split(",")
@@ -104,7 +109,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validar_timezone(self) -> "Settings":
-        """Valida que CSV_TIMEZONE sea una zona horaria válida."""
+        """Valida que ``CSV_TIMEZONE`` sea una zona horaria reconocida.
+
+        Returns:
+            La propia configuración, sin cambios.
+
+        Raises:
+            ValueError: Si ``CSV_TIMEZONE`` no es una zona horaria válida.
+        """
         try:
             ZoneInfo(self.csv_timezone)
         except Exception as exc:
