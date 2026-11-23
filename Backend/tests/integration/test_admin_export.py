@@ -31,6 +31,18 @@ from app.services import pii
 API = "/api/v1"
 
 
+# ------------------------------------------------------------------------- Fixtures
+
+@pytest.fixture(autouse=True)
+def configurar_llave_blind_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configura una llave falsa para el blind index antes de cualquier prueba.
+
+    Necesario porque las fixtures (como admin_user) usan pii.indice_ciego
+    y en la CI no hay BLIND_INDEX_KEY definida.
+    """
+    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+
+
 @pytest.fixture
 def claves(monkeypatch: pytest.MonkeyPatch) -> str:
     clave = ec.generate_private_key(ec.SECP256R1())
@@ -122,17 +134,15 @@ async def _crear_sesion(
         return sesion.id
 
 
+# ------------------------------------------------------------------------- Pruebas
+
 async def test_exportar_csv_camino_feliz(
     cliente: AsyncClient,
     claves: str,
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Inyectamos la llave del blind index para esta prueba
-    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
-    
     await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
     cabeceras = _bearer_admin(claves, admin_user)
 
@@ -162,11 +172,8 @@ async def test_exportar_csv_inyeccion_formulas(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Un nombre que empiece con '=' debe ser neutralizado."""
-    # Inyectamos la llave del blind index para esta prueba
-    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
 
     # Creamos un usuario con nombre malicioso
     async with sesiones() as db:
