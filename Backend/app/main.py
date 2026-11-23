@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 
@@ -30,65 +31,164 @@ from app.services import inactividad
 logger = configurar_logger()
 
 
-class LimiteCuerpoMiddleware(BaseHTTPMiddleware):
-    """Rechaza peticiones cuyo cuerpo supere ``MAX_BODY_BYTES`` con un 413.
+class LimiteCuerpoMiddleware:
+    """Limita el tamaño real del cuerpo de las peticiones HTTP.
 
-    Cuenta los bytes reales del stream para no dejarse engañar por un
-    ``Content-Length`` falso o un ``Transfer-Encoding: chunked``.
+    Utiliza ASGI directamente para contabilizar los bytes recibidos,
+    incluidos los cuerpos enviados mediante Transfer-Encoding: chunked.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        """Valida el tamaño del cuerpo antes de pasarlo al router."""
-        try:
-            content_length = request.headers.get("content-length")
-            if content_length:
-                try:
-                    if int(content_length) > settings.max_body_bytes:
-                        raise AppError(ErrorCode.PAYLOAD_TOO_LARGE)
-                except ValueError:
-                    raise AppError(ErrorCode.BAD_REQUEST, detail="Content-Length inválido.") from None
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_body_bytes: int | None = None,
+    ) -> None:
+        """Inicializa el middleware con el límite máximo del cuerpo.
 
-            if not content_length or request.headers.get("transfer-encoding") == "chunked":
-                body = b""
-                async for chunk in request.stream():
-                    body += chunk
-                    if len(body) > settings.max_body_bytes:
-                        raise AppError(ErrorCode.PAYLOAD_TOO_LARGE)
-                
-                async def receive():
-                    return {"type": "http.request", "body": body, "more_body": False}
-                
-                request._receive = receive
+        Args:
+            app: Aplicación ASGI que recibirá las peticiones.
+            max_body_bytes: Tamaño máximo permitido en bytes.
+        """
+        self.app = app
+        self.max_body_bytes = max_body_bytes if max_body_bytes is not None else settings.max_body_bytes
 
-            return await call_next(request)
-        except AppError as exc:
-            # Como es un middleware, tenemos que armar la respuesta RFC 9457 manualmente
-            spec = exc.code.spec
-            return JSONResponse(
-                status_code=exc.status or spec.status,
-                media_type=PROBLEM_MEDIA_TYPE,
-                content={
-                    "type": exc.code.type_uri,
-                    "title": exc.title or spec.title,
-                    "status": exc.status or spec.status,
-                    "code": exc.code.value,
-                    "detail": exc.detail or spec.detail,
-                    "instance": request.url.path,
-                },
-            )
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Procesa la petición y limita el tamaño de su cuerpo.
+
+        Args:
+            scope: Información de la conexión y la petición ASGI.
+            receive: Función para recibir mensajes ASGI.
+            send: Función para enviar mensajes ASGI.
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        content_length = next(
+            (
+                value.decode("latin-1")
+                for name, value in scope.get("headers", [])
+                if name.lower() == b"content-length"
+            ),
+            None,
+        )
+
+        if content_length is not None:
+            try:
+                longitud = int(content_length)
+                if longitud < 0:
+                    raise ValueError
+            except ValueError:
+                await self._responder_error(
+                    scope,
+                    receive,
+                    send,
+                    ErrorCode.BAD_REQUEST,
+                    detail="Content-Length inválido.",
+                )
+                return
+
+            if longitud > self.max_body_bytes:
+                await self._responder_error(
+                    scope,
+                    receive,
+                    send,
+                    ErrorCode.PAYLOAD_TOO_LARGE,
+                )
+                return
+        # Se almacena el cuerpo antes de entregarlo a la aplicación.
+        # Así se puede rechazar una petición chunked sin lanzar una
+        # excepción que FastAPI pueda interpretar como error de parsing.
+        mensajes = []
+        bytes_recibidos = 0
+
+        while True:
+            mensaje = await receive()
+
+            if mensaje["type"] == "http.disconnect":
+                return
+
+            if mensaje["type"] != "http.request":
+                continue
+
+            mensajes.append(mensaje)
+            bytes_recibidos += len(mensaje.get("body", b""))
+
+            if bytes_recibidos > self.max_body_bytes:
+                await self._responder_error(
+                    scope,
+                    receive,
+                    send,
+                    ErrorCode.PAYLOAD_TOO_LARGE,
+                )
+                return
+
+            if not mensaje.get("more_body", False):
+                break
+
+        indice = 0
+
+        async def receive_reproducido():
+            nonlocal indice
+
+            if indice < len(mensajes):
+                mensaje = mensajes[indice]
+                indice += 1
+                return mensaje
+
+            return {"type": "http.disconnect"}
+
+        await self.app(scope, receive_reproducido, send)
+
+    @staticmethod
+    async def _responder_error(
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        code: ErrorCode,
+        detail: str | None = None,
+    ) -> None:
+        spec = code.spec
+        status = spec.status
+
+        response = JSONResponse(
+            status_code=status,
+            media_type=PROBLEM_MEDIA_TYPE,
+            content={
+                "type": code.type_uri,
+                "title": spec.title,
+                "status": status,
+                "code": code.value,
+                "detail": detail or spec.detail,
+                "instance": scope.get("path", "/"),
+            },
+        )
+
+        await response(scope, receive, send)
 
 
 class CabecerasSeguridadMiddleware(BaseHTTPMiddleware):
     """Agrega las cabeceras de seguridad del SRS §12.9 a cada respuesta."""
 
     async def dispatch(self, request: Request, call_next):
-        """Ejecuta la petición y añade las cabeceras a la respuesta."""
+        """Ejecuta la petición y añade las cabeceras de seguridad.
+
+        Args:
+            request: Petición HTTP recibida.
+            call_next: Siguiente middleware o manejador de la aplicación.
+
+        Returns:
+            Respuesta HTTP con las cabeceras de seguridad.
+        """
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=31536000; includeSubDomains"
-        )
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         # Se elimina X-XSS-Protection por ser obsoleta (OWASP recomienda no enviarla)
         return response
@@ -137,15 +237,15 @@ app = FastAPI(
 registrar_manejadores(app)
 
 # BE-21: endurecimiento de la API (SRS §12.9).
-# En FastAPI los middlewares se ejecutan en orden inverso al registro, así que
-# el último agregado (TrustedHost) es el primero en validar la petición.
-app.add_middleware(CabecerasSeguridadMiddleware)
-app.add_middleware(LimiteCuerpoMiddleware)
+# Las cabeceras se registran al final para envolver también las respuestas
+# generadas por el límite del cuerpo y TrustedHostMiddleware.
 if settings.hosts_permitidos:
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=settings.hosts_permitidos,
     )
+app.add_middleware(LimiteCuerpoMiddleware)
+app.add_middleware(CabecerasSeguridadMiddleware)
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(machine.router, prefix="/api/v1")
