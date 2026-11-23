@@ -25,9 +25,7 @@ import org.internetcafe.desktop.qr.ConnectionMonitor;
 import org.internetcafe.desktop.qr.HeartbeatService;
 import org.internetcafe.desktop.screens.BoardScreen;
 import org.internetcafe.desktop.screens.ConnectionStatus;
-import org.internetcafe.desktop.screens.DashboardScreen;
 import org.internetcafe.desktop.screens.EnrollScreen;
-import org.internetcafe.desktop.screens.LoginScreen;
 import org.internetcafe.desktop.screens.MachineMode;
 import org.internetcafe.desktop.screens.OfflineScreen;
 import org.internetcafe.desktop.screens.PassiveCard;
@@ -70,13 +68,12 @@ public class Main extends Application {
       alert.setTitle("Equipo no disponible");
       alert.setHeaderText("No se pudo cargar la identidad enrolada");
       alert.setContentText(
-          "No se enviarán peticiones del equipo. Verifica el enrolamiento o contacta a TI.");
+          "No se enviará peticiones del equipo. Verifica el enrolamiento o contacta a TI.");
       alert.showAndWait();
       Platform.exit();
       return;
     }
 
-    LoginScreen loginScreen = new LoginScreen();
     QrScreenModel qrModel =
         new QrScreenModel(
             enrolledMachine.code(),
@@ -85,12 +82,11 @@ public class Main extends Application {
             45,
             enrolledMachine.mode());
     QrScreen qrScreen = new QrScreen(qrModel);
-    DashboardScreen dashboardScreen = new DashboardScreen();
     BoardScreen boardScreen = new BoardScreen("dev".equals(System.getProperty("app.profile")));
     OfflineScreen offlineScreen = new OfflineScreen();
     ApiClient apiClient = new ApiClient(enrolledMachine.requestSigner());
     String machineCode = enrolledMachine.code();
-    Scene scene = new Scene(loginScreen.getRoot(), 1280, 800);
+    Scene scene = new Scene(qrScreen.getRoot(), 1280, 800);
     scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
 
     stage.setScene(scene);
@@ -157,23 +153,15 @@ public class Main extends Application {
               }
             });
     stage.show();
+    // D-02: arranca la rotación del QR en cuanto la ventana es visible (RF-QR-01, RF-EQU-04).
+    qrScreen.startRotation(apiClient, machineCode);
     kioskFailOpenTicker =
         new Timeline(new KeyFrame(Duration.seconds(1), event -> kioskController.tick()));
     kioskFailOpenTicker.setCycleCount(Timeline.INDEFINITE);
     kioskFailOpenTicker.play();
 
-    loginScreen.setOnLoginSuccess(
-        () -> {
-          stage.setScene(new Scene(dashboardScreen.getRoot(), 1280, 800));
-          dashboardScreen.setStatus("Sesión iniciada");
-        });
-
-    qrScreen.setOnBack(
-        () -> {
-          connectionMonitor.stop();
-          qrScreen.stopRotation();
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
-        });
+    // El QR es la pantalla de inicio: no hay pantalla anterior a la que volver.
+    // En modo pasivo el usuario puede omitir via el botón "Omitir".
 
     qrScreen.setOnConnectionLost(connectionMonitor::reportFailure);
 
@@ -226,11 +214,13 @@ public class Main extends Application {
     qrScreen.setOnSkip(() -> modeManager.applyMode(MachineMode.PASSIVE));
 
     offlineScreen.setOnRetry(connectionMonitor::retryNow);
+    // "Inicio" desde la pantalla offline vuelve al QR (D-02), que es la pantalla raíz.
     offlineScreen.setOnHome(
         () -> {
           connectionMonitor.stop();
           qrScreen.stopRotation();
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
+          qrScreen.startRotation(apiClient, machineCode);
+          stage.setScene(new Scene(qrScreen.getRoot(), 1280, 800));
         });
 
     boardScreen.setOnBackToQr(
@@ -288,12 +278,19 @@ public class Main extends Application {
               response.session() == null ? null : response.session().id());
           stage.setScene(new Scene(boardScreen.getRoot(), 1280, 800));
           boardScreen.show(response.displayName(), response.maskedStudentCode(), approvedAt);
+          // Carga los últimos 5 accesos en segundo plano (RF-EQU-09).
+          Thread.startVirtualThread(
+              () -> {
+                try {
+                  var sessions = apiClient.getRecentSessions(machineCode, 5);
+                  Platform.runLater(() -> boardScreen.showRecentSessions(sessions));
+                } catch (Exception ex) {
+                  LOG.warning("No se pudieron cargar los accesos recientes: " + ex.getMessage());
+                  Platform.runLater(() -> boardScreen.showRecentSessions(java.util.List.of()));
+                }
+              });
         });
 
-    dashboardScreen.setOnLogout(
-        () -> {
-          stage.setScene(new Scene(loginScreen.getRoot(), 1280, 800));
-        });
   }
 
   @Override

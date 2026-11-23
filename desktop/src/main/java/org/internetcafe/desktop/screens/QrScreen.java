@@ -49,7 +49,6 @@ public class QrScreen {
   private final Label machineCodeLabel;
   private final Label labLabel;
   private final Button skipButton;
-  private Runnable onBack;
   private Runnable onSkip;
   private volatile Runnable onConnectionLost;
   private volatile QrRotationService rotationService;
@@ -106,15 +105,6 @@ public class QrScreen {
           }
         });
 
-    Button backButton = new Button("Volver");
-    backButton.getStyleClass().add("qr-back");
-    backButton.setOnAction(
-        event -> {
-          if (onBack != null) {
-            onBack.run();
-          }
-        });
-
     Label skipHint = new Label("Minimiza a la bandeja y detiene los QR hasta registrar acceso");
     skipHint.getStyleClass().add("qr-skip-hint");
     skipHint.visibleProperty().bind(skipButton.visibleProperty());
@@ -125,15 +115,10 @@ public class QrScreen {
     center.setAlignment(Pos.CENTER);
     center.getStyleClass().add("qr-body");
 
-    HBox footer = new HBox(backButton);
-    footer.setAlignment(Pos.CENTER_LEFT);
-    footer.getStyleClass().add("qr-footer");
-
     root = new BorderPane();
     root.getStyleClass().add("qr-screen");
     root.setTop(header);
     root.setCenter(center);
-    root.setBottom(footer);
     BorderPane.setMargin(header, new Insets(0));
     render();
   }
@@ -144,10 +129,6 @@ public class QrScreen {
 
   public QrScreenModel getModel() {
     return model;
-  }
-
-  public void setOnBack(Runnable onBack) {
-    this.onBack = onBack;
   }
 
   /** Called on the JavaFX thread once the backend reports that the QR was claimed. */
