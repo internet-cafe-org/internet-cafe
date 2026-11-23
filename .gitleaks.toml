@@ -1,0 +1,10 @@
+# Gitleaks configuration
+# Ignore test files because they contain fake keys for testing purposes
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore fake values in test files"
+paths = [
+  '''Backend/tests/.*''',
+]
