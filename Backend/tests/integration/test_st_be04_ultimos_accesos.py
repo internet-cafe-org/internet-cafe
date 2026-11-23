@@ -114,8 +114,13 @@ async def _cerrar_sesion(
     t_inicio: float,
     duracion: float,
 ) -> None:
-    """Cierra la sesión directamente en la BD con el motivo user_logout_pc."""
-    fin = seg(t_inicio + duracion)
+    """Cierra la sesión directamente en la BD con el motivo user_logout_pc.
+
+    _abrir_sesion reclama el reto en seg(t_inicio + 10), por lo que started_at
+    real de la sesión es seg(t_inicio + 10). El fin se calcula desde ese punto
+    para que duration_s coincida exactamente con el parámetro 'duracion'.
+    """
+    fin = seg(t_inicio + 10 + duracion)
     async with sesiones() as db:
         await db.execute(
             update(AccessSession)
