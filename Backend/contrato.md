@@ -1019,6 +1019,12 @@ paths:
         name: started_to
         schema: *id002
         description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
       - *id006
       - *id007
       responses:
@@ -1065,6 +1071,56 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/sessions/export:
+    get:
+      tags:
+      - admin
+      security: *id005
+      summary: Exportar accesos a CSV (ST-BE-03)
+      description: Exporta los accesos filtrados. Devuelve un archivo CSV (UTF-8 con BOM, separador coma).
+      parameters:
+      - in: query
+        name: machine_code
+        schema:
+          type: string
+          maxLength: 40
+      - in: query
+        name: lab_id
+        schema: *id001
+      - in: query
+        name: state
+        schema:
+          type: string
+          enum:
+          - active
+          - ended
+      - in: query
+        name: started_from
+        schema: *id002
+        description: Inclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: started_to
+        schema: *id002
+        description: Exclusivo. Sin zona horaria se interpreta como UTC.
+      - in: query
+        name: student
+        description: Correo o código exacto del estudiante (búsqueda por blind index).
+        schema:
+          type: string
+          maxLength: 80
+      responses:
+        '200':
+          description: Archivo CSV.
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
 components:
