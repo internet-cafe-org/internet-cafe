@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
@@ -9,7 +9,15 @@ import { createAppRouter } from '../router'
 import { server } from '../mocks/server'
 import { useSessionStore } from '../stores/session'
 import SessionsView from '../views/admin/SessionsView.vue'
-import { forceEndSession, getAdminLabs, getAdminSessions } from '../services/adminSessions'
+import {
+  buildExportSessionsUrl,
+  downloadBlob,
+  exportAdminSessionsCsv,
+  forceEndSession,
+  getAdminLabs,
+  getAdminSessions,
+} from '../services/adminSessions'
+import { setAccessToken } from '../api/client'
 
 const API_URL = 'http://localhost:8000'
 
@@ -55,6 +63,78 @@ describe('Servicio adminSessions', () => {
 
   it('lanza error cuando la sesión no existe (404)', async () => {
     await expect(forceEndSession('not-found')).rejects.toThrow()
+  })
+
+  it('construye la URL de exportación con parámetros correctamente (buildExportSessionsUrl)', () => {
+    const urlSinFiltros = buildExportSessionsUrl()
+    expect(urlSinFiltros).toBe('http://localhost:8000/api/v1/admin/sessions/export')
+
+    const urlConFiltros = buildExportSessionsUrl({
+      machine_code: 'LAB3-PC12',
+      lab_id: 'lab-001',
+      state: 'active',
+      started_from: '2026-11-01T00:00:00Z',
+      started_to: '2026-11-20T23:59:59Z',
+      student: 'ana.perez@universidad.edu.co',
+    })
+    expect(urlConFiltros).toContain('machine_code=LAB3-PC12')
+    expect(urlConFiltros).toContain('lab_id=lab-001')
+    expect(urlConFiltros).toContain('state=active')
+    expect(urlConFiltros).toContain('started_from=2026-11-01T00%3A00%3A00Z')
+    expect(urlConFiltros).toContain('started_to=2026-11-20T23%3A59%3A59Z')
+    expect(urlConFiltros).toContain('student=ana.perez%40universidad.edu.co')
+  })
+
+  it('exporta accesos a CSV mediante Fetch API y devuelve Blob (exportAdminSessionsCsv)', async () => {
+    setAccessToken('mock-admin-token')
+    const result = await exportAdminSessionsCsv({ machine_code: 'LAB3-PC12' })
+
+    expect(result.blob).toBeInstanceOf(Blob)
+    expect(result.filename).toBe('accesos.csv')
+    expect(result.truncated).toBe(false)
+
+    const text = await result.blob.text()
+    expect(text).toContain(
+      'estudiante,código,equipo,sala,inicio,fin,duración en minutos,motivo de cierre',
+    )
+    expect(text).toContain('Ana Pérez')
+    expect(text).toContain('LAB3-PC12')
+  })
+
+  it('detecta cabecera X-Export-Truncated cuando el archivo supera el límite', async () => {
+    setAccessToken('mock-admin-token')
+    const result = await exportAdminSessionsCsv({ machine_code: 'TRUNCATED' })
+
+    expect(result.truncated).toBe(true)
+    expect(result.filename).toBe('accesos.csv')
+  })
+
+  it('lanza ApiError cuando la petición de exportación no está autorizada (401)', async () => {
+    setAccessToken(null)
+    await expect(exportAdminSessionsCsv()).rejects.toThrow()
+  })
+
+  it('lanza ApiError cuando el servidor responde con error 500', async () => {
+    setAccessToken('mock-admin-token')
+    await expect(exportAdminSessionsCsv({ machine_code: 'SERVER_ERROR' })).rejects.toThrow()
+  })
+
+  it('inicia la descarga con createObjectURL y la libera con revokeObjectURL (downloadBlob)', () => {
+    const mockCreateObjectURL = vi.fn().mockReturnValue('blob:http://localhost/mock-uuid')
+    const mockRevokeObjectURL = vi.fn()
+    window.URL.createObjectURL = mockCreateObjectURL
+    window.URL.revokeObjectURL = mockRevokeObjectURL
+
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const blob = new Blob(['col1,col2\nval1,val2'], { type: 'text/csv' })
+    downloadBlob(blob, 'prueba-descarga.csv')
+
+    expect(mockCreateObjectURL).toHaveBeenCalledWith(blob)
+    expect(clickSpy).toHaveBeenCalled()
+    expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/mock-uuid')
+
+    clickSpy.mockRestore()
   })
 })
 
@@ -326,5 +406,107 @@ describe('Vista SessionsView (W-12 - HU-15)', () => {
     await wrapper.find('.alert-banner__close').trigger('click')
     await flushPromises()
     expect(wrapper.find('.alert-banner--success').exists()).toBe(false)
+  })
+
+  it('renderiza el botón de exportar CSV con el icono de descarga (HU-33 / ST-UI-05)', async () => {
+    const { pinia, router } = await setupAdmin()
+    const wrapper = mount(SessionsView, { global: { plugins: [pinia, router] } })
+    await flushPromises()
+
+    const exportBtn = wrapper.find('.btn-export')
+    expect(exportBtn.exists()).toBe(true)
+    expect(exportBtn.text()).toContain('Exportar CSV')
+    expect(exportBtn.find('.pi-download').exists()).toBe(true)
+  })
+
+  it('ejecuta la exportación a CSV con Fetch y Blob al pulsar el botón (HU-33)', async () => {
+    const mockCreateObjectURL = vi.fn().mockReturnValue('blob:http://localhost/mock-uuid-2')
+    const mockRevokeObjectURL = vi.fn()
+    window.URL.createObjectURL = mockCreateObjectURL
+    window.URL.revokeObjectURL = mockRevokeObjectURL
+
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    setAccessToken('mock-admin-token')
+    const { pinia, router } = await setupAdmin()
+    const wrapper = mount(SessionsView, { global: { plugins: [pinia, router] } })
+    await flushPromises()
+
+    const exportBtn = wrapper.find('.btn-export')
+    await exportBtn.trigger('click')
+    await flushPromises()
+
+    expect(mockCreateObjectURL).toHaveBeenCalled()
+    expect(clickSpy).toHaveBeenCalled()
+    expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/mock-uuid-2')
+
+    expect(wrapper.find('.alert-banner--success').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Archivo accesos.csv descargado con éxito.')
+
+    clickSpy.mockRestore()
+  })
+
+  it('informa al usuario cuando la exportación supera el límite y viene truncada', async () => {
+    const mockCreateObjectURL = vi.fn().mockReturnValue('blob:http://localhost/mock-uuid-3')
+    const mockRevokeObjectURL = vi.fn()
+    window.URL.createObjectURL = mockCreateObjectURL
+    window.URL.revokeObjectURL = mockRevokeObjectURL
+
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    setAccessToken('mock-admin-token')
+    const { pinia, router } = await setupAdmin()
+    const wrapper = mount(SessionsView, { global: { plugins: [pinia, router] } })
+    await flushPromises()
+
+    await wrapper.get('#filter-machine').setValue('TRUNCATED')
+    const exportBtn = wrapper.find('.btn-export')
+    await exportBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.alert-banner--success').exists()).toBe(true)
+    expect(wrapper.text()).toContain('truncado por el servidor')
+
+    clickSpy.mockRestore()
+  })
+
+  it('valida el rango de fechas al pulsar exportar y no realiza la petición si es inválido', async () => {
+    const mockCreateObjectURL = vi.fn()
+    window.URL.createObjectURL = mockCreateObjectURL
+
+    const { pinia, router } = await setupAdmin()
+    const wrapper = mount(SessionsView, { global: { plugins: [pinia, router] } })
+    await flushPromises()
+
+    await wrapper.get('#filter-from').setValue('2026-11-25')
+    await wrapper.get('#filter-to').setValue('2026-11-20')
+
+    const exportBtn = wrapper.find('.btn-export')
+    await exportBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('La fecha "desde" no puede ser posterior a la fecha "hasta"')
+    expect(mockCreateObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('muestra banner de error cuando la exportación falla y permite cerrarlo', async () => {
+    setAccessToken('mock-admin-token')
+    const { pinia, router } = await setupAdmin()
+    const wrapper = mount(SessionsView, { global: { plugins: [pinia, router] } })
+    await flushPromises()
+
+    await wrapper.get('#filter-machine').setValue('SERVER_ERROR')
+    const exportBtn = wrapper.find('.btn-export')
+    await exportBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.alert-banner--error').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Error al exportar accesos')
+
+    // Permite cerrar el banner
+    const closeBtn = wrapper.find('.alert-banner--error .alert-banner__close')
+    await closeBtn.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.alert-banner--error').exists()).toBe(false)
   })
 })

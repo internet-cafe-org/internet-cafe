@@ -597,6 +597,60 @@ export const apiHandlers = [
     })
   }),
 
+  http.get(`${API_URL}/api/v1/admin/sessions/export`, ({ request }) => {
+    const authHeader = request.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'No autorizado',
+          status: 401,
+          detail: 'No autenticado o token inválido.',
+          code: 'AUTH_UNAUTHORIZED',
+        },
+        { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    }
+
+    const url = new URL(request.url)
+    const machineCode = url.searchParams.get('machine_code')
+
+    if (machineCode === 'SERVER_ERROR') {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Error interno',
+          status: 500,
+          detail: 'Fallo al generar el archivo de exportación.',
+          code: 'EXPORT_INTERNAL_ERROR',
+        },
+        { status: 500, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    }
+
+    // Archivo CSV con UTF-8 BOM según RF-ADM-06 y ST-BE-03
+    let csv =
+      '\uFEFFestudiante,código,equipo,sala,inicio,fin,duración en minutos,motivo de cierre\r\n'
+    if (machineCode !== 'NO_EXISTE') {
+      csv += 'Ana Pérez,2021****34,LAB3-PC12,Sala 3,2026-11-20 05:00:00,,,\r\n'
+      if (!machineCode || machineCode === 'LAB1-PC05') {
+        csv +=
+          'Carlos Gómez,2022****56,LAB1-PC05,Sala 1,2026-11-19 03:30:00,2026-11-19 04:30:00,60,Cerrada desde el equipo\r\n'
+      }
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="accesos.csv"',
+    }
+
+    if (machineCode === 'TRUNCATED') {
+      headers['X-Export-Truncated'] = 'true'
+    }
+
+    return new HttpResponse(csv, { status: 200, headers })
+  }),
+
   http.post(`${API_URL}/api/v1/admin/sessions/:id/end`, ({ params }) => {
     const { id } = params
 
