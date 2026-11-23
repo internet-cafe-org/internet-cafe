@@ -38,6 +38,16 @@ API = "/api/v1"
 
 # ------------------------------------------------------------------------- Fixtures
 
+@pytest.fixture(autouse=True)
+def configurar_llave_blind_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configura una llave falsa para el blind index antes de cualquier prueba.
+
+    Necesario porque las fixtures usan pii.indice_ciego y en la CI no hay
+    BLIND_INDEX_KEY definida.
+    """
+    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+
+
 @pytest.fixture
 def claves(monkeypatch: pytest.MonkeyPatch) -> str:
     """Claves ES256 efímeras para la API; devuelve la privada con la que firma."""
@@ -79,11 +89,11 @@ async def admin_user(sesiones: async_sessionmaker[AsyncSession]) -> User:
     """Crea un usuario administrador para probar los endpoints."""
     async with sesiones() as db:
         admin = User(
-            email_ct=b"admin@test.invalid",
-            email_bidx=uuid.uuid4().bytes,
-            full_name_ct=b"Admin Test",
-            student_code_ct=b"999",
-            student_code_bidx=uuid.uuid4().bytes,
+            email_ct=pii.proteger("admin@test.invalid"),
+            email_bidx=pii.indice_ciego("admin@test.invalid"),
+            full_name_ct=pii.proteger("Admin Test"),
+            student_code_ct=pii.proteger("999"),
+            student_code_bidx=pii.indice_ciego("999"),
             password_hash="no-es-un-hash",
             role=UserRole.admin,
             privacy_consent_at=datetime.now(UTC),
@@ -192,19 +202,15 @@ async def test_admin_filtra_por_estudiante_correo(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Filtro por estudiante (correo). Debe ser exacto e ignorar mayúsculas."""
-    # Forzamos una llave de blind index para el entorno de pruebas
-    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
-    
     # Creamos un usuario con correo indexado correctamente
     async with sesiones() as db:
         correo = "ana.test@universidad.edu.co"
         ana = User(
             email_ct=pii.proteger(correo),
             email_bidx=pii.indice_ciego(correo),
-            full_name_ct=b"Ana Test",
+            full_name_ct=pii.proteger("Ana Test"),
             student_code_ct=pii.proteger("111"),
             student_code_bidx=pii.indice_ciego("111"),
             password_hash="no-es-un-hash",
@@ -214,7 +220,9 @@ async def test_admin_filtra_por_estudiante_correo(
         db.add(ana)
         await db.commit()
     
+    # Creamos dos sesiones (una de Ana, una de Beto) para verificar que filtra bien
     await _crear_sesion(sesiones, ana, datos.pc01, hace_min=10)
+    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
     cabeceras = _bearer_admin(claves, admin_user)
 
     # Buscamos por el correo (con mayúsculas para probar que se normaliza)
@@ -233,18 +241,14 @@ async def test_admin_filtra_por_estudiante_codigo(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Filtro por estudiante (código). Debe ser exacto y aceptar espacios."""
-    # Forzamos una llave de blind index para el entorno de pruebas
-    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
-    
     # Creamos un usuario con código indexado correctamente
     async with sesiones() as db:
         beto = User(
             email_ct=pii.proteger("beto.test@universidad.edu.co"),
             email_bidx=pii.indice_ciego("beto.test@universidad.edu.co"),
-            full_name_ct=b"Beto Test",
+            full_name_ct=pii.proteger("Beto Test"),
             student_code_ct=pii.proteger("222"),
             student_code_bidx=pii.indice_ciego("222"),
             password_hash="no-es-un-hash",
@@ -254,7 +258,9 @@ async def test_admin_filtra_por_estudiante_codigo(
         db.add(beto)
         await db.commit()
 
-    await _crear_sesion(sesiones, beto, datos.pc02, hace_min=10)
+    # Creamos dos sesiones (una de Ana, una de Beto) para verificar que filtra bien
+    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    await _crear_sesion(sesiones, beto, datos.pc02, hace_min=20)
     cabeceras = _bearer_admin(claves, admin_user)
 
     # Buscamos por el código (con espacios para probar que se normaliza)
@@ -263,6 +269,26 @@ async def test_admin_filtra_por_estudiante_codigo(
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
     assert resp.json()["items"][0]["user"]["full_name"] == "Beto Test"
+
+
+async def test_admin_filtra_por_estudiante_inexistente(
+    cliente: AsyncClient,
+    claves: str,
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+    admin_user: User,
+) -> None:
+    """Caso negativo: buscar un estudiante que no existe da total == 0."""
+    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
+    cabeceras = _bearer_admin(claves, admin_user)
+
+    resp = await cliente.get(
+        f"{API}/admin/sessions?student=no-existe@test.invalid", headers=cabeceras
+    )
+    
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+    assert len(resp.json()["items"]) == 0
 
 
 async def test_admin_filtra_por_fechas_y_paginacion(
