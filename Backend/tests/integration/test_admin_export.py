@@ -2,6 +2,7 @@
 
 import csv
 import io
+import secrets
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -35,12 +36,12 @@ API = "/api/v1"
 
 @pytest.fixture(autouse=True)
 def configurar_llave_blind_index(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Configura una llave falsa para el blind index antes de cualquier prueba.
+    """Configura una llave aleatoria para el blind index antes de cada prueba.
 
     Necesario porque las fixtures (como admin_user) usan pii.indice_ciego
     y en la CI no hay BLIND_INDEX_KEY definida.
     """
-    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+    monkeypatch.setattr(settings, "blind_index_key", secrets.token_hex(32))
 
 
 @pytest.fixture
