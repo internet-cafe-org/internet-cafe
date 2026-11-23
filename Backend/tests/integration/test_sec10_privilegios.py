@@ -42,11 +42,11 @@ def _psql(url: str, *args: str, sql: str | None = None) -> subprocess.CompletedP
     comando = ["psql", url, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", *args]
     if sql is not None:
         comando += ["-c", sql]
-    return subprocess.run(comando, capture_output=True, text=True, check=False)
+    return subprocess.run(comando, capture_output=True, encoding="utf-8", errors="replace", check=False)
 
 
 def _es_error_de_privilegio(stderr: str) -> bool:
-    texto = stderr.lower()
+    texto = (stderr or "").lower()
     return any(
         frase in texto
         for frase in ("permission denied", "must be owner", "permiso denegado", "debe ser due")
@@ -178,5 +178,6 @@ def test_audit_log_es_solo_insert_para_app(entorno_mvp: EntornoPrivilegios) -> N
     trunc = _psql(entorno_mvp.app, sql="TRUNCATE TABLE app.audit_log;")
     assert trunc.returncode != 0, "svc_app NO debe poder hacer TRUNCATE en app.audit_log"
     assert _es_error_de_privilegio(trunc.stderr), trunc.stderr
+
 
 
