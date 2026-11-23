@@ -128,7 +128,11 @@ async def test_exportar_csv_camino_feliz(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Inyectamos la llave del blind index para esta prueba
+    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+    
     await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
     cabeceras = _bearer_admin(claves, admin_user)
 
@@ -161,7 +165,9 @@ async def test_exportar_csv_inyeccion_formulas(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Un nombre que empiece con '=' debe ser neutralizado."""
+    # Inyectamos la llave del blind index para esta prueba
     monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+
     # Creamos un usuario con nombre malicioso
     async with sesiones() as db:
         malicioso = User(
