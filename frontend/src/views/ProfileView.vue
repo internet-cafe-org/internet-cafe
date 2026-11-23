@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 
 import { useSignOut } from '@/composables/useSignOut'
 import { fetchMyProfile, type UserProfile } from '@/services/me'
+import { changeMyPassword, passwordChangeFailure } from '@/services/password'
 import { useSessionStore } from '@/stores/session'
 import { PASSWORD_MAX, PASSWORD_MIN, registerPasswordError } from '@/utils/validation'
 
@@ -13,6 +14,8 @@ const profile = ref<UserProfile | null>(null)
 const loadingProfile = ref(true)
 const profileError = ref('')
 const signingOut = ref(false)
+const changingPassword = ref(false)
+const actualInput = ref<HTMLInputElement | null>(null)
 
 const form = reactive({
   actual: '',
@@ -22,6 +25,7 @@ const form = reactive({
 
 const infoMessage = ref('')
 const errorMessage = ref('')
+const actualError = ref('')
 
 async function loadProfile(): Promise<void> {
   loadingProfile.value = true
@@ -40,9 +44,14 @@ async function loadProfile(): Promise<void> {
   }
 }
 
-function cambiarContrasena(): void {
+async function cambiarContrasena(): Promise<void> {
+  if (changingPassword.value) {
+    return
+  }
+
   infoMessage.value = ''
   errorMessage.value = ''
+  actualError.value = ''
 
   if (!form.actual.trim() || !form.nueva.trim() || !form.confirmar.trim()) {
     errorMessage.value = 'Completa todos los campos de contraseña.'
@@ -65,10 +74,25 @@ function cambiarContrasena(): void {
     return
   }
 
-  form.actual = ''
-  form.nueva = ''
-  form.confirmar = ''
-  infoMessage.value = 'El cambio de contraseña aún no está disponible en esta versión del servicio.'
+  changingPassword.value = true
+  try {
+    await changeMyPassword(form.actual, form.nueva)
+    form.actual = ''
+    form.nueva = ''
+    form.confirmar = ''
+    infoMessage.value =
+      'Contraseña actualizada. Se cerraron tus otras sesiones web; esta sigue abierta.'
+  } catch (error) {
+    const failure = passwordChangeFailure(error)
+    if (failure.field === 'actual') {
+      actualError.value = failure.message
+      actualInput.value?.focus()
+    } else {
+      errorMessage.value = failure.message
+    }
+  } finally {
+    changingPassword.value = false
+  }
 }
 
 async function cerrarSesionWeb(): Promise<void> {
@@ -135,11 +159,17 @@ onMounted(() => {
           <label for="actual">Contraseña actual</label>
           <input
             id="actual"
+            ref="actualInput"
             v-model="form.actual"
             type="password"
             autocomplete="current-password"
+            :aria-invalid="actualError ? 'true' : undefined"
+            :aria-describedby="actualError ? 'actual-error' : undefined"
             required
           />
+          <p v-if="actualError" id="actual-error" class="field-error" role="alert">
+            {{ actualError }}
+          </p>
         </div>
 
         <div class="field">
@@ -178,7 +208,9 @@ onMounted(() => {
           {{ infoMessage }}
         </div>
 
-        <button class="btn change" type="submit">Cambiar contraseña</button>
+        <button class="btn change" type="submit" :disabled="changingPassword">
+          {{ changingPassword ? 'Cambiando contraseña...' : 'Cambiar contraseña' }}
+        </button>
       </form>
 
       <button class="btn logout" type="button" :disabled="signingOut" @click="cerrarSesionWeb">
@@ -304,6 +336,16 @@ input {
   border: 1px solid var(--c-input-border);
   border-radius: 6px;
   padding: 0.7rem 0.75rem;
+}
+
+.field-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--c-error);
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--c-error);
 }
 
 .ro-text {
