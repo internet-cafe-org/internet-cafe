@@ -7,17 +7,25 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
 import org.internetcafe.desktop.qr.ConnectionMonitor;
 
-/** Pantalla "Sin conexión" (DSK-09): conectando, reintentando, fallo prolongado y restablecida. */
+/**
+ * Pantalla D-04 "Sin conexión": conectando, reintentando, fallo prolongado, restablecida y
+ * modo fail-open (kiosco liberado).
+ */
 public class OfflineScreen {
 
   private static final String[] TONE_CLASSES = {"tone-info", "tone-warning", "tone-success"};
 
   private final StackPane root;
+
+  // Compact single-column card (normal offline states)
   private final Label icon = new Label();
   private final Label title = new Label();
   private final Label subtitle = new Label();
@@ -27,12 +35,24 @@ public class OfflineScreen {
   private final VBox banner = new VBox(2, bannerTitle, bannerText);
   private final Button retryButton = new Button();
   private final Hyperlink homeLink = new Hyperlink("Volver al inicio");
+  private final VBox compactCard;
+
+  // Fail-open two-column layout
+  private final VBox failOpenCard;
+  private final Label failOpenBannerTitle = new Label("Modo fail-open activo");
+  private final Label failOpenBannerText =
+      new Label("La API no ha respondido durante 3 minutos. Se ha liberado el equipo según la configuración.");
+  private final Label failOpenBadge = new Label("Equipo liberado");
+  private final Button retryNowButton = new Button("Reintentar ahora  ⟳");
+  private final Button contactButton = new Button("Contactar soporte  ↗");
+
   private Runnable onRetry;
   private Runnable onHome;
   private OfflineScreenModel model;
   private boolean failOpen;
 
   public OfflineScreen() {
+    // ── Compact card (connecting / retrying / restored) ───────────────────
     icon.getStyleClass().add("offline-icon");
     title.getStyleClass().add("offline-title");
     subtitle.getStyleClass().add("offline-subtitle");
@@ -51,27 +71,92 @@ public class OfflineScreen {
 
     retryButton.getStyleClass().add("offline-retry");
     retryButton.setMaxWidth(Double.MAX_VALUE);
-    retryButton.setOnAction(
-        event -> {
-          if (onRetry != null) {
-            onRetry.run();
-          }
-        });
+    retryButton.setOnAction(event -> { if (onRetry != null) onRetry.run(); });
 
     homeLink.getStyleClass().add("offline-home");
-    homeLink.setOnAction(
-        event -> {
-          if (onHome != null) {
-            onHome.run();
-          }
-        });
+    homeLink.setOnAction(event -> { if (onHome != null) onHome.run(); });
 
-    VBox card = new VBox(12, icon, title, subtitle, banner, detail, retryButton, homeLink);
-    card.setAlignment(Pos.CENTER);
-    card.setMaxWidth(480);
-    card.getStyleClass().add("offline-card");
+    compactCard = new VBox(12, icon, title, subtitle, banner, detail, retryButton, homeLink);
+    compactCard.setAlignment(Pos.CENTER);
+    compactCard.setMaxWidth(480);
+    compactCard.getStyleClass().add("offline-card");
 
-    root = new StackPane(card);
+    // ── Fail-open two-column layout ───────────────────────────────────────
+    // Warning banner (top)
+    failOpenBannerTitle.getStyleClass().add("fo-banner-title");
+    failOpenBannerText.getStyleClass().add("fo-banner-text");
+    failOpenBannerText.setWrapText(true);
+    failOpenBadge.getStyleClass().add("fo-badge");
+
+    Region bannerSpacer = new Region();
+    HBox.setHgrow(bannerSpacer, Priority.ALWAYS);
+    HBox foBannerRow = new HBox(10, failOpenBannerTitle, bannerSpacer, failOpenBadge);
+    foBannerRow.setAlignment(Pos.CENTER_LEFT);
+    VBox foBanner = new VBox(4, foBannerRow, failOpenBannerText);
+    foBanner.getStyleClass().add("fo-banner");
+
+    // Left: QR placeholder
+    Label qrPlaceholderIcon = new Label("⊡");
+    qrPlaceholderIcon.getStyleClass().add("fo-qr-icon");
+    Label qrPlaceholderLabel = new Label("QR no disponible");
+    qrPlaceholderLabel.getStyleClass().add("fo-qr-label");
+    Label qrReturnHint = new Label("Se mostrará de nuevo cuando vuelva el servicio.");
+    qrReturnHint.getStyleClass().add("fo-qr-hint");
+
+    VBox foLeft = new VBox(12, qrPlaceholderIcon, qrPlaceholderLabel, qrReturnHint);
+    foLeft.setAlignment(Pos.CENTER);
+    foLeft.getStyleClass().add("fo-left");
+    HBox.setHgrow(foLeft, Priority.ALWAYS);
+
+    // Right: message
+    Label foRightTitle = new Label("Equipo liberado: puedes utilizarlo");
+    foRightTitle.getStyleClass().add("fo-right-title");
+    foRightTitle.setWrapText(true);
+
+    Label foRightDesc = new Label(
+        "La terminal no puede comunicarse con la API de acceso. El equipo ya está disponible para su uso.");
+    foRightDesc.getStyleClass().add("fo-right-desc");
+    foRightDesc.setWrapText(true);
+
+    Label foCredWarningTitle = new Label("Credenciales sin verificar");
+    foCredWarningTitle.getStyleClass().add("fo-cred-title");
+    Label foCredWarningDesc = new Label(
+        "El equipo está liberado, pero las credenciales no se están verificando. "
+            + "Sigue el protocolo de contingencia de tu institución.");
+    foCredWarningDesc.getStyleClass().add("fo-cred-desc");
+    foCredWarningDesc.setWrapText(true);
+    VBox foCredBox = new VBox(4, foCredWarningTitle, foCredWarningDesc);
+    foCredBox.getStyleClass().add("fo-cred-box");
+
+    VBox foRight = new VBox(14, foRightTitle, foRightDesc, foCredBox);
+    foRight.setAlignment(Pos.TOP_LEFT);
+    foRight.getStyleClass().add("fo-right");
+    HBox.setHgrow(foRight, Priority.ALWAYS);
+
+    HBox foCols = new HBox(0, foLeft, foRight);
+    foCols.getStyleClass().add("fo-cols");
+
+    // Footer buttons
+    retryNowButton.getStyleClass().addAll("button", "fo-retry-btn");
+    retryNowButton.setOnAction(event -> { if (onRetry != null) onRetry.run(); });
+    contactButton.getStyleClass().addAll("fo-contact-btn");
+    contactButton.setOnAction(event -> { if (onHome != null) onHome.run(); });
+
+    Label foStatus = new Label("Sin servicio · Reconectando con espera creciente...");
+    foStatus.getStyleClass().add("fo-status");
+    HBox.setHgrow(foStatus, Priority.ALWAYS);
+
+    Region foFooterSpacer = new Region();
+    HBox foFooter = new HBox(12, foStatus, foFooterSpacer, contactButton, retryNowButton);
+    foFooter.setAlignment(Pos.CENTER_LEFT);
+    foFooter.getStyleClass().add("fo-footer");
+
+    failOpenCard = new VBox(0, foBanner, foCols, foFooter);
+    failOpenCard.getStyleClass().add("fo-card");
+    failOpenCard.setMaxWidth(900);
+
+    // ── Root ─────────────────────────────────────────────────────────────
+    root = new StackPane(compactCard);
     root.getStyleClass().add("offline-screen");
     root.getStylesheets()
         .add(
@@ -128,6 +213,14 @@ public class OfflineScreen {
     if (model == null) {
       return;
     }
+    if (failOpen) {
+      // Switch to fail-open two-column layout
+      root.getChildren().setAll(failOpenCard);
+      return;
+    }
+
+    root.getChildren().setAll(compactCard);
+
     icon.setText(model.icon());
     title.setText(model.title());
     subtitle.setText(model.subtitle());
@@ -143,14 +236,6 @@ public class OfflineScreen {
     bannerText.setText(model.bannerText());
     setShown(banner, !model.bannerTitle().isBlank());
     setShown(bannerText, !model.bannerText().isBlank());
-    if (failOpen) {
-      title.setText("Equipo liberado");
-      subtitle.setText("La API lleva 3 minutos sin responder. Puede usar el equipo.");
-      bannerTitle.setText("Modo de emergencia");
-      bannerText.setText("El equipo volverá al modo kiosco cuando se recupere la conexión.");
-      setShown(banner, true);
-      setShown(bannerText, true);
-    }
 
     retryButton.setText(model.retryLabel());
     retryButton.setDisable(!model.retryEnabled());

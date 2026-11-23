@@ -58,6 +58,10 @@ public class PassiveCard {
     if (css != null) {
       scene.getStylesheets().add(css.toExternalForm());
     }
+    URL darkCss = getClass().getResource("/passive-dark.css");
+    if (darkCss != null && org.internetcafe.desktop.WindowsDarkMode.isSystemDarkMode()) {
+      scene.getStylesheets().add(darkCss.toExternalForm());
+    }
 
     stage = new Stage(StageStyle.TRANSPARENT);
     stage.setTitle("Internet Caf\u00e9 - modo pasivo");
