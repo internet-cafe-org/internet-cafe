@@ -18,7 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
-BACKEND_DIR = Path(__file__).resolve().parents
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 SQL_BOOTSTRAP = BACKEND_DIR / "db" / "bootstrap_roles.sql"
 DB_AISLADA = "internet_cafe_sec10_test"
 
@@ -178,4 +178,5 @@ def test_audit_log_es_solo_insert_para_app(entorno_mvp: EntornoPrivilegios) -> N
     trunc = _psql(entorno_mvp.app, sql="TRUNCATE TABLE app.audit_log;")
     assert trunc.returncode != 0, "svc_app NO debe poder hacer TRUNCATE en app.audit_log"
     assert _es_error_de_privilegio(trunc.stderr), trunc.stderr
+
 
