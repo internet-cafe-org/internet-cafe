@@ -110,7 +110,7 @@ async def test_registro_crea_cuenta_activa_y_responde_202(cliente, sesiones):
     assert usuario.password_hash.startswith("$argon2id$")
     assert usuario.email_bidx == pii.indice_ciego("estudiante.prueba@test.invalid")
     assert usuario.student_code_bidx == pii.indice_ciego("2026000001")
-    assert pii.revelar(usuario.full_name_ct) == "Estudiante De Prueba"
+    assert pii.revelar(usuario.full_name_ct, aad=f"users.full_name_ct.{usuario.id}") == "Estudiante De Prueba"
     assert usuario.privacy_consent_at is not None
     async with sesiones() as db:
         acciones = (await db.scalars(select(AuditLog.action))).all()
@@ -124,7 +124,7 @@ async def test_registro_normaliza_el_correo(cliente, sesiones):
 
     assert resp.status_code == 202
     [usuario] = await _usuarios(sesiones)
-    assert pii.revelar(usuario.email_ct) == "estudiante.prueba@test.invalid"
+    assert pii.revelar(usuario.email_ct, aad=f"users.email_ct.{usuario.id}") == "estudiante.prueba@test.invalid"
 
 
 async def test_registro_con_verificacion_deja_la_cuenta_pendiente(cliente, sesiones, monkeypatch):

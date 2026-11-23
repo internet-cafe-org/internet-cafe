@@ -122,7 +122,7 @@ async def perfil(
     return ProfileResponse(
         id=fila.id,
         full_name=nombre,
-        email=sesiones.texto_plano(fila.email_ct, ""),
+        email=sesiones.texto_plano(fila.email_ct, "", aad=f"users.email_ct.{fila.id}"),
         student_code_masked=codigo,
         role=fila.role,
         status=fila.status,

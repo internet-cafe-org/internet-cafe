@@ -24,32 +24,24 @@ from app.models import (
     SessionEndReason,
     User,
 )
+from app.services import pii
 from app.services.challenges import ahora, mask_student_code
 
 LAB_SIN_ASIGNAR = "Sala sin asignar"
 NOMBRE_POR_DEFECTO = "Estudiante"
 
 
-def texto_plano(valor: bytes | None, por_defecto: str) -> str:
-    """Texto de una columna *_ct.
-
-    Hoy las columnas guardan los bytes en UTF-8 (igual que `challenges`). Cuando exista
-    el TypeDecorator AES-256-GCM del SRS §12.7 solo cambia esta función.
-    """
-    if not valor:
-        return por_defecto
-    try:
-        return valor.decode("utf-8", errors="ignore") or por_defecto
-    except Exception:
-        return por_defecto
+def texto_plano(valor: bytes | None, por_defecto: str, *, aad: str | None = None) -> str:
+    """Descifra o decodifica una columna ``*_ct``."""
+    return pii.revelar(valor, por_defecto, aad=aad)
 
 
 def datos_estudiante(usuario: User | None) -> tuple[str, str]:
     """(nombre completo, código enmascarado). Nunca devuelve el código completo."""
     if usuario is None:
         return NOMBRE_POR_DEFECTO, mask_student_code(None)
-    nombre = texto_plano(usuario.full_name_ct, NOMBRE_POR_DEFECTO)
-    codigo = texto_plano(usuario.student_code_ct, "")
+    nombre = texto_plano(usuario.full_name_ct, NOMBRE_POR_DEFECTO, aad=f"users.full_name_ct.{usuario.id}")
+    codigo = texto_plano(usuario.student_code_ct, "", aad=f"users.student_code_ct.{usuario.id}")
     return nombre, mask_student_code(codigo)
 
 
