@@ -1,7 +1,9 @@
 """Módulo de configuración de variables de entorno."""
 
 from typing import Literal
+from zoneinfo import ZoneInfo
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,17 +95,21 @@ class Settings(BaseSettings):
 
     @property
     def dominios_correo_permitidos(self) -> frozenset[str]:
-        """Devuelve los dominios de ``ALLOWED_EMAIL_DOMAINS`` normalizados.
-
-        Returns:
-            Conjunto de dominios en minúsculas, sin espacios ni ``@``; vacío si
-            no se configuró ninguno.
-        """
+        """Devuelve los dominios de ``ALLOWED_EMAIL_DOMAINS`` normalizados."""
         return frozenset(
             d.strip().lower().lstrip("@")
             for d in self.allowed_email_domains.split(",")
             if d.strip()
         )
+
+    @model_validator(mode="after")
+    def _validar_timezone(self) -> "Settings":
+        """Valida que CSV_TIMEZONE sea una zona horaria válida."""
+        try:
+            ZoneInfo(self.csv_timezone)
+        except Exception as exc:
+            raise ValueError(f"CSV_TIMEZONE inválida: {self.csv_timezone}") from exc
+        return self
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

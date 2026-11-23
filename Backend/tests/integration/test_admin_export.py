@@ -26,6 +26,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.services import pii
 
 API = "/api/v1"
 
@@ -72,6 +73,8 @@ async def admin_user(sesiones: async_sessionmaker[AsyncSession]) -> User:
             email_ct=b"admin@test.invalid",
             email_bidx=uuid.uuid4().bytes,
             full_name_ct=b"Admin Test",
+            student_code_ct=pii.proteger("999"),
+            student_code_bidx=pii.indice_ciego("999"),
             password_hash="no-es-un-hash",
             role=UserRole.admin,
             privacy_consent_at=datetime.now(UTC),
@@ -126,7 +129,6 @@ async def test_exportar_csv_camino_feliz(
     datos: Any,
     admin_user: User,
 ) -> None:
-    # Creamos una sesión de prueba
     await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
     cabeceras = _bearer_admin(claves, admin_user)
 
@@ -136,47 +138,59 @@ async def test_exportar_csv_camino_feliz(
     assert resp.headers["content-type"] == "text/csv; charset=utf-8"
     assert "attachment; filename=\"accesos.csv\"" in resp.headers["content-disposition"]
     
-    # Verificamos el BOM de UTF-8
     contenido_bytes = resp.content
     assert contenido_bytes.startswith(b'\xef\xbb\xbf'), "Falta el BOM de UTF-8"
 
-    # Leemos el CSV
     texto = contenido_bytes.decode("utf-8-sig")
-    lector = csv.reader(io.StringIO(texto), delimiter=';')
+    lector = csv.reader(io.StringIO(texto), delimiter=',')
     filas = list(lector)
     
-    assert len(filas) == 2  # Cabecera + 1 fila de datos
-    assert filas[0] == ["ID", "Estudiante", "Código", "Equipo", "Sala", "Inicio", "Último latido", "Fin", "Motivo", "Duración (s)"]
-    assert filas[1][1] == "Estudiante Prueba 1"
-    assert filas[1][3] == "LAB-TEST-PC01"
-    assert filas[1][8] == "user_logout_pc"
+    assert len(filas) == 2  # Cabecera + 1 fila
+    assert filas[0] == ["Estudiante", "Código", "Equipo", "Sala", "Inicio", "Fin", "Duración (min)", "Motivo de cierre"]
+    assert filas[1][0] == "Estudiante Prueba 1"
+    assert filas[1][2] == "LAB-TEST-PC01"
+    assert filas[1][7] == "user_logout_pc"
 
 
-async def test_exportar_csv_con_filtros(
+async def test_exportar_csv_inyeccion_formulas(
     cliente: AsyncClient,
     claves: str,
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
     admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=10)
-    await _crear_sesion(sesiones, datos.beto, datos.pc02, hace_min=20)
+    """Un nombre que empiece con '=' debe ser neutralizado."""
+    monkeypatch.setattr(settings, "blind_index_key", "0" * 64)
+    # Creamos un usuario con nombre malicioso
+    async with sesiones() as db:
+        malicioso = User(
+            email_ct=pii.proteger("hacker@test.invalid"),
+            email_bidx=pii.indice_ciego("hacker@test.invalid"),
+            full_name_ct=pii.proteger("=SUM(A1:A2)"),
+            student_code_ct=pii.proteger("666"),
+            student_code_bidx=pii.indice_ciego("666"),
+            password_hash="no-es-un-hash",
+            role=UserRole.student,
+            privacy_consent_at=datetime.now(UTC),
+        )
+        db.add(malicioso)
+        await db.commit()
+
+    await _crear_sesion(sesiones, malicioso, datos.pc01, hace_min=10)
     cabeceras = _bearer_admin(claves, admin_user)
 
-    # Filtramos por equipo
-    resp = await cliente.get(f"{API}/admin/sessions/export?machine_code=LAB-TEST-PC01", headers=cabeceras)
-    
+    resp = await cliente.get(f"{API}/admin/sessions/export", headers=cabeceras)
     texto = resp.content.decode("utf-8-sig")
-    filas = list(csv.reader(io.StringIO(texto), delimiter=';'))
+    filas = list(csv.reader(io.StringIO(texto), delimiter=','))
     
-    assert len(filas) == 2  # Cabecera + 1 fila (solo el PC01)
-    assert filas[1][3] == "LAB-TEST-PC01"
+    # El nombre debe tener la comilla simple al inicio
+    assert filas[1][0] == "'=SUM(A1:A2)"
 
 
 async def test_exportar_csv_no_admin_da_403(
     cliente: AsyncClient, claves: str, datos: Any
 ) -> None:
-    # Token de estudiante
     token = create_access_token(subject=str(datos.ana.id), role="student", private_key=claves)
     resp = await cliente.get(
         f"{API}/admin/sessions/export",

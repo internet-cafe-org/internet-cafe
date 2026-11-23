@@ -35,7 +35,7 @@ from app.models import (
     User,
 )
 from app.security.dependencies import CurrentUser, require_admin
-from app.services import challenges, sesiones
+from app.services import challenges, pii, sesiones
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -172,6 +172,37 @@ def _consulta_sesiones(*condiciones: Any):
     )
 
 
+def _filtros_sesiones(
+    machine_code: str | None,
+    lab_id: uuid.UUID | None,
+    state: Literal["active", "ended"] | None,
+    started_from: datetime | None,
+    started_to: datetime | None,
+    student: str | None,
+) -> list[Any]:
+    """Construye las condiciones para filtrar sesiones (compartido entre GET y CSV)."""
+    started_from, started_to = _utc(started_from), _utc(started_to)
+    condiciones: list[Any] = []
+    if machine_code is not None:
+        condiciones.append(Machine.code == machine_code)
+    if lab_id is not None:
+        condiciones.append(Machine.lab_id == lab_id)
+    if state == "active":
+        condiciones.append(AccessSession.ended_at.is_(None))
+    elif state == "ended":
+        condiciones.append(AccessSession.ended_at.is_not(None))
+    if started_from is not None:
+        condiciones.append(AccessSession.started_at >= started_from)
+    if started_to is not None:
+        condiciones.append(AccessSession.started_at < started_to)
+    if student is not None:
+        bidx = pii.indice_ciego(student)
+        condiciones.append(
+            (User.email_bidx == bidx) | (User.student_code_bidx == bidx)
+        )
+    return condiciones
+
+
 def _utc(momento: datetime | None) -> datetime | None:
     """Una fecha sin zona horaria se interpreta como UTC (asyncpg exige fechas con zona)."""
     if momento is not None and momento.tzinfo is None:
@@ -194,6 +225,15 @@ def _item_equipo(machine: Machine, lab_name: str | None) -> MachineItem:
     )
 
 
+def _neutralizar_formula(valor: str | None) -> str:
+    """Antepone una comilla si el valor empieza con un carácter peligroso para Excel."""
+    if not valor:
+        return ""
+    if valor[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{valor}"
+    return valor
+
+
 # ------------------------------------------------------------------------- salas
 @router.get("/labs", response_model=LabsPage)
 async def listar_salas(
@@ -201,16 +241,7 @@ async def listar_salas(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> LabsPage:
-    """Lista las salas en orden alfabético, paginadas.
-
-    Args:
-        limit: Máximo de salas por página (1 a 100).
-        offset: Salas que se saltan.
-        db: Sesión de base de datos.
-
-    Returns:
-        La página de salas con el total.
-    """
+    """Lista las salas en orden alfabético, paginadas."""
     total = (await db.execute(select(func.count()).select_from(Lab))).scalar_one()
     salas = (
         await db.execute(select(Lab).order_by(Lab.name).limit(limit).offset(offset))
@@ -229,19 +260,7 @@ async def crear_sala(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> LabItem:
-    """Crea una sala y la audita.
-
-    Args:
-        body: Nombre y edificio de la sala.
-        admin: Administrador autenticado.
-        db: Sesión de base de datos.
-
-    Returns:
-        La sala creada.
-
-    Raises:
-        AppError: ``CONFLICT`` si ya existe una sala con ese nombre.
-    """
+    """Crea una sala y la audita."""
     existente = (
         await db.execute(select(Lab.id).where(Lab.name == body.name))
     ).scalar_one_or_none()
@@ -252,7 +271,6 @@ async def crear_sala(
     try:
         await db.flush()
     except IntegrityError:
-        # Carrera con otra petición que creó el mismo nombre entre el SELECT y el INSERT
         await db.rollback()
         raise AppError(ErrorCode.CONFLICT, detail="Ya existe una sala con ese nombre.") from None
     await audit(
@@ -276,18 +294,7 @@ async def listar_equipos(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachinesPage:
-    """Lista los equipos con su estado, filtrados por sala o estado y paginados.
-
-    Args:
-        lab_id: Sala, si se filtra.
-        status: Estado, si se filtra.
-        limit: Máximo de equipos por página (1 a 100).
-        offset: Equipos que se saltan.
-        db: Sesión de base de datos.
-
-    Returns:
-        La página de equipos con el total.
-    """
+    """Lista los equipos con su estado, filtrados por sala o estado y paginados."""
     condiciones: list[Any] = []
     if lab_id is not None:
         condiciones.append(Machine.lab_id == lab_id)
@@ -319,12 +326,7 @@ async def editar_equipo(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachineItem:
-    """Edita sala, modo o estado de un equipo.
-
-    Deshabilitar un equipo (RN-08) cancela sus retos pendientes y cierra su sesión
-    abierta con `admin_forced`. El equipo se bloquea primero con FOR UPDATE: respeta el
-    orden de bloqueos de `services.challenges` (equipo -> retos -> sesiones).
-    """
+    """Edita sala, modo o estado de un equipo."""
     machine = (
         await db.execute(
             select(Machine)
@@ -404,31 +406,19 @@ async def consultar_sesiones(
     state: Literal["active", "ended"] | None = None,
     started_from: datetime | None = None,
     started_to: datetime | None = None,
+    student: str | None = Query(default=None, max_length=80, description="Correo o código exacto del estudiante"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> AdminSessionsPage:
     """Consulta de accesos con filtros y paginación estricta (limit ≤ 100)."""
-    started_from, started_to = _utc(started_from), _utc(started_to)
-    condiciones: list[Any] = []
-    if machine_code is not None:
-        condiciones.append(Machine.code == machine_code)
-    if lab_id is not None:
-        condiciones.append(Machine.lab_id == lab_id)
-    if state == "active":
-        condiciones.append(AccessSession.ended_at.is_(None))
-    elif state == "ended":
-        condiciones.append(AccessSession.ended_at.is_not(None))
-    if started_from is not None:
-        condiciones.append(AccessSession.started_at >= started_from)
-    if started_to is not None:
-        condiciones.append(AccessSession.started_at < started_to)
-
+    condiciones = _filtros_sesiones(machine_code, lab_id, state, started_from, started_to, student)
     total = (
         await db.execute(
             select(func.count())
             .select_from(AccessSession)
             .join(Machine, Machine.id == AccessSession.machine_id)
+            .join(User, User.id == AccessSession.user_id)
             .where(*condiciones)
         )
     ).scalar_one()
@@ -452,10 +442,7 @@ async def cerrar_sesion_forzada(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> AdminSessionResponse:
-    """Cierre forzado (`admin_forced`). Idempotente: si ya estaba cerrada la devuelve igual.
-
-    El equipo se entera en su próximo latido (≤ 60 s).
-    """
+    """Cierre forzado (`admin_forced`). Idempotente: si ya estaba cerrada la devuelve igual."""
     motivo = SessionEndReason.admin_forced
     cerrada = await sesiones.cerrar_sesion_abierta(db, session_id, motivo, challenges.ahora())
     if cerrada:
@@ -483,66 +470,81 @@ async def exportar_sesiones_csv(
     state: Literal["active", "ended"] | None = None,
     started_from: datetime | None = None,
     started_to: datetime | None = None,
+    student: str | None = Query(default=None, max_length=80, description="Correo o código exacto del estudiante"),
+    admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> Response:
     """Exporta los accesos filtrados a un archivo CSV (UTF-8 con BOM).
-
+    
     Las fechas se convierten a la zona horaria definida en `settings.csv_timezone`.
     """
-    started_from, started_to = _utc(started_from), _utc(started_to)
-    condiciones: list[Any] = []
-    if machine_code is not None:
-        condiciones.append(Machine.code == machine_code)
-    if lab_id is not None:
-        condiciones.append(Machine.lab_id == lab_id)
-    if state == "active":
-        condiciones.append(AccessSession.ended_at.is_(None))
-    elif state == "ended":
-        condiciones.append(AccessSession.ended_at.is_not(None))
-    if started_from is not None:
-        condiciones.append(AccessSession.started_at >= started_from)
-    if started_to is not None:
-        condiciones.append(AccessSession.started_at < started_to)
-
-    # Consultamos todos los registros que cumplan el filtro (sin paginar para el CSV)
+    condiciones = _filtros_sesiones(machine_code, lab_id, state, started_from, started_to, student)
+    
+    # Límite de seguridad para no cargar toda la tabla en memoria
     filas = await db.execute(
         _consulta_sesiones(*condiciones)
         .order_by(AccessSession.started_at.desc(), AccessSession.id)
+        .limit(10000)
     )
+    filas_datos = filas.all()
     
+    # Auditoría
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="admin_export_csv",
+        target_type="session",
+        target_id=None,
+        metadata_info={
+            "filas": len(filas_datos),
+            "filtros": {
+                "machine_code": machine_code,
+                "lab_id": str(lab_id) if lab_id else None,
+                "state": state,
+                "started_from": started_from.isoformat() if started_from else None,
+                "started_to": started_to.isoformat() if started_to else None,
+                "has_student": student is not None, # No guardamos el valor del estudiante
+            }
+        },
+    )
+    await db.commit()
+
     tz = ZoneInfo(settings.csv_timezone)
     
     output = io.StringIO()
-    # Escribimos el BOM de UTF-8 para que Excel lo reconozca
+    # BOM de UTF-8 para Excel
     output.write('\ufeff')
     
-    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(["ID", "Estudiante", "Código", "Equipo", "Sala", "Inicio", "Último latido", "Fin", "Motivo", "Duración (s)"])
+    # SRS: separador coma, 8 columnas exactas
+    writer = csv.writer(output, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(["Estudiante", "Código", "Equipo", "Sala", "Inicio", "Fin", "Duración (min)", "Motivo de cierre"])
     
-    for sesion, usuario, codigo, lab in filas.all():
+    for sesion, usuario, codigo, lab in filas_datos:
         nombre, codigo_enmascarado = sesiones.datos_estudiante(usuario)
-        # Formateamos las fechas a la zona horaria configurada
+        
+        # Formateamos las fechas
         inicio_local = sesion.started_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
-        latido_local = sesion.last_heartbeat_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
         fin_local = sesion.ended_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if sesion.ended_at else ""
+        
+        # Duración en minutos (None si no ha terminado)
+        duracion_s = sesiones.duracion_s(sesion.started_at, sesion.ended_at)
+        duracion_min = round(duracion_s / 60) if duracion_s is not None else ""
+        
         motivo = sesion.end_reason.value if sesion.end_reason else ""
-        duracion = sesiones.duracion_s(sesion.started_at, sesion.ended_at) or ""
         
         writer.writerow([
-            str(sesion.id),
-            nombre,
-            codigo_enmascarado,
-            codigo,
-            lab or sesiones.LAB_SIN_ASIGNAR,
+            _neutralizar_formula(nombre),
+            _neutralizar_formula(codigo_enmascarado),
+            _neutralizar_formula(codigo),
+            _neutralizar_formula(lab or sesiones.LAB_SIN_ASIGNAR),
             inicio_local,
-            latido_local,
             fin_local,
-            motivo,
-            duracion
+            duracion_min,
+            motivo
         ])
     
     contenido = output.getvalue()
-    # Devolvemos el archivo listo para descargar
     return Response(
         content=contenido,
         media_type="text/csv; charset=utf-8",
