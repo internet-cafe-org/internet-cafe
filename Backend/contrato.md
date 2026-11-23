@@ -757,8 +757,12 @@ paths:
         La nueva debe tener entre 10 y 128 caracteres y ser distinta de la actual.
         Al cambiarla se cierran las demás sesiones web (refresh tokens); la sesión
         que hizo el cambio sigue abierta. Una contraseña actual incorrecta responde
-        422 `VALIDATION_ERROR` (no 401, para que el cliente no lo confunda con un
-        token vencido). Límite por cuenta, 429 `RATE_LIMITED`.
+        401 `AUTH_CURRENT_PASSWORD_INVALID` (RF-AUT-10); un token inválido responde
+        401 `AUTH_INVALID_CREDENTIALS` y uno vencido 401 `AUTH_TOKEN_EXPIRED`, así que el
+        cliente los distingue por `code` y no cierra la sesión por una contraseña mal
+        escrita. La nueva
+        igual a la actual o fuera de 10 a 128 caracteres responde 422
+        `VALIDATION_ERROR`. Límite por cuenta, 429 `RATE_LIMITED`.
       requestBody:
         required: true
         content:
