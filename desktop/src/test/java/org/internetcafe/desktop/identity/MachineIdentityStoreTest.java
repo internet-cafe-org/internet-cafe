@@ -9,9 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.security.MessageDigest;
 import java.util.Base64;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -61,16 +63,24 @@ class MachineIdentityStoreTest {
       AclFileAttributeView aclView =
           Files.getFileAttributeView(keyStorePath, AclFileAttributeView.class);
       assertNotNull(aclView);
-      // Verifica que haya al menos una entrada de solo lectura (SID S-1-5-32-545 = Users /
-      // Usuarios según el idioma del SO). No se compara el nombre localizado del principal
-      // para que el test funcione en cualquier idioma de Windows.
+      // Resuelve por SID el grupo real que debe tener solo lectura: Users (S-1-5-32-545)
+      // o, como alternativa, Authenticated Users (S-1-5-11).
+      var users = com.sun.jna.platform.win32.Advapi32Util.getAccountBySid("S-1-5-32-545");
+      var authenticated = com.sun.jna.platform.win32.Advapi32Util.getAccountBySid("S-1-5-11");
+      Set<String> expectedNames =
+          Set.of(
+              (users.domain + "\\" + users.name).toLowerCase(),
+              (authenticated.domain + "\\" + authenticated.name).toLowerCase());
+
       assertTrue(
           aclView.getAcl().stream()
               .anyMatch(
                   entry ->
-                      entry.permissions().contains(AclEntryPermission.READ_DATA)
-                          && !entry.permissions().contains(AclEntryPermission.WRITE_DATA)),
-          "El ACL del keystore debe contener al menos una entrada de solo lectura");
+                      entry.type() == AclEntryType.ALLOW
+                          && entry.permissions().contains(AclEntryPermission.READ_DATA)
+                          && !entry.permissions().contains(AclEntryPermission.WRITE_DATA)
+                          && expectedNames.contains(entry.principal().getName().toLowerCase())),
+          "El ACL del keystore debe dar solo lectura al grupo Users (o Authenticated Users)");
     }
   }
 

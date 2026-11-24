@@ -217,13 +217,13 @@ public final class MachineIdentityStore {
     // S-1-5-18 = SYSTEM, S-1-5-32-545 = Users, S-1-5-11 = Authenticated Users,
     // S-1-5-32-544 = Administrators.
     var lookup = path.getFileSystem().getUserPrincipalLookupService();
-    String systemName = resolveNameBySid("S-1-5-18", lookup, "NT AUTHORITY\\SYSTEM");
+    String systemName = resolveNameBySid("S-1-5-18",  "NT AUTHORITY\\SYSTEM");
     entries.add(allow(lookup.lookupPrincipalByName(systemName), directory));
 
     var users = resolveRuntimeUsers(lookup, directory);
     entries.add(readOnly(users, directory));
 
-    String adminsName = resolveNameBySid("S-1-5-32-544", lookup, "BUILTIN\\Administrators");
+    String adminsName = resolveNameBySid("S-1-5-32-544",  "BUILTIN\\Administrators");
     try {
       entries.add(allow(lookup.lookupPrincipalByName(adminsName), directory));
     } catch (UserPrincipalNotFoundException exception) {
@@ -241,10 +241,7 @@ public final class MachineIdentityStore {
    * no está disponible o el SID no se reconoce, devuelve el nombre en inglés como fallback para
    * mantener compatibilidad con entornos no-Windows (p. ej. pruebas en Linux).
    */
-  private static String resolveNameBySid(
-      String sid,
-      java.nio.file.attribute.UserPrincipalLookupService lookup,
-      String englishFallback) {
+    private static String resolveNameBySid(String sid, String englishFallback) {
     try {
       Advapi32Util.Account account = Advapi32Util.getAccountBySid(sid);
       if (account != null && account.domain != null && !account.domain.isBlank()) {
@@ -253,10 +250,20 @@ public final class MachineIdentityStore {
       if (account != null && account.name != null && !account.name.isBlank()) {
         return account.name;
       }
-    } catch (Win32Exception ignored) {
-      // SID no encontrado en este sistema; usamos el fallback en inglés.
-    } catch (UnsatisfiedLinkError ignored) {
-      // JNA no disponible (entorno no-Windows); usamos el fallback en inglés.
+    } catch (Win32Exception exception) {
+      LOGGER.warning(
+          "Could not resolve well-known SID "
+              + sid
+              + " (Win32 error "
+              + exception.getErrorCode()
+              + "); using English fallback");
+    } catch (UnsatisfiedLinkError | NoClassDefFoundError error) {
+      LOGGER.warning(
+          "JNA is not available to resolve SID "
+              + sid
+              + " ("
+              + error.getClass().getSimpleName()
+              + "); using English fallback");
     }
     return englishFallback;
   }
@@ -265,12 +272,12 @@ public final class MachineIdentityStore {
       java.nio.file.attribute.UserPrincipalLookupService lookup, boolean directory)
       throws IOException {
     // S-1-5-32-545 = BUILTIN\Users (localizado según el idioma del SO)
-    String usersName = resolveNameBySid("S-1-5-32-545", lookup, "BUILTIN\\Users");
+    String usersName = resolveNameBySid("S-1-5-32-545",  "BUILTIN\\Users");
     try {
       return lookup.lookupPrincipalByName(usersName);
     } catch (UserPrincipalNotFoundException exception) {
       // S-1-5-11 = NT AUTHORITY\Authenticated Users (localizado)
-      String authName = resolveNameBySid("S-1-5-11", lookup, "NT AUTHORITY\\Authenticated Users");
+      String authName = resolveNameBySid("S-1-5-11",  "NT AUTHORITY\\Authenticated Users");
       try {
         var authenticatedUsers = lookup.lookupPrincipalByName(authName);
         if (directory) {
