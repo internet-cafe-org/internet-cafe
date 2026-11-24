@@ -928,7 +928,69 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/labs/{id}:
+    patch:
+      tags:
+      - admin
+      security: *id005
+      summary: Editar nombre o edificio de una sala (BE-12)
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabPatch'
+      responses:
+        '200':
+          description: Sala actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lab'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/admin/machines:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Crear un equipo (BE-12)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineCreate'
+      responses:
+        '201':
+          description: Equipo creado en estado pending_enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
     get:
       tags:
       - admin
@@ -1425,6 +1487,19 @@ components:
           type: string
           maxLength: 80
           nullable: true
+    LabPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        building:
+          type: string
+          maxLength: 80
+          nullable: true
     Lab:
       type: object
       required:
@@ -1455,6 +1530,22 @@ components:
           type: integer
         offset:
           type: integer
+    MachineCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+        lab_id:
+          type: string
+          format: uuid
+          nullable: true
+        mode:
+          $ref: '#/components/schemas/MachineMode'
     MachinePatch:
       type: object
       additionalProperties: false
@@ -1722,4 +1813,6 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+
 ```
+

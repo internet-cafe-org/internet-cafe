@@ -135,6 +135,8 @@ tasks.register('jpackageMsi') {
 
     inputs.dir(imageDir)
     inputs.dir(resourceDir)
+    // Invalida el caché si cambia la URL de la API, evitando reutilizar un .msi con URL incorrecta.
+    inputs.property('apiBaseUrl', resolvedApiBaseUrl)
     outputs.dir(destDir)
 
     doLast {
@@ -167,6 +169,11 @@ tasks.register('jpackageMsi') {
             '--app-version',       appVer,
             '--runtime-image',     imageDir.get().asFile.absolutePath,
             '--module',            'org.internetcafe.desktop/org.internetcafe.desktop.Main',
+            // Propaga la URL de la API al lanzador generado por jpackage.
+            // Con --runtime-image, jpackage crea su propio lanzador y no copia
+            // los jvmArgs del lanzador de jlink, por lo que hay que reinyectarlos aquí.
+            '--java-options',      "-Dapi.base.url=${resolvedApiBaseUrl}",
+            '--java-options',      '-Dfile.encoding=UTF-8',
             '--dest',              destDir.get().asFile.absolutePath,
             '--win-upgrade-uuid',  '7F3A1B2C-9D4E-5F60-A7B8-C9D0E1F2A3B4',
             '--win-menu',

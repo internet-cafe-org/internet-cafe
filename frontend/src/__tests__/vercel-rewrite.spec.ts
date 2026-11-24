@@ -41,19 +41,56 @@ type VercelHeader = { key: string; value: string }
 type VercelHeaderGroup = { source: string; headers: VercelHeader[] }
 
 describe('vercel.json · configuración de OPS-04', () => {
-  it('declara el rewrite de /api/:path* hacia Render dev', () => {
-    // El rewrite es el eje de OPS-04: sin él las peticiones del frontend
-    // no llegan al backend en producción.
+  it('declara el rewrite de /api/:path* hacia el host de backend dev exacto', () => {
+    // Prueba 1 y 2: Destino y source exactos de la API
     const config = leerVercelConfig()
     const rewrites = config['rewrites'] as VercelRewrite[]
 
     expect(rewrites).toBeDefined()
-    expect(rewrites.length).toBeGreaterThan(0)
+    expect(rewrites.length).toBeGreaterThanOrEqual(1)
 
     const apiRewrite = rewrites.find((r) => r.source === '/api/:path*')
     expect(apiRewrite).toBeDefined()
-    expect(apiRewrite?.destination).toContain('onrender.com')
-    expect(apiRewrite?.destination).toContain('/api/:path*')
+    expect(apiRewrite?.source).toBe('/api/:path*')
+    expect(apiRewrite?.destination).toBe('https://internet-cafe-tq03.onrender.com/api/:path*')
+  })
+
+  it('declara la regla de fallback de la SPA hacia /index.html', () => {
+    // Prueba 3: Existencia del fallback SPA
+    const config = leerVercelConfig()
+    const rewrites = config['rewrites'] as VercelRewrite[]
+
+    expect(rewrites).toBeDefined()
+    const spaRewrite = rewrites.find((r) => r.source === '/((?!api/).*)')
+    expect(spaRewrite).toBeDefined()
+    expect(spaRewrite?.source).toBe('/((?!api/).*)')
+    expect(spaRewrite?.destination).toBe('/index.html')
+  })
+
+  it('mantiene el orden estricto de rewrites: regla de API primero y SPA fallback después', () => {
+    // Prueba 4: Orden de los rewrites
+    const config = leerVercelConfig()
+    const rewrites = config['rewrites'] as VercelRewrite[]
+
+    expect(rewrites).toBeDefined()
+    expect(rewrites.length).toBe(2)
+
+    expect(rewrites[0]?.source).toBe('/api/:path*')
+    expect(rewrites[0]?.destination).toBe('https://internet-cafe-tq03.onrender.com/api/:path*')
+
+    expect(rewrites[1]?.source).toBe('/((?!api/).*)')
+    expect(rewrites[1]?.destination).toBe('/index.html')
+  })
+
+  it('previene regresiones evitando el host incorrecto de desarrollo anterior', () => {
+    // Prueba 5: Prevención de regresiones
+    const config = leerVercelConfig()
+    const rewrites = config['rewrites'] as VercelRewrite[]
+
+    const destinations = rewrites.map((r) => r.destination)
+    for (const destination of destinations) {
+      expect(destination).not.toContain('internet-cafe-backend-dev.onrender.com')
+    }
   })
 
   it('incluye style-src en la CSP para que PrimeVue funcione', () => {
