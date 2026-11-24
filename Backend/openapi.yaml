@@ -930,7 +930,8 @@ paths:
       security: *id005
       summary: Editar sala, modo o estado de un equipo (v0.2)
       description: 'Deshabilitar un equipo (`status: disabled`) cancela sus retos pendientes y cierra su sesión
-        abierta con `admin_forced` (RN-08). Activar un equipo que no se enroló responde 409 `CONFLICT`.'
+        abierta con `admin_forced` (RN-08). Activar un equipo que no se enroló responde 409 `CONFLICT`;
+        si además estaba `disabled`, queda en `pending_enrollment` para enrolarlo de nuevo.'
       parameters:
       - in: path
         name: id
@@ -957,6 +958,72 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines/{id}/enrollment-code:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Generar un código de enrolamiento (BE-13)
+      description: 'Genera un código de un solo uso que vence en 24 h. Los códigos anteriores sin usar del equipo
+        dejan de servir. El código se muestra solo en esta respuesta (la API guarda su hash), que lleva `Cache-Control:
+        no-store`. Audita `machine_enrollment_code_created`. Equipo deshabilitado → 409 `CONFLICT`.'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      responses:
+        '201':
+          description: Código generado.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentCode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines/{id}/revoke-key:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Revocar la clave de un equipo (BE-13)
+      description: 'Borra la clave pública y la credencial provisional, invalida los códigos de enrolamiento sin usar,
+        cancela los retos pendientes y cierra la sesión abierta con `admin_forced`. El equipo queda en `pending_enrollment`;
+        si estaba `disabled`, conserva ese estado (RN-08). Es idempotente. Audita `machine_key_revoked`.'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: Equipo sin credenciales.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
   /api/v1/admin/sessions:
@@ -1451,6 +1518,18 @@ components:
           nullable: true
         mode:
           $ref: '#/components/schemas/MachineMode'
+    EnrollmentCode:
+      type: object
+      required:
+      - machine_id
+      - code
+      - expires_at
+      properties:
+        machine_id: *id001
+        code:
+          type: string
+          description: Código de un solo uso; se muestra solo una vez.
+        expires_at: *id002
     MachinePatch:
       type: object
       additionalProperties: false

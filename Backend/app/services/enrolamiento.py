@@ -277,6 +277,19 @@ def verificar_prueba(clave: ClavePublica, codigo: str, prueba: str) -> None:
         raise FirmaInvalida() from None
 
 
+def _codigo_vigente(registro: EnrollmentCode | None, ahora: datetime) -> bool:
+    """Indica si el código existe, no se usó y no venció.
+
+    Args:
+        registro: Código leído de la base, si existe.
+        ahora: Hora actual.
+
+    Returns:
+        ``True`` si todavía sirve para enrolar.
+    """
+    return registro is not None and registro.used_at is None and registro.expires_at > ahora
+
+
 async def enrolar(
     db: AsyncSession,
     *,
@@ -289,9 +302,11 @@ async def enrolar(
 ) -> Enrolamiento:
     """Enrola el equipo dueño del código y confirma la transacción.
 
-    El código se bloquea con ``FOR UPDATE`` para que dos enrolamientos con el
-    mismo código no ganen los dos. Solo se marca como usado si la prueba de
-    posesión es válida, así un error de firma no quema el código.
+    Primero se bloquea el equipo y después el código (``FOR UPDATE``), el mismo orden
+    de ``/admin/machines/{id}/revoke-key`` y ``enrollment-code``: así no hay
+    interbloqueos y dos enrolamientos con el mismo código no ganan los dos. El código se
+    vuelve a comprobar ya bloqueado. Solo se marca como usado si la prueba de posesión
+    es válida, así un error de firma no quema el código.
 
     Args:
         db: Sesión de base de datos.
@@ -314,18 +329,21 @@ async def enrolar(
     ahora = now or datetime.now(UTC)
     clave = clave_publica_desde_jwk(jwk)
 
-    registro = await db.scalar(
-        select(EnrollmentCode)
-        .where(EnrollmentCode.code_hash == sha256_digest(codigo))
-        .with_for_update()
-    )
-    if registro is None or registro.used_at is not None or registro.expires_at <= ahora:
+    consulta = select(EnrollmentCode).where(EnrollmentCode.code_hash == sha256_digest(codigo))
+    registro = await db.scalar(consulta)
+    if not _codigo_vigente(registro, ahora):
         raise CodigoInvalido()
 
     verificar_prueba(clave, codigo, prueba)
 
     machine = await db.get(Machine, registro.machine_id, with_for_update=True)
     if machine is None:
+        raise CodigoInvalido()
+    # Mientras se esperaba el equipo, el código pudo usarse o invalidarse.
+    registro = await db.scalar(
+        consulta.with_for_update().execution_options(populate_existing=True)
+    )
+    if not _codigo_vigente(registro, ahora):
         raise CodigoInvalido()
     if machine.status == MachineStatus.disabled:
         raise EquipoDeshabilitado()

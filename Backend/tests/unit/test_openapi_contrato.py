@@ -24,6 +24,8 @@ NUEVAS = [
     ("/api/v1/admin/machines/{id}", "patch"),
     ("/api/v1/admin/sessions", "get"),
     ("/api/v1/admin/sessions/{id}/end", "post"),
+    ("/api/v1/admin/machines/{id}/enrollment-code", "post"),
+    ("/api/v1/admin/machines/{id}/revoke-key", "post"),
 ]
 
 NUEVAS_V021 = [
