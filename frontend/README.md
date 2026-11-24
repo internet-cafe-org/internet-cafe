@@ -21,6 +21,19 @@ npm run dev
 | `npm run format` / `format:check` | Prettier |
 | `npm run type-check` | `vue-tsc` |
 | `npm test` / `npm run test:cov` | Vitest (cobertura mínima 75 %) |
+| `npm run test:e2e` | Playwright (E2E en `e2e/`) |
+
+## Pruebas E2E (Playwright)
+La primera vez hay que instalar el navegador: `npx playwright install chromium`.
+
+`npm run test:e2e` compila la web, la sirve en `http://localhost:4173` (`vite preview`) y
+simula la API con `page.route` (ver `e2e/apoyo.ts`). Así no se necesita backend ni datos
+reales. Cubre registro, login, el enlace `/s#token` con la confirmación y los guards por
+rol, en un viewport móvil de 360 px.
+
+Para probar contra una web ya desplegada, define `E2E_BASE_URL` (por ejemplo la web de
+dev); en ese caso no se levanta el servidor local. Si falla una prueba, el reporte queda en
+`playwright-report/` y la traza en `test-results/` (ambas carpetas están en `.gitignore`).
 
 ## Estructura
 - `src/api/` cliente HTTP; el access token vive solo aquí (nunca en localStorage ni Pinia).
