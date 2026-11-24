@@ -121,10 +121,6 @@ class Machine(Base):
     public_key_jwk: Mapped[dict] = mapped_column(JSONB, nullable=True)
     # Huella RFC 7638 del JWK (base64url de SHA-256): es el `keyid` de la firma.
     key_thumbprint: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
-    # TRANSITORIO hasta SEC-14: SHA-256 (hex) de la credencial provisional (X-Machine-Key).
-    credential_hash: Mapped[str] = mapped_column(
-        String(64), unique=True, nullable=True
-    )
     app_version: Mapped[str] = mapped_column(String(20), nullable=True)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

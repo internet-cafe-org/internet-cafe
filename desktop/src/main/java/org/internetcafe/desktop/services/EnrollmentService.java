@@ -43,9 +43,7 @@ public final class EnrollmentService {
         || response.machineId() == null
         || response.code() == null
         || response.code().isBlank()
-        || response.mode() == null
-        || response.provisionalCredential() == null
-        || response.provisionalCredential().isBlank()) {
+        || response.mode() == null) {
       throw new EnrollmentCommitException(
           new GeneralSecurityException("Enrollment response does not match the local identity"));
     }

@@ -144,7 +144,7 @@ class EnrollmentServiceTest {
                   + "\"lab\":\"Sala 1\",\"mode\":\"kiosk\","
                   + "\"keyid\":\""
                   + responseKeyid
-                  + "\",\"provisional_credential\":\"test-credential\"}")
+                  + "\"}")
               .getBytes(StandardCharsets.UTF_8);
     } else {
       body = "{\"code\":\"ENROLLMENT_CODE_INVALID\"}".getBytes(StandardCharsets.UTF_8);

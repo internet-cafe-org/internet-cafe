@@ -22,12 +22,11 @@ from sqlalchemy import update
 from app.database import obtener_base_datos
 from app.main import app
 from app.models import AccessSession, Machine, MachineMode, SessionEndReason
-from app.security.dependencies import hash_machine_credential
 from app.services import challenges
 from app.services import sesiones as servicio_sesiones
+from tests.firmador import FirmaEquipo, firma_de, firmador_de
 
 RUTA = "/api/v1/machine/heartbeat"
-CREDENCIAL_PC01 = "credencial-de-prueba-pc01"
 T0 = datetime(2026, 11, 3, 10, 0, 0, tzinfo=UTC)
 
 
@@ -52,16 +51,16 @@ async def cliente(sesiones) -> AsyncIterator[AsyncClient]:
 
 
 @pytest.fixture
-async def cabecera_pc01(sesiones, datos) -> dict[str, str]:
-    """Enrola el PC01 (guarda el hash de su credencial) y devuelve sus cabeceras."""
+async def firma_pc01(sesiones, datos) -> FirmaEquipo:
+    """Enrola el PC01 (guarda su clave pública) y devuelve su firma."""
     async with sesiones() as db:
         await db.execute(
             update(Machine)
             .where(Machine.id == datos.pc01.id)
-            .values(credential_hash=hash_machine_credential(CREDENCIAL_PC01))
+            .values(**firmador_de(datos.pc01.code).clave_enrolada)
         )
         await db.commit()
-    return {"X-Machine-Code": datos.pc01.code, "X-Machine-Key": CREDENCIAL_PC01}
+    return firma_de(datos.pc01.code)
 
 
 async def abrir_sesion(sesiones, machine, usuario, now: datetime) -> AccessSession:
@@ -101,11 +100,11 @@ async def test_latido_sin_credenciales_da_401(async_client: AsyncClient):
 # ---------------------------------------------------------------------------
 
 
-async def test_latido_con_sesion_abierta(cliente, sesiones, datos, cabecera_pc01, monkeypatch):
+async def test_latido_con_sesion_abierta(cliente, sesiones, datos, firma_pc01, monkeypatch):
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, T0)
     fijar_hora(monkeypatch, seg(30))
 
-    r = await cliente.post(RUTA, json={"session_id": str(sesion.id)}, headers=cabecera_pc01)
+    r = await cliente.post(RUTA, json={"session_id": str(sesion.id)}, auth=firma_pc01)
 
     assert r.status_code == 200
     cuerpo = r.json()
@@ -122,13 +121,13 @@ async def test_latido_con_sesion_abierta(cliente, sesiones, datos, cabecera_pc01
 
 
 async def test_latido_con_sesion_cerrada_informa_ended(
-    cliente, sesiones, datos, cabecera_pc01, monkeypatch
+    cliente, sesiones, datos, firma_pc01, monkeypatch
 ):
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, T0)
     await cerrar_sesion(sesiones, datos.pc01, SessionEndReason.superseded, seg(20))
     fijar_hora(monkeypatch, seg(30))
 
-    r = await cliente.post(RUTA, json={"session_id": str(sesion.id)}, headers=cabecera_pc01)
+    r = await cliente.post(RUTA, json={"session_id": str(sesion.id)}, auth=firma_pc01)
 
     assert r.status_code == 200
     cuerpo = r.json()
@@ -137,10 +136,10 @@ async def test_latido_con_sesion_cerrada_informa_ended(
     assert cuerpo["end_reason"] == SessionEndReason.superseded.value
 
 
-async def test_latido_sin_sesion_responde_none(cliente, datos, cabecera_pc01, monkeypatch):
+async def test_latido_sin_sesion_responde_none(cliente, datos, firma_pc01, monkeypatch):
     fijar_hora(monkeypatch, seg(30))
 
-    r = await cliente.post(RUTA, json={}, headers=cabecera_pc01)
+    r = await cliente.post(RUTA, json={}, auth=firma_pc01)
 
     assert r.status_code == 200
     cuerpo = r.json()
@@ -150,14 +149,14 @@ async def test_latido_sin_sesion_responde_none(cliente, datos, cabecera_pc01, mo
 
 
 async def test_latido_con_sesion_de_otro_equipo_responde_none(
-    cliente, sesiones, datos, cabecera_pc01, monkeypatch
+    cliente, sesiones, datos, firma_pc01, monkeypatch
 ):
     """El `session_id` solo se busca entre las sesiones de ESTE equipo."""
     ajena = await abrir_sesion(sesiones, datos.pc02, datos.beto, T0)
     await cerrar_sesion(sesiones, datos.pc02, SessionEndReason.superseded, seg(20))
     fijar_hora(monkeypatch, seg(30))
 
-    r = await cliente.post(RUTA, json={"session_id": str(ajena.id)}, headers=cabecera_pc01)
+    r = await cliente.post(RUTA, json={"session_id": str(ajena.id)}, auth=firma_pc01)
 
     assert r.status_code == 200
     cuerpo = r.json()

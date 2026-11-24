@@ -99,7 +99,7 @@ def test_scan_exige_access_token(ruta: str) -> None:
     [("/api/v1/machine/challenges", "post"), ("/api/v1/machine/challenges/wait", "get")],
 )
 def test_retos_usan_la_autenticacion_del_equipo(ruta: str, metodo: str) -> None:
-    assert _seguridad(ruta, metodo) == ["machineSignature", "machineProvisional"]
+    assert _seguridad(ruta, metodo) == ["machineSignature"]
     cabeceras = {p["name"].lower() for p in DOC["paths"][ruta][metodo].get("parameters", [])}
     assert "x-machine-code" not in cabeceras
 

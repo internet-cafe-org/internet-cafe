@@ -9,7 +9,7 @@ Verifica el comportamiento de ``GET /api/v1/machine/sessions/current``:
 - El código de estudiante siempre aparece enmascarado (nunca el código completo).
 - El campo ``student_code_masked`` no contiene el código real del estudiante.
 
-Autenticación del equipo: credencial provisional (X-Machine-Code + X-Machine-Key),
+Autenticación del equipo: firma RFC 9421 de cada petición,
 igual que en test_sesiones.py (QA-06).
 """
 
@@ -27,11 +27,10 @@ from app.models import (
     Machine,
     SessionEndReason,
 )
-from app.security.dependencies import hash_machine_credential
 from app.services import challenges
+from tests.firmador import FirmaEquipo, firma_de, firmador_de
 
 API = "/api/v1/machine"
-CREDENCIAL = "credencial-ficticia-st-be04"
 T0 = datetime(2026, 11, 17, 8, 0, 0, tzinfo=UTC)
 
 
@@ -54,11 +53,8 @@ class Reloj:
         self.actual = seg(n)
 
 
-def auth(equipo: Machine) -> dict[str, str]:
-    return {
-        "X-Machine-Code": equipo.code,
-        "X-Machine-Key": f"{CREDENCIAL}-{equipo.code}",
-    }
+def auth(equipo: Machine) -> FirmaEquipo:
+    return firma_de(equipo.code)
 
 
 # ------------------------------------------------------------------- fixtures
@@ -73,13 +69,13 @@ def reloj(monkeypatch: pytest.MonkeyPatch) -> Reloj:
 
 @pytest.fixture
 async def cliente(sesiones: async_sessionmaker, datos, reloj: Reloj) -> AsyncClient:
-    """Cliente HTTP con los dos equipos pre-configurados con credencial provisional."""
+    """Cliente HTTP con los dos equipos ya enrolados."""
     async with sesiones() as db:
         for equipo in (datos.pc01, datos.pc02):
             await db.execute(
                 update(Machine)
                 .where(Machine.id == equipo.id)
-                .values(credential_hash=hash_machine_credential(f"{CREDENCIAL}-{equipo.code}"))
+                .values(**firmador_de(equipo.code).clave_enrolada)
             )
         await db.commit()
 
@@ -135,7 +131,7 @@ async def _cerrar_sesion(
 
 async def test_sin_sesion_devuelve_204(cliente: AsyncClient, datos, reloj: Reloj) -> None:
     """Sin sesión abierta el endpoint responde 204 (sin cuerpo)."""
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 204
     assert resp.content == b""
@@ -148,7 +144,7 @@ async def test_con_sesion_devuelve_200_y_estructura_del_contrato(
     sesion = await _abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(30)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     cuerpo = resp.json()
@@ -172,7 +168,7 @@ async def test_codigo_de_estudiante_siempre_enmascarado(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(30)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     mascara = resp.json()["user"]["student_code_masked"]
@@ -189,7 +185,7 @@ async def test_accesos_recientes_no_incluyen_sesion_actual(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(30)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     # Si no había sesiones previas cerradas, la lista debe estar vacía
@@ -208,7 +204,7 @@ async def test_accesos_recientes_con_historial_previo(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 1200)
     reloj.en(1250)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     accesos = resp.json()["recent_accesses"]
@@ -236,7 +232,7 @@ async def test_accesos_recientes_orden_de_mas_nuevo_a_mas_antiguo(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 4000)
     reloj.en(4050)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     accesos = resp.json()["recent_accesses"]
@@ -259,7 +255,7 @@ async def test_accesos_recientes_maximo_5_aunque_haya_mas(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 5000)
     reloj.en(5050)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     accesos = resp.json()["recent_accesses"]
@@ -282,7 +278,7 @@ async def test_accesos_recientes_de_otro_equipo_no_aparecen(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 1500)
     reloj.en(1550)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     accesos = resp.json()["recent_accesses"]
@@ -303,7 +299,7 @@ async def test_accesos_de_otro_usuario_no_aparecen(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 1500)
     reloj.en(1550)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     # Ana no tiene historial previo; no debe ver el de Beto
@@ -321,7 +317,7 @@ async def test_duration_s_calculado_correctamente(
     await _abrir_sesion(sesiones, datos.pc01, datos.ana, 2500)
     reloj.en(2550)
 
-    resp = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    resp = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     accesos = resp.json()["recent_accesses"]

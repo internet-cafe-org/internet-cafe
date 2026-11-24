@@ -24,9 +24,9 @@ gradle run --args=--enroll
 
 In the screen, enter the one-time code supplied by TI. The client signs its exact UTF-8 bytes with
 the local P-256 private key and sends the public JWK plus the `r||s` proof to
-`POST /api/v1/machine/enroll`. On success, the response's machine code, lab, mode, key thumbprint,
-and provisional credential are saved in `%LOCALAPPDATA%\InternetCafe\enrollment.bin`, encrypted
-with Windows DPAPI for the current user. The credential is never displayed or logged. The key
+`POST /api/v1/machine/enroll`. On success, the response's machine code, lab, mode and key
+thumbprint are saved in `%LOCALAPPDATA%\InternetCafe\enrollment.bin`, encrypted with Windows DPAPI
+for the current user. The API returns no credential: every request is signed with the key. The key
 password is stored separately in the same profile, also protected with DPAPI.
 
 Run enrollment and the desktop app as the same Windows account; do not enter another account's
@@ -61,7 +61,7 @@ replying immediately, set `MOCK_LONG_POLL_DELAY_MS` (for example `5000`).
 | --- | --- |
 | `GET /healthz` | 200 `{status, service}` |
 | `POST /api/v1/registro` | 202 `{estado, mensaje}` |
-| `POST /api/v1/machine/enroll` | 201 `{machine_id, code, lab, mode, keyid, provisional_credential}` |
+| `POST /api/v1/machine/enroll` | 201 `{machine_id, code, lab, mode, keyid}` |
 | `GET /api/v1/credencial-provisional` (header `X-Device-ID`) | 200 `{credencial_temporal, expiracion_segundos}` |
 | `GET /api/v1/long-poll?ultimo_evento_id=...` | 200 `{evento_id, tipo, datos}` |
 | `POST /api/v1/machine/challenges` (header `X-Machine-Code`) | 201 `{challenge_id, qr_url, expires_at, rotate_after_s}` |
@@ -103,15 +103,13 @@ Las peticiones del equipo que usan `/api/v1/machine/challenges`, `/api/v1/machin
 RFC 9421 y el perfil `ecdsa-p256-sha256`, etiqueta `sig1`. El contenido y la URL firmada deben
 mantenerse idénticos a los enviados por el cliente. Cada intento usa un nonce nuevo y el reloj
 ajustado por la cabecera `Date` cuando el servidor indica desfase. Las peticiones con cuerpo incluyen
-`Content-Digest`; los GET y el POST vacío de desafíos no incluyen ese digest. No se envía la
-credencial provisional.
+`Content-Digest`; los GET y el POST vacío de desafíos no incluyen ese digest. La firma es la única
+autenticación: un token responde 401 (SEC-14).
 
 El cliente no puede continuar sin el enrolamiento local, su contraseña protegida, el thumbprint
-correcto ni el `keyid` guardado. En modo `dual`, la firma válida de una petición se debe validar;
-una firma inválida no debe volver al fallback de credencial provisional. El endpoint de enrolamiento
+correcto ni el `keyid` guardado. El endpoint de enrolamiento
 conserva su propia prueba de posesión y no usa esta firma de máquina. Para Render dev, configura
-`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend, mantenlo
-en `MACHINE_AUTH_MODE=dual` y usa un equipo enrolado de prueba.
+`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend y usa un equipo enrolado de prueba.
 
 ## Modo kiosco (DSK-11)
 

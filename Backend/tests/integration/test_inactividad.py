@@ -145,16 +145,18 @@ async def test_el_latido_con_sesion_marca_actividad(cliente_equipo, sesiones, da
 
 @pytest.fixture
 async def cliente_equipo(sesiones, datos):
-    """Cliente HTTP autenticado como ``pc01`` con una credencial provisional."""
+    """Cliente HTTP autenticado como ``pc01``, que firma cada petición."""
     from httpx import ASGITransport, AsyncClient
 
     from app.database import obtener_base_datos
     from app.main import app
     from app.models import Machine
-    from app.security.dependencies import hash_machine_credential
+    from tests.firmador import firma_de, firmador_de
 
     async with sesiones() as db:
-        (await db.get(Machine, datos.pc01.id)).credential_hash = hash_machine_credential("clave-pc01")
+        machine = await db.get(Machine, datos.pc01.id)
+        for columna, valor in firmador_de(machine.code).clave_enrolada.items():
+            setattr(machine, columna, valor)
         await db.commit()
 
     async def _db():
@@ -162,7 +164,7 @@ async def cliente_equipo(sesiones, datos):
             yield db
 
     app.dependency_overrides[obtener_base_datos] = _db
-    cabeceras = {"X-Machine-Code": datos.pc01.code, "X-Machine-Key": "clave-pc01"}
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=cabeceras) as c:
+    firma = firma_de(datos.pc01.code)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", auth=firma) as c:
         yield c
     app.dependency_overrides.clear()

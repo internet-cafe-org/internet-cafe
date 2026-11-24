@@ -242,8 +242,8 @@ paths:
       description: 'El equipo envía el código de un solo uso, su clave pública P-256 en JWK y una prueba de posesión:
         la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y
         base64url sin relleno. La API valida el JWK (P-256, sin `d`), verifica la firma, calcula la huella RFC 7638
-        (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional (se muestra
-        una sola vez; la API guarda solo su hash) y audita `machine.enroll`. Código inexistente, usado o vencido
+        (`keyid`), marca el código como usado, pasa el equipo a `active` y audita `machine.enroll`. No
+        entrega ninguna credencial: el equipo firma cada petición con su clave (SEC-14). Código inexistente, usado o vencido
         → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido → 422; clave
         ya usada por otro equipo → 409 `CONFLICT`.'
       requestBody:
@@ -290,7 +290,6 @@ paths:
                 - lab
                 - mode
                 - keyid
-                - provisional_credential
                 properties:
                   machine_id:
                     type: string
@@ -308,10 +307,6 @@ paths:
                     type: string
                     description: Huella RFC 7638 del JWK (base64url de SHA-256).
                     example: NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs
-                  provisional_credential:
-                    type: string
-                    description: TRANSITORIO. Valor de `X-Machine-Key`. Se muestra una sola vez y se retira con
-                      SEC-14, cuando la firma RFC 9421 sea obligatoria.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
@@ -326,7 +321,6 @@ paths:
       - machine
       security:
       - machineSignature: []
-      - machineProvisional: []
       summary: Generar un reto QR para una máquina
       description: Crea un reto QR de un solo uso para el equipo identificado. Máximo 2 retos vigentes por equipo
         (RN-06).
@@ -364,7 +358,6 @@ paths:
       - machine
       security:
       - machineSignature: []
-      - machineProvisional: []
       summary: Espera en long-poll de la aprobación de un reto QR
       description: Mantiene la conexión abierta hasta que un estudiante reclame el reto QR del equipo o venza el
         timeout.
@@ -553,7 +546,6 @@ paths:
       - machine
       security: &id004
       - machineSignature: []
-      - machineProvisional: []
       summary: Latido del equipo (v0.2)
       description: 'El equipo lo envía cada 60 s. Devuelve la hora del servidor, el modo del equipo (`mode`) y el
         estado de su sesión. Es la vía por la que el equipo se entera de un cierre remoto (web, administrador o
@@ -1098,21 +1090,15 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Access token ES256 de 10 min (SEC-00). Rutas /me y /admin; /admin exige además `role = admin`.
-    machineProvisional:
-      type: apiKey
-      in: header
-      name: X-Machine-Key
-      description: TRANSITORIO. Credencial provisional del equipo, enviada junto con `X-Machine-Code`; el servidor
-        solo guarda su SHA-256 y la compara en tiempo constante. Se retira cuando Seguridad active la firma.
     machineSignature:
       type: apiKey
       in: header
       name: Signature
-      description: 'OBJETIVO v0.2 (RFC 9421 + RFC 9530). Cabeceras: `Content-Digest: sha-256=:<base64>:`, `Signature-Input:
+      description: 'Única autenticación del equipo (RFC 9421 + RFC 9530). Cabeceras: `Content-Digest: sha-256=:<base64>:`, `Signature-Input:
         sig1=("@method" "@target-uri" "content-digest");created=<epoch>;nonce="<id>";keyid="<thumbprint>";alg="ecdsa-p256-sha256"`
         y `Signature: sig1=:<r||s 64 bytes base64>:`. Tolerancia de reloj ±30 s (`MACHINE_CLOCK_SKEW`), nonce no
-        repetido en 60 s, firma inválida o repetida → `MACHINE_SIGNATURE_INVALID`. Estado: contrato propuesto; la
-        verificación en el servidor la entrega el equipo de Seguridad.'
+        repetido en 60 s, firma inválida o repetida → `MACHINE_SIGNATURE_INVALID`. Una petición con
+        `X-Machine-Key` y sin firma responde 401 (SEC-14).'
   schemas:
     ProblemDetail:
       type: object

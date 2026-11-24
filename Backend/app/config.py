@@ -1,6 +1,5 @@
 """Módulo de configuración de variables de entorno."""
 
-from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import model_validator
@@ -34,16 +33,10 @@ class Settings(BaseSettings):
     inactividad_intervalo_s: int = 30
     tarea_inactividad_activa: bool = True
 
-    # Autenticación del equipo (SEC-07, HU-19): token | dual | signature.
-    # dual acepta la credencial provisional y, si llega, exige que la firma sea válida.
-    machine_auth_mode: Literal["token", "dual", "signature"] = "dual"
+    # Firma del equipo (SEC-07, HU-19).
     # Base pública con la que se arma @target-uri (no la URL interna de Render).
     public_api_base_url: str | None = None
     firma_tolerancia_s: int = 30
-    # TRANSITORIO (solo dev): mientras el escritorio no envíe X-Machine-Key ni firma,
-    # /machine/challenges y /wait aceptan solo X-Machine-Code. Con APP_ENV=prod se
-    # ignora. Se apaga cuando Desktop se actualice (OPS-16) y se borra con SEC-14.
-    retos_aceptan_solo_codigo: bool = False
     firma_ventana_nonce_s: int = 60
 
     # Cryptographic keys and token settings (SEC-00)

@@ -26,12 +26,11 @@ from app.models import (
     MachineStatus,
     SessionEndReason,
 )
-from app.security.dependencies import hash_machine_credential
 from app.services import challenges
 from app.services import sesiones as servicio_sesiones
+from tests.firmador import FirmaEquipo, firma_de, firmador_de
 
 T0 = datetime(2026, 11, 10, 8, 0, 0, tzinfo=UTC)
-CREDENCIAL_PC = "credencial-ficticia-de-pruebas"
 API = "/api/v1/machine"
 TIMEOUT = settings.heartbeat_timeout_s
 
@@ -62,13 +61,13 @@ def reloj(monkeypatch) -> Reloj:
 
 @pytest.fixture
 async def cliente(sesiones, datos, reloj):
-    """Cliente HTTP con los dos equipos de prueba ya con credencial."""
+    """Cliente HTTP con los dos equipos de prueba ya enrolados."""
     async with sesiones() as db:
         for equipo in (datos.pc01, datos.pc02):
             await db.execute(
                 update(Machine)
                 .where(Machine.id == equipo.id)
-                .values(credential_hash=hash_machine_credential(f"{CREDENCIAL_PC}-{equipo.code}"))
+                .values(**firmador_de(equipo.code).clave_enrolada)
             )
         await db.commit()
 
@@ -84,11 +83,8 @@ async def cliente(sesiones, datos, reloj):
     app.dependency_overrides.clear()
 
 
-def auth(equipo) -> dict[str, str]:
-    return {
-        "X-Machine-Code": equipo.code,
-        "X-Machine-Key": f"{CREDENCIAL_PC}-{equipo.code}",
-    }
+def auth(equipo) -> FirmaEquipo:
+    return firma_de(equipo.code)
 
 
 async def abrir_sesion(sesiones: async_sessionmaker, equipo, usuario, t: float) -> AccessSession:
@@ -122,7 +118,7 @@ async def cerrar_inactivas(sesiones, now: datetime, timeout_s: int | None = None
 
 async def latido(cliente, equipo, session_id=None):
     cuerpo = {"session_id": str(session_id)} if session_id else None
-    return await cliente.post(f"{API}/heartbeat", headers=auth(equipo), json=cuerpo)
+    return await cliente.post(f"{API}/heartbeat", auth=auth(equipo), json=cuerpo)
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +150,7 @@ async def test_latido_usa_la_hora_del_servidor_y_no_la_del_cliente(
 
     resp = await cliente.post(
         f"{API}/heartbeat",
-        headers=auth(datos.pc01),
+        auth=auth(datos.pc01),
         json={"last_heartbeat_at": "2030-01-01T00:00:00Z"},
     )
 
@@ -230,15 +226,15 @@ async def test_latido_de_equipo_deshabilitado_se_rechaza(cliente, sesiones, dato
     assert resp.json()["code"] == "MACHINE_DISABLED"
 
 
-async def test_latido_sin_credencial_se_rechaza(cliente, datos, reloj):
+async def test_latido_sin_firma_se_rechaza(cliente, datos, reloj):
     resp = await cliente.post(f"{API}/heartbeat")
 
     assert resp.status_code == 401
     assert resp.json()["code"] == "MACHINE_SIGNATURE_INVALID"
 
 
-async def test_latido_con_credencial_incorrecta_se_rechaza(cliente, datos, reloj):
-    cabeceras = {"X-Machine-Code": datos.pc01.code, "X-Machine-Key": "no-es-la-credencial"}
+async def test_latido_con_token_se_rechaza(cliente, datos, reloj):
+    cabeceras = {"X-Machine-Code": datos.pc01.code, "X-Machine-Key": "token-ficticio"}
 
     resp = await cliente.post(f"{API}/heartbeat", headers=cabeceras)
 
@@ -257,7 +253,7 @@ async def test_cierre_desde_el_pc_con_cada_motivo(cliente, sesiones, datos, relo
     reloj.en(300)
 
     resp = await cliente.post(
-        f"{API}/sessions/current/end", headers=auth(datos.pc01), json={"reason": motivo}
+        f"{API}/sessions/current/end", auth=auth(datos.pc01), json={"reason": motivo}
     )
 
     assert resp.status_code == 200
@@ -274,7 +270,7 @@ async def test_cierre_desde_el_pc_sin_cuerpo_usa_user_logout_pc(cliente, sesione
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(120)
 
-    resp = await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    resp = await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
     assert resp.status_code == 200
     assert resp.json()["session"]["end_reason"] == "user_logout_pc"
@@ -288,7 +284,7 @@ async def test_cierre_desde_el_pc_rechaza_motivos_que_no_le_corresponden(
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
 
     resp = await cliente.post(
-        f"{API}/sessions/current/end", headers=auth(datos.pc01), json={"reason": "admin_forced"}
+        f"{API}/sessions/current/end", auth=auth(datos.pc01), json={"reason": "admin_forced"}
     )
 
     assert resp.status_code == 422
@@ -296,7 +292,7 @@ async def test_cierre_desde_el_pc_rechaza_motivos_que_no_le_corresponden(
 
 
 async def test_cierre_desde_el_pc_sin_sesion_abierta(cliente, datos, reloj):
-    resp = await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    resp = await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
     assert resp.status_code == 404
     assert resp.json()["code"] == "SESSION_NOT_FOUND"
@@ -307,11 +303,11 @@ async def test_segundo_cierre_no_pisa_el_primero(cliente, sesiones, datos, reloj
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(100)
     primero = await cliente.post(
-        f"{API}/sessions/current/end", headers=auth(datos.pc01), json={"reason": "machine_shutdown"}
+        f"{API}/sessions/current/end", auth=auth(datos.pc01), json={"reason": "machine_shutdown"}
     )
     reloj.en(200)
 
-    segundo = await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    segundo = await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
     assert primero.status_code == 200
     assert segundo.status_code == 404
@@ -324,7 +320,7 @@ async def test_cierre_desde_un_equipo_no_cierra_la_sesion_de_otro(cliente, sesio
     beto = await abrir_sesion(sesiones, datos.pc02, datos.beto, 0)
     reloj.en(100)
 
-    resp = await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    resp = await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
     assert resp.status_code == 404
     assert (await leer_sesion(sesiones, beto.id)).ended_at is None
@@ -332,11 +328,11 @@ async def test_cierre_desde_un_equipo_no_cierra_la_sesion_de_otro(cliente, sesio
 
 async def test_tras_cerrar_desde_el_pc_ya_no_hay_sesion_actual(cliente, sesiones, datos, reloj):
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
-    assert (await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))).status_code == 200
+    assert (await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))).status_code == 200
     reloj.en(100)
-    await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
-    actual = await cliente.get(f"{API}/sessions/current", headers=auth(datos.pc01))
+    actual = await cliente.get(f"{API}/sessions/current", auth=auth(datos.pc01))
     siguiente = await latido(cliente, datos.pc01, session_id=sesion.id)
 
     assert actual.status_code == 204
@@ -348,7 +344,7 @@ async def test_cierre_desde_el_pc_queda_auditado(cliente, sesiones, datos, reloj
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(100)
 
-    await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
     async with sesiones() as db:
         filas = (
@@ -484,7 +480,7 @@ async def test_el_plazo_de_inactividad_se_puede_configurar(sesiones, datos):
 async def test_la_inactividad_no_toca_sesiones_ya_cerradas(cliente, sesiones, datos, reloj):
     sesion = await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
     reloj.en(50)
-    await cliente.post(f"{API}/sessions/current/end", headers=auth(datos.pc01))
+    await cliente.post(f"{API}/sessions/current/end", auth=auth(datos.pc01))
 
     cerradas = await cerrar_inactivas(sesiones, seg(10_000))
 

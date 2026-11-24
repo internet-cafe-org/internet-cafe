@@ -12,8 +12,8 @@
 #   - Plan free y un solo worker: el SRS (O-06 y §13.4) fija costo USD 0.
 #   - autoDeployTrigger: off. Prod solo se despliega desde etiquetas v* con la
 #     aprobación del environment prod de GitHub (QA-17), mediante el deploy hook.
-#   - MACHINE_AUTH_MODE=signature desde el primer día (HU-32): el equipo firma
-#     cada petición (SRS §12.4).
+#   - El equipo firma cada petición (HU-32, SRS §12.4); la API no tiene otro modo
+#     (SEC-14).
 #   - Los secretos van con sync: false: Render los pide al crear el Blueprint y no
 #     los sobrescribe en cada sync. Ningún valor secreto vive en este archivo.
 # =============================================================================
@@ -61,14 +61,6 @@ services:
 
       - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         value: "10"
-
-      # SRS §12.4: solo peticiones firmadas con la clave del equipo
-      - key: MACHINE_AUTH_MODE
-        value: signature
-
-      # En prod los retos nunca se aceptan solo con el código del equipo
-      - key: RETOS_ACEPTAN_SOLO_CODIGO
-        value: "false"
 
       - key: RATE_LIMIT_ENABLED
         value: "true"

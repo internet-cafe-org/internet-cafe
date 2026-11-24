@@ -38,17 +38,11 @@ class ProtectedEnrollmentStoreTest {
   @TempDir java.nio.file.Path temporaryDirectory;
 
   @Test
-  void savesAndReloadsEnrollmentWithoutWritingCredentialInPlaintext() throws Exception {
+  void savesAndReloadsEnrollmentWithoutWritingItInPlaintext() throws Exception {
     var file = new ProtectedFile(temporaryDirectory.resolve("enrollment.bin"), TEST_PROTECTOR);
     var store = new EnrollmentStore(file);
     var response =
-        new EnrollmentResponse(
-            "machine-id",
-            "LAB1-PC03",
-            "Sala 1",
-            "kiosk",
-            "keyid-placeholder",
-            "credential-not-plaintext");
+        new EnrollmentResponse("machine-id", "LAB1-PC03", "Sala 1", "kiosk", "keyid-placeholder");
 
     store.save(response);
 
@@ -57,7 +51,21 @@ class ProtectedEnrollmentStoreTest {
         new String(
                 Files.readAllBytes(temporaryDirectory.resolve("enrollment.bin")),
                 StandardCharsets.UTF_8)
-            .contains(response.provisionalCredential()));
+            .contains(response.keyid()));
+  }
+
+  @Test
+  void loadsEnrollmentFilesThatStillHoldTheRetiredCredential() throws Exception {
+    var file = new ProtectedFile(temporaryDirectory.resolve("enrollment.bin"), TEST_PROTECTOR);
+    file.write(
+        ("{\"machine_id\":\"machine-id\",\"code\":\"LAB1-PC03\",\"lab\":\"Sala 1\","
+                + "\"mode\":\"kiosk\",\"keyid\":\"keyid-placeholder\","
+                + "\"provisional_credential\":\"retired\"}")
+            .getBytes(StandardCharsets.UTF_8));
+
+    assertEquals(
+        new EnrollmentResponse("machine-id", "LAB1-PC03", "Sala 1", "kiosk", "keyid-placeholder"),
+        new EnrollmentStore(file).load());
   }
 
   @Test
@@ -110,7 +118,7 @@ class ProtectedEnrollmentStoreTest {
   @Test
   void windowsDpapiProtectsAndUnprotectsForTheCurrentAccount() throws Exception {
     assumeTrue(System.getProperty("os.name", "").startsWith("Windows"));
-    byte[] secret = "local-provisional-credential".getBytes(StandardCharsets.UTF_8);
+    byte[] secret = "local-secret".getBytes(StandardCharsets.UTF_8);
     WindowsDpapiProtector protector = new WindowsDpapiProtector();
 
     byte[] protectedData = protector.protect(secret);

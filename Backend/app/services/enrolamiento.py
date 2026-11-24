@@ -3,14 +3,13 @@
 El equipo envía un código de un solo uso, su clave pública P-256 en JWK y una
 prueba de posesión: la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 del
 código, en formato ``r||s`` de 64 bytes y base64url sin relleno. Si todo es
-válido, el equipo queda ``active`` con su JWK, su huella RFC 7638 (el ``keyid``
-de la firma RFC 9421) y una credencial provisional que solo se guarda como hash.
+válido, el equipo queda ``active`` con su JWK y su huella RFC 7638 (el ``keyid``
+de la firma RFC 9421).
 """
 
 import base64
 import hashlib
 import json
-import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import audit
 from app.crypto import sha256_digest
 from app.models import AuditActorType, EnrollmentCode, Lab, Machine, MachineMode, MachineStatus
-from app.security.dependencies import hash_machine_credential
 
 _LARGO_COORDENADA = 32
 _LARGO_FIRMA = 64
@@ -57,7 +55,6 @@ class Enrolamiento:
     lab: str | None
     mode: MachineMode
     keyid: str
-    provisional_credential: str
 
 
 def _b64url_decodificar(valor: str) -> bytes:
@@ -194,7 +191,7 @@ async def enrolar(
         now: Hora actual; solo para las pruebas.
 
     Returns:
-        Los datos del equipo y la credencial provisional en claro (una sola vez).
+        Los datos del equipo enrolado.
 
     Raises:
         CodigoInvalido: Si el código no existe, ya se usó o venció.
@@ -228,10 +225,8 @@ async def enrolar(
     if otro is not None:
         raise ClaveEnUso()
 
-    credencial = secrets.token_urlsafe(32)
     machine.public_key_jwk = {k: jwk[k] for k in ("kty", "crv", "x", "y")}
     machine.key_thumbprint = keyid
-    machine.credential_hash = hash_machine_credential(credencial)
     machine.status = MachineStatus.active
     machine.enrolled_at = ahora
     machine.hostname = hostname or machine.hostname
@@ -260,5 +255,4 @@ async def enrolar(
         lab=lab.name if lab else None,
         mode=machine.mode,
         keyid=keyid,
-        provisional_credential=credencial,
     )
