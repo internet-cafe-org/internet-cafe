@@ -55,7 +55,10 @@ export function passwordChangeFailure(error: unknown): PasswordChangeFailure {
       (error.code === CURRENT_PASSWORD_INVALID_CODE ||
         error.message.trim() === CURRENT_PASSWORD_INCORRECT)
     if (isCurrentPasswordError) {
-      return { field: 'actual', message: CURRENT_PASSWORD_INCORRECT }
+      return {
+        field: 'actual',
+        message: `${CURRENT_PASSWORD_INCORRECT} Revísala e inténtalo de nuevo.`,
+      }
     }
     if (error.status === 422) {
       return {

@@ -122,7 +122,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // CREAR DESAFÃƒÂO DE UNA MÃƒÂQUINA
+  // CREAR DESAFÍO DE UNA MÁQUINA
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/machine/challenges`, ({ request }) => {
@@ -134,7 +134,7 @@ export const apiHandlers = [
           type: 'about:blank',
           title: 'No autorizado',
           status: 401,
-          detail: 'La firma de la mÃƒÂ¡quina no es vÃƒÂ¡lida.',
+          detail: 'La firma de la máquina no es válida.',
           code: 'MACHINE_SIGNATURE_INVALID',
         },
         {
@@ -148,9 +148,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'MÃƒÂ¡quina deshabilitada',
+          title: 'Máquina deshabilitada',
           status: 403,
-          detail: 'La mÃƒÂ¡quina estÃƒÂ¡ deshabilitada.',
+          detail: 'La máquina está deshabilitada.',
           code: 'MACHINE_DISABLED',
         },
         {
@@ -172,7 +172,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // CONSULTAR LA INFORMACIÃƒâ€œN DE UN ESCANEO
+  // CONSULTAR LA INFORMACIÓN DE UN ESCANEO
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/scan/preview`, async ({ request }) => {
@@ -184,7 +184,7 @@ export const apiHandlers = [
           type: 'about:blank',
           title: 'No encontrado',
           status: 404,
-          detail: 'El desafÃƒÂ­o no existe.',
+          detail: 'El desafío no existe.',
           code: 'CHALLENGE_NOT_FOUND',
         },
         {
@@ -198,9 +198,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'DesafÃƒÂ­o vencido',
+          title: 'Desafío vencido',
           status: 410,
-          detail: 'El desafÃƒÂ­o ha expirado.',
+          detail: 'El desafío ha expirado.',
           code: 'CHALLENGE_EXPIRED',
         },
         {
@@ -214,9 +214,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'DesafÃƒÂ­o utilizado',
+          title: 'Desafío utilizado',
           status: 409,
-          detail: 'El desafÃƒÂ­o ya fue utilizado.',
+          detail: 'El desafío ya fue utilizado.',
           code: 'CHALLENGE_ALREADY_USED',
         },
         {
@@ -237,7 +237,7 @@ export const apiHandlers = [
       })
     }
 
-    return problem(404, 'No encontrado', 'El desafÃƒÂ­o no existe.', 'CHALLENGE_NOT_FOUND')
+    return problem(404, 'No encontrado', 'El desafío no existe.', 'CHALLENGE_NOT_FOUND')
   }),
 
   // ----------------------------------------------------------
@@ -313,7 +313,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // W-13: CONSULTAR DETALLE DE UNA SESIÃƒâ€œN
+  // W-13: CONSULTAR DETALLE DE UNA SESIÓN
   // ----------------------------------------------------------
 
   http.get(`${API_URL}/api/v1/admin/access-sessions/:id`, ({ params }) => {
@@ -323,7 +323,7 @@ export const apiHandlers = [
       return problem(
         404,
         'No encontrado',
-        'La sesiÃƒÂ³n de acceso no existe.',
+        'La sesión de acceso no existe.',
         'ACCESS_SESSION_NOT_FOUND',
       )
     }
@@ -332,7 +332,7 @@ export const apiHandlers = [
   }),
 
   // ----------------------------------------------------------
-  // W-13: FORZAR CIERRE DE UNA SESIÃƒâ€œN
+  // W-13: FORZAR CIERRE DE UNA SESIÓN
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/admin/access-sessions/:id/force-close`, ({ params }) => {
@@ -342,7 +342,7 @@ export const apiHandlers = [
       return problem(
         404,
         'No encontrado',
-        'La sesiÃƒÂ³n de acceso no existe.',
+        'La sesión de acceso no existe.',
         'ACCESS_SESSION_NOT_FOUND',
       )
     }
@@ -351,7 +351,7 @@ export const apiHandlers = [
       return problem(
         409,
         'Conflicto',
-        'La sesiÃƒÂ³n ya estÃƒÂ¡ cerrada.',
+        'La sesión ya está cerrada.',
         'ACCESS_SESSION_ALREADY_CLOSED',
       )
     }
@@ -401,7 +401,7 @@ export const apiHandlers = [
     if (!name) {
       return problem(
         422,
-        'Error de validaciÃƒÂ³n',
+        'Error de validación',
         'El nombre de la sala es obligatorio.',
         'VALIDATION_ERROR',
       )
@@ -469,7 +469,7 @@ export const apiHandlers = [
     if (Object.keys(patch).length === 0) {
       return problem(
         422,
-        'Error de validaciÃƒÂ³n',
+        'Error de validación',
         'Debe proporcionar al menos un campo para actualizar.',
         'VALIDATION_ERROR',
       )
@@ -479,7 +479,7 @@ export const apiHandlers = [
       return problem(
         409,
         'Conflicto',
-        'No se puede activar un equipo que todavÃƒÂ­a no estÃƒÂ¡ enrolado.',
+        'No se puede activar un equipo que todavía no está enrolado.',
         'MACHINE_NOT_ENROLLED',
       )
     }
@@ -658,9 +658,9 @@ export const apiHandlers = [
       return HttpResponse.json(
         {
           type: 'about:blank',
-          title: 'SesiÃƒÂ³n no encontrada',
+          title: 'Sesión no encontrada',
           status: 404,
-          detail: 'La sesiÃƒÂ³n no existe.',
+          detail: 'La sesión no existe.',
           code: 'SESSION_NOT_FOUND',
         },
         {
@@ -689,8 +689,8 @@ export const apiHandlers = [
     })
   }),
   // ----------------------------------------------------------
-  // UI-11: CÃƒâ€œDIGO DE ENROLAMIENTO DE UN SOLO USO
-  // BE-13 (#130) aÃƒÂºn no publica este endpoint: la ruta es una propuesta.
+  // UI-11: CÓDIGO DE ENROLAMIENTO DE UN SOLO USO
+  // BE-13 (#130) aún no publica este endpoint: la ruta es una propuesta.
   // ----------------------------------------------------------
 
   http.post(`${API_URL}/api/v1/admin/machines/:id/enrollment-code`, ({ params }) => {
@@ -704,7 +704,7 @@ export const apiHandlers = [
       return problem(
         409,
         'Conflicto',
-        'No se puede generar un cÃƒÂ³digo para un equipo deshabilitado.',
+        'No se puede generar un código para un equipo deshabilitado.',
         'CONFLICT',
       )
     }
@@ -733,7 +733,7 @@ export const apiHandlers = [
     }
 
     if (machine.status === 'pending_enrollment') {
-      return problem(409, 'Conflicto', 'El equipo todavÃƒÂ­a no tiene una clave.', 'CONFLICT')
+      return problem(409, 'Conflicto', 'El equipo todavía no tiene una clave.', 'CONFLICT')
     }
 
     machine.status = 'pending_enrollment'

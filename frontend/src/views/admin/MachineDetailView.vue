@@ -247,35 +247,35 @@ onMounted(load)
         type="button"
         @click="router.push({ name: 'admin-machines' })"
       >
-        <i class="pi pi-arrow-left"></i>
+        <i aria-hidden="true" class="pi pi-arrow-left"></i>
         Volver a equipos
       </button>
     </header>
 
     <div v-if="loading" class="empty-state">
-      <i class="pi pi-spin pi-spinner"></i>
+      <i aria-hidden="true" class="pi pi-spin pi-spinner"></i>
       <p>Cargando equipo...</p>
     </div>
 
     <div v-else-if="loadFailed" class="empty-state">
-      <i class="pi pi-wifi"></i>
+      <i aria-hidden="true" class="pi pi-wifi"></i>
       <strong>No se pudo cargar el equipo</strong>
       <p>Comprueba tu conexión y vuelve a intentarlo.</p>
       <button class="primary-button" type="button" data-test="retry" @click="load">
-        <i class="pi pi-refresh"></i>
+        <i aria-hidden="true" class="pi pi-refresh"></i>
         Reintentar
       </button>
     </div>
 
     <div v-else-if="notFound || !machine" class="empty-state">
-      <i class="pi pi-desktop"></i>
+      <i aria-hidden="true" class="pi pi-desktop"></i>
       <strong>No encontramos este equipo</strong>
       <p>Puede que se haya eliminado o que el enlace no sea correcto.</p>
     </div>
 
     <template v-else>
       <div v-if="errorMessage" class="message error-message" role="alert">
-        <i class="pi pi-exclamation-circle"></i>
+        <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
         <div>
           <strong>No se pudo completar la acción</strong>
           <p data-test="error">{{ errorMessage }}</p>
@@ -283,7 +283,7 @@ onMounted(load)
       </div>
 
       <div v-if="successMessage" class="message success-message" role="status">
-        <i class="pi pi-check-circle"></i>
+        <i aria-hidden="true" class="pi pi-check-circle"></i>
         <div>
           <strong>Listo</strong>
           <p data-test="success">{{ successMessage }}</p>
@@ -363,7 +363,7 @@ onMounted(load)
                 data-test="save-config"
                 :disabled="busy || !dirty"
               >
-                <i :class="busy ? 'pi pi-spin pi-spinner' : 'pi pi-check'"></i>
+                <i aria-hidden="true" :class="busy ? 'pi pi-spin pi-spinner' : 'pi pi-check'"></i>
                 Guardar cambios
               </button>
             </div>
@@ -386,7 +386,7 @@ onMounted(load)
                 :disabled="busy || isDisabled"
                 @click="generateCode"
               >
-                <i class="pi pi-key"></i>
+                <i aria-hidden="true" class="pi pi-key"></i>
                 Generar código de enrolamiento
               </button>
 
@@ -397,7 +397,7 @@ onMounted(load)
                 :disabled="busy || isPending"
                 @click="confirming = 'revoke'"
               >
-                <i class="pi pi-ban"></i>
+                <i aria-hidden="true" class="pi pi-ban"></i>
                 Revocar clave
               </button>
             </div>
@@ -439,7 +439,7 @@ onMounted(load)
                 :disabled="busy || isPending"
                 @click="confirming = 'disable'"
               >
-                <i class="pi pi-ban"></i>
+                <i aria-hidden="true" class="pi pi-ban"></i>
                 Deshabilitar equipo
               </button>
               <p v-if="isPending" class="field-hint">
@@ -464,7 +464,7 @@ onMounted(load)
         <p class="muted">{{ machine?.code }}</p>
 
         <div class="message warning-message" role="alert">
-          <i class="pi pi-exclamation-triangle"></i>
+          <i aria-hidden="true" class="pi pi-exclamation-triangle"></i>
           <div>
             <strong>Este código se muestra una sola vez</strong>
             <p>Si lo pierdes, tendrás que generar otro.</p>
@@ -476,7 +476,7 @@ onMounted(load)
 
         <div class="modal-actions">
           <button class="secondary-button" type="button" data-test="copy-code" @click="copyCode">
-            <i :class="copied ? 'pi pi-check' : 'pi pi-copy'"></i>
+            <i aria-hidden="true" :class="copied ? 'pi pi-check' : 'pi pi-copy'"></i>
             {{ copied ? 'Copiado' : 'Copiar código' }}
           </button>
           <button class="primary-button" type="button" data-test="close-code" @click="closeCode">
@@ -502,7 +502,7 @@ onMounted(load)
         </h2>
 
         <div class="message error-message">
-          <i class="pi pi-exclamation-circle"></i>
+          <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
           <div>
             <strong>Esta acción queda auditada</strong>
             <p v-if="confirming === 'revoke'">
@@ -583,7 +583,7 @@ h2 {
 
 .primary-button {
   color: #ffffff;
-  background: var(--primary);
+  background: var(--primary-solid);
   border: 1px solid transparent;
 }
 

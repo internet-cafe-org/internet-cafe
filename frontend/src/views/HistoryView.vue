@@ -107,7 +107,7 @@ onMounted(() => {
       <p class="note">Solo se muestran tus propios accesos.</p>
 
       <div v-if="errorMessage" class="feedback error" role="alert">
-        <i class="pi pi-exclamation-circle"></i>
+        <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
         <div class="feedback-body">
           <span>{{ errorMessage }}</span>
           <button

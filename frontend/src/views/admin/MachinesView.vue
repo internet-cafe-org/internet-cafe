@@ -175,7 +175,7 @@ onMounted(loadData)
     </header>
 
     <div v-if="errorMessage" class="message error-message" role="alert">
-      <i class="pi pi-exclamation-circle"></i>
+      <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
       <div>
         <strong>No se pudo completar la acción</strong>
         <p>{{ errorMessage }}</p>
@@ -183,7 +183,7 @@ onMounted(loadData)
     </div>
 
     <div v-if="successMessage" class="message success-message" role="status">
-      <i class="pi pi-check-circle"></i>
+      <i aria-hidden="true" class="pi pi-check-circle"></i>
       <div>
         <strong>Cambios guardados</strong>
         <p>{{ successMessage }}</p>
@@ -196,7 +196,7 @@ onMounted(loadData)
           <span>Total de equipos</span>
           <strong>{{ machines.length }}</strong>
         </div>
-        <i class="pi pi-desktop summary-icon"></i>
+        <i aria-hidden="true" class="pi pi-desktop summary-icon"></i>
       </article>
 
       <article class="summary-card">
@@ -204,7 +204,7 @@ onMounted(loadData)
           <span>Activos</span>
           <strong>{{ activeCount }}</strong>
         </div>
-        <i class="pi pi-check-circle summary-icon success"></i>
+        <i aria-hidden="true" class="pi pi-check-circle summary-icon success"></i>
       </article>
 
       <article class="summary-card">
@@ -212,7 +212,7 @@ onMounted(loadData)
           <span>Pendientes</span>
           <strong>{{ pendingCount }}</strong>
         </div>
-        <i class="pi pi-clock summary-icon warning"></i>
+        <i aria-hidden="true" class="pi pi-clock summary-icon warning"></i>
       </article>
 
       <article class="summary-card">
@@ -220,7 +220,7 @@ onMounted(loadData)
           <span>Deshabilitados</span>
           <strong>{{ disabledCount }}</strong>
         </div>
-        <i class="pi pi-ban summary-icon danger"></i>
+        <i aria-hidden="true" class="pi pi-ban summary-icon danger"></i>
       </article>
     </section>
 
@@ -256,12 +256,12 @@ onMounted(loadData)
       </div>
 
       <div v-if="loading" class="empty-state">
-        <i class="pi pi-spin pi-spinner"></i>
+        <i aria-hidden="true" class="pi pi-spin pi-spinner"></i>
         <p>Cargando equipos...</p>
       </div>
 
       <div v-else-if="machines.length === 0" class="empty-state">
-        <i class="pi pi-desktop"></i>
+        <i aria-hidden="true" class="pi pi-desktop"></i>
         <strong>No hay equipos para mostrar</strong>
         <p>Prueba cambiando los filtros.</p>
       </div>
@@ -325,7 +325,7 @@ onMounted(loadData)
                   @click="toggleMode(machine)"
                 >
                   {{ modeLabel(machine.mode) }}
-                  <i class="pi pi-sync"></i>
+                  <i aria-hidden="true" class="pi pi-sync"></i>
                 </button>
               </td>
 
@@ -366,7 +366,7 @@ onMounted(loadData)
     <footer class="footer-note">
       En línea si el último contacto fue ≤ 2 min; es independiente del estado administrativo.
       <br />
-      <i class="pi pi-info-circle"></i>
+      <i aria-hidden="true" class="pi pi-info-circle"></i>
       En desarrollo se muestran datos simulados mediante MSW.
     </footer>
   </main>
@@ -684,7 +684,7 @@ td small {
 
 .primary-action {
   color: #ffffff;
-  background: var(--primary);
+  background: var(--primary-solid);
   border-color: var(--primary);
 }
 

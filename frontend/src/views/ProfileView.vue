@@ -125,7 +125,7 @@ onMounted(() => {
       </div>
 
       <div v-else-if="profileError" class="feedback error" role="alert">
-        <i class="pi pi-exclamation-circle"></i>
+        <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
         <div class="feedback-body">
           <span>{{ profileError }}</span>
           <button class="retry" type="button" @click="loadProfile">Reintentar</button>
@@ -199,12 +199,12 @@ onMounted(() => {
         </div>
 
         <div v-if="errorMessage" class="feedback error" role="alert">
-          <i class="pi pi-exclamation-circle"></i>
+          <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
           {{ errorMessage }}
         </div>
 
         <div v-if="infoMessage" class="feedback" role="status">
-          <i class="pi pi-info-circle"></i>
+          <i aria-hidden="true" class="pi pi-info-circle"></i>
           {{ infoMessage }}
         </div>
 
@@ -368,7 +368,7 @@ input[aria-invalid='true'] {
   gap: 0.5rem;
   border: 0;
   border-radius: 8px;
-  background: var(--c-primary);
+  background: var(--primary-solid, #2563eb);
   color: var(--c-primary-text);
   font: inherit;
   font-weight: 600;

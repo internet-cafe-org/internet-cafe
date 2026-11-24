@@ -49,12 +49,12 @@ const describedBy = computed(() => {
         v-if="isPassword"
         type="button"
         class="field__toggle"
-        :aria-label="visible ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+        aria-label="Mostrar contraseña"
         :aria-pressed="visible"
         :disabled="disabled"
         @click="visible = !visible"
       >
-        <span class="pi" :class="visible ? 'pi-eye-slash' : 'pi-eye'" aria-hidden="true"></span>
+        <span class="pi" :class="visible ? 'pi-eye' : 'pi-eye-slash'" aria-hidden="true"></span>
       </button>
       <span
         v-if="error"

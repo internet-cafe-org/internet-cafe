@@ -18,7 +18,7 @@ import { RouterLink } from 'vue-router'
 <style scoped>
 .view {
   --c-text: #0f172a;
-  --c-muted: #64748b;
+  --c-muted: #5b6b80;
   --c-card: #ffffff;
   --c-card-border: #e2e8f0;
   --c-row: #f1f5f9;
@@ -26,13 +26,14 @@ import { RouterLink } from 'vue-router'
   --c-input: #f8fafc;
   --c-input-border: #e2e8f0;
   --c-primary: #2563eb;
+  --c-primary-solid: #2563eb;
   --c-primary-text: #ffffff;
   --c-link: #2563eb;
   --c-icon-bg: #e8effc;
   --c-ok-bg: #dcfce7;
   --c-ok: #15803d;
   --c-warn-bg: #fef6e4;
-  --c-warn: #d97706;
+  --c-warn: #b45309;
 
   color: var(--c-text);
 }
@@ -47,7 +48,8 @@ import { RouterLink } from 'vue-router'
   --c-row-alt: #243049;
   --c-input: #0f1729;
   --c-input-border: #31405c;
-  --c-primary: #3b82f6;
+  --c-primary: #60a5fa;
+  --c-primary-solid: #2563eb;
   --c-link: #60a5fa;
   --c-icon-bg: #1e3a6e;
   --c-ok-bg: #14352b;
@@ -76,7 +78,7 @@ import { RouterLink } from 'vue-router'
   gap: 0.5rem;
   border: 0;
   border-radius: 8px;
-  background: var(--c-primary);
+  background: var(--c-primary-solid);
   color: var(--c-primary-text);
   font: inherit;
   font-weight: 600;
