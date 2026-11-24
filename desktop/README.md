@@ -107,9 +107,9 @@ ajustado por la cabecera `Date` cuando el servidor indica desfase. Las peticione
 autenticación: un token responde 401 (SEC-14).
 
 El cliente no puede continuar sin el enrolamiento local, su contraseña protegida, el thumbprint
-correcto ni el `keyid` guardado. El endpoint de enrolamiento
-conserva su propia prueba de posesión y no usa esta firma de máquina. Para Render dev, configura
-`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend y usa un equipo enrolado de prueba.
+correcto ni el `keyid` guardado. El endpoint de enrolamiento conserva su propia
+prueba de posesión y no usa esta firma de máquina. Para Render dev, configura `API_BASE_URL` con el
+origen público que coincide con `PUBLIC_API_BASE_URL` del backend y usa un equipo enrolado de prueba.
 
 ## Modo kiosco (DSK-11)
 
