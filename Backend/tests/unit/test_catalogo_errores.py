@@ -21,6 +21,8 @@ CODIGOS_SRS = {
     "MACHINE_CLOCK_SKEW": 401,
     "ENROLLMENT_CODE_INVALID": 401,
     "SESSION_NOT_FOUND": 404,
+    # BE-21: Endurecimiento de la API (límite del cuerpo)
+    "PAYLOAD_TOO_LARGE": 413,
 }
 
 
