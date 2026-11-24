@@ -199,7 +199,17 @@ async def test_el_alg_debe_ser_el_de_la_clave(cliente, sesiones, datos, equipo, 
     rsa_ = await _enrolar_rsa(sesiones, datos)
 
     r_rsa = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO, alg=firma.ALGORITMO))
+    async with sesiones() as db:
+        machine = await db.get(Machine, datos.pc01.id)
+        machine.public_key_jwk = firmador.jwk
+        machine.key_thumbprint = firmador.keyid
+        await db.commit()
+    r_ec = await _latido(
+        cliente, firmador.cabeceras("POST", BASE + LATIDO, CUERPO, alg=firma.ALGORITMO_RSA)
+    )
 
+    assert r_ec.status_code == 401
+    assert r_ec.json()["code"] == "MACHINE_SIGNATURE_INVALID"
     assert r_rsa.status_code == 401
     assert r_rsa.json()["code"] == "MACHINE_SIGNATURE_INVALID"
     assert not firma.verificar(firmador.jwk, firma.ALGORITMO_RSA, "base", b"\x00" * 256)
