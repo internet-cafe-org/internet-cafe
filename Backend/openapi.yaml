@@ -268,8 +268,6 @@ paths:
                   $ref: '#/components/schemas/MachineJwk'
                 proof:
                   type: string
-                  minLength: 86
-                  maxLength: 684
                   description: Firma del código en base64url sin relleno. EC P-256 → `r||s` de 64 bytes; RSA →
                     RSASSA-PKCS1-v1_5 / SHA-256 del largo del módulo (256 bytes con 2048 bits).
                   example: MEUCIQ…
