@@ -82,7 +82,8 @@ Write-Host ""
 $TaskRun = "`"$ExePath`""
 
 if ($ApiBaseUrl -ne "") {
-    # La app acepta --api-base-url como argumento de linea de comandos
+    # La app lee --api-base-url=<url> en Main.applyApiBaseUrlArg() y lo fija como
+    # propiedad api.base.url con prioridad sobre la URL embebida en el MSI.
     $TaskRun = "`"$ExePath`" --api-base-url `"$ApiBaseUrl`""
     Write-Host "[INFO] URL de la API configurada: $ApiBaseUrl"
 }
