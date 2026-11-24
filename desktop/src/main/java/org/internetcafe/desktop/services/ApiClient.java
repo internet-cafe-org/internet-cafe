@@ -27,6 +27,7 @@ import org.internetcafe.desktop.contract.EnrollmentResponse;
 import org.internetcafe.desktop.contract.HealthResponse;
 import org.internetcafe.desktop.contract.HeartbeatResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
+import org.internetcafe.desktop.contract.RecentSession;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.RegistrationResponse;
 import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
