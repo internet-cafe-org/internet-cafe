@@ -6,8 +6,9 @@ import com.sun.jna.platform.win32.WinReg;
 /**
  * Detecta si Windows está configurado en modo oscuro para aplicaciones.
  *
- * <p>Lee {@code HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme}:
- * 0 = modo oscuro, 1 = modo claro (o ausente = modo claro).
+ * <p>Lee {@code
+ * HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme}: 0 = modo
+ * oscuro, 1 = modo claro (o ausente = modo claro).
  */
 public final class WindowsDarkMode {
 
@@ -18,8 +19,8 @@ public final class WindowsDarkMode {
   private WindowsDarkMode() {}
 
   /**
-   * Devuelve {@code true} si Windows está en modo oscuro para aplicaciones.
-   * Si no se puede leer el registro (Linux, macOS, error) devuelve {@code false}.
+   * Devuelve {@code true} si Windows está en modo oscuro para aplicaciones. Si no se puede leer el
+   * registro (Linux, macOS, error) devuelve {@code false}.
    */
   public static boolean isSystemDarkMode() {
     try {

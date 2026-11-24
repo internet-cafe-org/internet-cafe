@@ -10,10 +10,10 @@ import java.util.logging.Logger;
 /**
  * Tracks the clock offset between this machine and the API server.
  *
- * <p>When the backend rejects a signed request with {@code MACHINE_CLOCK_SKEW} it includes a
- * {@code Date} header with the server's current time. {@link #applyFromDateHeader(String)} computes
- * {@code serverTime − localTime} and stores it atomically so that subsequent requests can use
- * {@link #now()} to produce a timestamp the server will accept.
+ * <p>When the backend rejects a signed request with {@code MACHINE_CLOCK_SKEW} it includes a {@code
+ * Date} header with the server's current time. {@link #applyFromDateHeader(String)} computes {@code
+ * serverTime − localTime} and stores it atomically so that subsequent requests can use {@link
+ * #now()} to produce a timestamp the server will accept.
  *
  * <p>Thread-safe: all state is held in an {@link AtomicLong}.
  */

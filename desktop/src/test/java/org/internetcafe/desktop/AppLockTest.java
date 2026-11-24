@@ -3,10 +3,9 @@ package org.internetcafe.desktop;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicReference;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import java.nio.file.Path;
 
 class AppLockTest {
 

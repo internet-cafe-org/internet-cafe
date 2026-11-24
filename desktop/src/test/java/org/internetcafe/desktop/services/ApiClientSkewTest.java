@@ -90,15 +90,14 @@ class ApiClientSkewTest {
     assertFalse(adjuster.applyFromDateHeader(""), "empty header must return false");
     assertEquals(0L, adjuster.offsetMillis(), "offset must stay 0 for empty header");
 
-    assertFalse(
-        adjuster.applyFromDateHeader("not-a-valid-date"), "invalid date must return false");
+    assertFalse(adjuster.applyFromDateHeader("not-a-valid-date"), "invalid date must return false");
     assertEquals(0L, adjuster.offsetMillis(), "offset must stay 0 for unparseable header");
   }
 
   /**
    * Verifies that a valid RFC 1123 Date header updates the offset to roughly the expected skew.
-   * Uses a 10-second future timestamp; allows ±1200 ms for RFC 1123 second-precision truncation
-   * and processing delay.
+   * Uses a 10-second future timestamp; allows ±1200 ms for RFC 1123 second-precision truncation and
+   * processing delay.
    */
   @Test
   void applyFromDateHeader_validFutureDate_setsPositiveOffset() {

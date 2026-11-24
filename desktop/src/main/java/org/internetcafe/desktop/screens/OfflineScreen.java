@@ -16,8 +16,8 @@ import javafx.scene.text.TextAlignment;
 import org.internetcafe.desktop.qr.ConnectionMonitor;
 
 /**
- * Pantalla D-04 "Sin conexión": conectando, reintentando, fallo prolongado, restablecida y
- * modo fail-open (kiosco liberado).
+ * Pantalla D-04 "Sin conexión": conectando, reintentando, fallo prolongado, restablecida y modo
+ * fail-open (kiosco liberado).
  */
 public class OfflineScreen {
 
@@ -41,7 +41,8 @@ public class OfflineScreen {
   private final VBox failOpenCard;
   private final Label failOpenBannerTitle = new Label("Modo fail-open activo");
   private final Label failOpenBannerText =
-      new Label("La API no ha respondido durante 3 minutos. Se ha liberado el equipo según la configuración.");
+      new Label(
+          "La API no ha respondido durante 3 minutos. Se ha liberado el equipo según la configuración.");
   private final Label failOpenBadge = new Label("Equipo liberado");
   private final Button retryNowButton = new Button("Reintentar ahora  ⟳");
   private final Button contactButton = new Button("Contactar soporte  ↗");
@@ -71,10 +72,16 @@ public class OfflineScreen {
 
     retryButton.getStyleClass().add("offline-retry");
     retryButton.setMaxWidth(Double.MAX_VALUE);
-    retryButton.setOnAction(event -> { if (onRetry != null) onRetry.run(); });
+    retryButton.setOnAction(
+        event -> {
+          if (onRetry != null) onRetry.run();
+        });
 
     homeLink.getStyleClass().add("offline-home");
-    homeLink.setOnAction(event -> { if (onHome != null) onHome.run(); });
+    homeLink.setOnAction(
+        event -> {
+          if (onHome != null) onHome.run();
+        });
 
     compactCard = new VBox(12, icon, title, subtitle, banner, detail, retryButton, homeLink);
     compactCard.setAlignment(Pos.CENTER);
@@ -113,16 +120,18 @@ public class OfflineScreen {
     foRightTitle.getStyleClass().add("fo-right-title");
     foRightTitle.setWrapText(true);
 
-    Label foRightDesc = new Label(
-        "La terminal no puede comunicarse con la API de acceso. El equipo ya está disponible para su uso.");
+    Label foRightDesc =
+        new Label(
+            "La terminal no puede comunicarse con la API de acceso. El equipo ya está disponible para su uso.");
     foRightDesc.getStyleClass().add("fo-right-desc");
     foRightDesc.setWrapText(true);
 
     Label foCredWarningTitle = new Label("Credenciales sin verificar");
     foCredWarningTitle.getStyleClass().add("fo-cred-title");
-    Label foCredWarningDesc = new Label(
-        "El equipo está liberado, pero las credenciales no se están verificando. "
-            + "Sigue el protocolo de contingencia de tu institución.");
+    Label foCredWarningDesc =
+        new Label(
+            "El equipo está liberado, pero las credenciales no se están verificando. "
+                + "Sigue el protocolo de contingencia de tu institución.");
     foCredWarningDesc.getStyleClass().add("fo-cred-desc");
     foCredWarningDesc.setWrapText(true);
     VBox foCredBox = new VBox(4, foCredWarningTitle, foCredWarningDesc);
@@ -138,9 +147,15 @@ public class OfflineScreen {
 
     // Footer buttons
     retryNowButton.getStyleClass().addAll("button", "fo-retry-btn");
-    retryNowButton.setOnAction(event -> { if (onRetry != null) onRetry.run(); });
+    retryNowButton.setOnAction(
+        event -> {
+          if (onRetry != null) onRetry.run();
+        });
     contactButton.getStyleClass().addAll("fo-contact-btn");
-    contactButton.setOnAction(event -> { if (onHome != null) onHome.run(); });
+    contactButton.setOnAction(
+        event -> {
+          if (onHome != null) onHome.run();
+        });
 
     Label foStatus = new Label("Sin servicio · Reconectando con espera creciente...");
     foStatus.getStyleClass().add("fo-status");

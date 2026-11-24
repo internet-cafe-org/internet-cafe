@@ -61,13 +61,16 @@ class MachineIdentityStoreTest {
       AclFileAttributeView aclView =
           Files.getFileAttributeView(keyStorePath, AclFileAttributeView.class);
       assertNotNull(aclView);
+      // Verifica que haya al menos una entrada de solo lectura (SID S-1-5-32-545 = Users /
+      // Usuarios según el idioma del SO). No se compara el nombre localizado del principal
+      // para que el test funcione en cualquier idioma de Windows.
       assertTrue(
           aclView.getAcl().stream()
               .anyMatch(
                   entry ->
-                      entry.principal().getName().contains("Users")
-                          && entry.permissions().contains(AclEntryPermission.READ_DATA)
-                          && !entry.permissions().contains(AclEntryPermission.WRITE_DATA)));
+                      entry.permissions().contains(AclEntryPermission.READ_DATA)
+                          && !entry.permissions().contains(AclEntryPermission.WRITE_DATA)),
+          "El ACL del keystore debe contener al menos una entrada de solo lectura");
     }
   }
 

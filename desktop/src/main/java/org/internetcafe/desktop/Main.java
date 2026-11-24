@@ -72,7 +72,8 @@ public class Main extends Application {
           | GeneralSecurityException
           | IllegalArgumentException
           | IllegalStateException exception) {
-        LOG.warning("Machine identity could not be loaded: " + exception.getClass().getSimpleName());
+        LOG.warning(
+            "Machine identity could not be loaded: " + exception.getClass().getSimpleName());
         Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.setTitle("Equipo no disponible");
         alert.setHeaderText("No se pudo cargar la identidad enrolada");
@@ -299,7 +300,6 @@ public class Main extends Application {
                 }
               });
         });
-
   }
 
   @Override
@@ -442,8 +442,8 @@ public class Main extends Application {
   }
 
   /**
-   * Crea una escena con los estilos base y, si el sistema está en modo oscuro, aplica también
-   * el override oscuro.
+   * Crea una escena con los estilos base y, si el sistema está en modo oscuro, aplica también el
+   * override oscuro.
    */
   private Scene makeScene(javafx.scene.Parent root, boolean darkMode) {
     Scene scene = new Scene(root, 1280, 800);

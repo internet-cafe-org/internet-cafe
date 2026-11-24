@@ -134,7 +134,8 @@ public class QrScreen {
         });
 
     Label skipHint =
-        new Label("Omitir minimiza a la bandeja y pausa la generación de QR.\nPara reanudar, elige «Registrar acceso» en la bandeja.");
+        new Label(
+            "Omitir minimiza a la bandeja y pausa la generación de QR.\nPara reanudar, elige «Registrar acceso» en la bandeja.");
     skipHint.getStyleClass().add("qr-skip-hint");
     skipHint.setWrapText(true);
     skipHint.visibleProperty().bind(skipButton.visibleProperty());
@@ -156,18 +157,26 @@ public class QrScreen {
       Label kioskConfirm = new Label("□  Espera la confirmación en tu dispositivo.");
       kioskConfirm.getStyleClass().add("qr-kiosk-confirm");
 
-      VBox kioskPanel = new VBox(10,
-          kioskModeLabel, kioskTitle, kioskSub,
-          readyBadge, qrFrame,
-          machineCodeLabel, labLabel,
-          countdownBar, countdownRow,
-          kioskConfirm);
+      VBox kioskPanel =
+          new VBox(
+              10,
+              kioskModeLabel,
+              kioskTitle,
+              kioskSub,
+              readyBadge,
+              qrFrame,
+              machineCodeLabel,
+              labLabel,
+              countdownBar,
+              countdownRow,
+              kioskConfirm);
       kioskPanel.setAlignment(Pos.TOP_CENTER);
       kioskPanel.getStyleClass().add("qr-kiosk-panel");
       center = new VBox(0, kioskPanel);
     } else {
       // Modo pasivo: 2 columnas (QR izq + instrucciones der)
-      VBox leftPanel = new VBox(10, readyBadge, qrFrame, countdownBar, countdownRow, machineCodeLabel, labLabel);
+      VBox leftPanel =
+          new VBox(10, readyBadge, qrFrame, countdownBar, countdownRow, machineCodeLabel, labLabel);
       leftPanel.setAlignment(Pos.TOP_CENTER);
       leftPanel.getStyleClass().add("qr-left-panel");
 
@@ -177,13 +186,15 @@ public class QrScreen {
       Label instrTitle = new Label("Registra tu acceso");
       instrTitle.getStyleClass().add("qr-instr-title");
 
-      Label instrDesc = new Label("Escanea el QR para abrir la aplicación web y registrar tu acceso.");
+      Label instrDesc =
+          new Label("Escanea el QR para abrir la aplicación web y registrar tu acceso.");
       instrDesc.getStyleClass().add("qr-instr-desc");
       instrDesc.setWrapText(true);
 
       VBox step1 = makeStep("□", "Escanea este código QR", "Usa la cámara de tu dispositivo.");
       VBox step2 = makeStep("⊡", "Abre la aplicación web", "Continúa desde el enlace del código.");
-      VBox step3 = makeStep("◎", "Registra tu acceso", "Sigue las indicaciones y espera la confirmación.");
+      VBox step3 =
+          makeStep("◎", "Registra tu acceso", "Sigue las indicaciones y espera la confirmación.");
 
       VBox rightPanel = new VBox(16, credLabel, instrTitle, instrDesc, step1, step2, step3);
       rightPanel.getStyleClass().add("qr-right-panel");
@@ -215,7 +226,8 @@ public class QrScreen {
     Label legalCenter = new Label("El QR es de un solo uso y se renueva automáticamente.");
     legalCenter.getStyleClass().add("qr-legal");
 
-    Label legalRight = new Label(model.machineCode() + " · " + model.labName() + " · Acceso principal");
+    Label legalRight =
+        new Label(model.machineCode() + " · " + model.labName() + " · Acceso principal");
     legalRight.getStyleClass().add("qr-legal");
 
     Region legalSpacer1 = new Region();
@@ -381,7 +393,8 @@ public class QrScreen {
     }
     int remaining = countdown.remainingSeconds();
     int total = Math.max(1, totalSeconds);
-    countdownLabel.setText("Se renueva en  " + String.format("%02d:%02d", remaining / 60, remaining % 60));
+    countdownLabel.setText(
+        "Se renueva en  " + String.format("%02d:%02d", remaining / 60, remaining % 60));
     countdownBar.setProgress((double) remaining / total);
   }
 
@@ -392,7 +405,9 @@ public class QrScreen {
     countdownLabel.setText(
         model.remainingSeconds() <= 0
             ? "Actualizando código…"
-            : String.format("Se renueva en  %02d:%02d", model.remainingSeconds() / 60, model.remainingSeconds() % 60));
+            : String.format(
+                "Se renueva en  %02d:%02d",
+                model.remainingSeconds() / 60, model.remainingSeconds() % 60));
     countdownBar.setProgress(model.remainingSeconds() <= 0 ? 0 : 1.0);
     machineCodeLabel.setText("🖥  " + model.machineCode() + "  ·  " + model.labName());
     labLabel.setText("");

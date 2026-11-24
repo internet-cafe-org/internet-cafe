@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
-import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -19,8 +18,8 @@ import javafx.scene.layout.VBox;
 import org.internetcafe.desktop.contract.RecentSession;
 
 /**
- * Pantalla D-03 (tablero de sesión activa): nombre, código enmascarado, hora de inicio,
- * cronómetro, últimos 5 accesos y botón "Cerrar sesión" (RF-EQU-09).
+ * Pantalla D-03 (tablero de sesión activa): nombre, código enmascarado, hora de inicio, cronómetro,
+ * últimos 5 accesos y botón "Cerrar sesión" (RF-EQU-09).
  *
  * <p>"Volver al QR" solo se muestra en el perfil dev (DSK-06 / DSK-08).
  */
@@ -97,7 +96,14 @@ public class BoardScreen {
     // ───────────────────────────────────────────────────────────────────────
 
     VBox center =
-        new VBox(16, title, nameLabel, codeLabel, startLabel, elapsedLabel, logoutButton,
+        new VBox(
+            16,
+            title,
+            nameLabel,
+            codeLabel,
+            startLabel,
+            elapsedLabel,
+            logoutButton,
             sessionHistory);
     center.setAlignment(Pos.CENTER);
     center.setPadding(new Insets(32));
@@ -140,8 +146,8 @@ public class BoardScreen {
   }
 
   /**
-   * Muestra el tablero y arranca el cronómetro desde {@code approvedAt}.
-   * Debe llamarse en el hilo de JavaFX, justo después de poner la escena en el escenario.
+   * Muestra el tablero y arranca el cronómetro desde {@code approvedAt}. Debe llamarse en el hilo
+   * de JavaFX, justo después de poner la escena en el escenario.
    */
   public void show(String userName, String code, Instant approvedAt) {
     stop();
@@ -162,8 +168,8 @@ public class BoardScreen {
   }
 
   /**
-   * Muestra los últimos accesos en la sección inferior del tablero (RF-EQU-09).
-   * Debe llamarse en el hilo de JavaFX.
+   * Muestra los últimos accesos en la sección inferior del tablero (RF-EQU-09). Debe llamarse en el
+   * hilo de JavaFX.
    *
    * @param sessions lista de sesiones recientes (puede estar vacía)
    */
@@ -215,8 +221,7 @@ public class BoardScreen {
       String startStr = DATETIME_FMT.format(start);
       if (s.endedAt() != null && !s.endedAt().isBlank()) {
         Instant end = Instant.parse(s.endedAt());
-        long minutes =
-            java.time.Duration.between(start, end).abs().toMinutes();
+        long minutes = java.time.Duration.between(start, end).abs().toMinutes();
         return startStr + " · " + minutes + " min";
       }
       return startStr;

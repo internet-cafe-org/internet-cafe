@@ -67,6 +67,8 @@ tasks.named('run') {
 spotless {
     java {
         googleJavaFormat()
+        // module-info.java no sigue el estilo de Google Java Format.
+        targetExclude('**/module-info.java')
     }
 }
 
