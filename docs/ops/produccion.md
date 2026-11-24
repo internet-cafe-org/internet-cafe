@@ -124,17 +124,19 @@ En **Settings → Environments → New environment** `prod`:
 1. **Required reviewers:** el PO y el Scrum Master (backlog: "aprobación del PO o el SM para
    todo despliegue a producción").
 2. **Deployment branches and tags:** solo etiquetas `v*`.
-3. Secretos y variables (los usan QA-17, OPS-14 y QA-18; cada tarea confirma los suyos):
+3. Secretos y variables, con los nombres y tipos que leen `deploy-prod.yml` (QA-17) y
+   `release-msi.yml` (OPS-14):
 
-| Nombre | Tipo | Valor |
-|---|---|---|
-| `DATABASE_URL_MIGRATOR` | secret | Neon prod con `svc_migrator` |
-| `RENDER_DEPLOY_HOOK` | secret | Deploy hook de Render prod |
-| `VERCEL_TOKEN` | secret | Token del proyecto de Vercel de prod |
-| `VERCEL_ORG_ID` | variable | Id del equipo u organización de Vercel |
-| `VERCEL_PROJECT_ID` | variable | Id del proyecto de Vercel de prod |
-| `PROD_API_URL` | variable | `https://internet-cafe-backend-prod.onrender.com` (sin `/` final) |
-| `PROD_WEB_URL` | variable | `https://internet-cafe-prod.vercel.app` |
+| Nombre | Tipo | Valor | Lo usa |
+|---|---|---|---|
+| `DATABASE_URL_MIGRATOR` | secret | Neon prod con `svc_migrator` | `deploy-prod` |
+| `RENDER_DEPLOY_HOOK` | secret | Deploy hook de Render prod | `deploy-prod` |
+| `VERCEL_TOKEN` | secret | Token del proyecto de Vercel de prod | `deploy-prod` |
+| `VERCEL_ORG_ID` | secret | Id del equipo u organización de Vercel | `deploy-prod` |
+| `VERCEL_PROJECT_ID` | secret | Id del proyecto de Vercel de prod | `deploy-prod` |
+| `PROD_API_URL` | variable | `https://internet-cafe-backend-prod.onrender.com` (sin `/` final) | `deploy-prod`, `release-msi` |
+| `PROD_WEB_URL` | variable | `https://internet-cafe-prod.vercel.app` | `deploy-prod` |
+| `PROD_ESPERA_DEPLOY_S` | variable (opcional) | Segundos de espera antes del humo; por defecto 420 | `deploy-prod` |
 
 Los secretos de la semilla del piloto y del administrador inicial llegan con QA-18 y QA-02b.
 

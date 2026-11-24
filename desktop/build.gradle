@@ -36,7 +36,8 @@ dependencies {
 }
 
 application {
-    mainClass = 'org.internetcafe.desktop.Main'
+    mainClass  = 'org.internetcafe.desktop.Main'
+    mainModule = 'org.internetcafe.desktop'
 }
 
 tasks.withType(Test).configureEach {
@@ -87,7 +88,7 @@ def resolvedApiBaseUrl =
 
 jlink {
     imageName = 'internet-cafe-desktop'
-    options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages']
+    options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages', '--ignore-signing-information']
 
     launcher {
         name = 'internet-cafe'
@@ -126,7 +127,7 @@ tasks.register('jpackageMsi') {
 
     dependsOn 'jlink'
 
-    def imageDir     = layout.buildDirectory.dir('image/internet-cafe-desktop')
+    def imageDir     = layout.buildDirectory.dir('internet-cafe-desktop')
     def destDir      = layout.buildDirectory.dir('installer')
     def resourceDir  = file("${projectDir}/packaging")
     def licenseFile  = new File(resourceDir, 'license.rtf')
@@ -134,6 +135,8 @@ tasks.register('jpackageMsi') {
 
     inputs.dir(imageDir)
     inputs.dir(resourceDir)
+    // Invalida el caché si cambia la URL de la API, evitando reutilizar un .msi con URL incorrecta.
+    inputs.property('apiBaseUrl', resolvedApiBaseUrl)
     outputs.dir(destDir)
 
     doLast {
@@ -164,7 +167,13 @@ tasks.register('jpackageMsi') {
             '--type',              'msi',
             '--name',              'Internet Cafe Desktop',
             '--app-version',       appVer,
-            '--app-image',         imageDir.get().asFile.absolutePath,
+            '--runtime-image',     imageDir.get().asFile.absolutePath,
+            '--module',            'org.internetcafe.desktop/org.internetcafe.desktop.Main',
+            // Propaga la URL de la API al lanzador generado por jpackage.
+            // Con --runtime-image, jpackage crea su propio lanzador y no copia
+            // los jvmArgs del lanzador de jlink, por lo que hay que reinyectarlos aquí.
+            '--java-options',      "-Dapi.base.url=${resolvedApiBaseUrl}",
+            '--java-options',      '-Dfile.encoding=UTF-8',
             '--dest',              destDir.get().asFile.absolutePath,
             '--win-upgrade-uuid',  '7F3A1B2C-9D4E-5F60-A7B8-C9D0E1F2A3B4',
             '--win-menu',

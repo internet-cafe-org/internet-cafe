@@ -454,7 +454,32 @@ public class Main extends Application {
     return scene;
   }
 
+  /**
+   * Lee el argumento {@code --api-base-url=<url>} de la línea de comandos y, si está presente,
+   * lo establece como propiedad del sistema {@code api.base.url} con la mayor prioridad, antes de
+   * que {@link AppConfig#getApiBaseUrl()} sea invocado por primera vez. Esto permite que el script
+   * de arranque {@code Register-Startup.ps1} sobreescriba la URL que quedó fija en el MSI al
+   * momento del build, sin necesidad de recompilar la aplicación.
+   *
+   * <p>El formato aceptado es {@code --api-base-url=https://host} (sin barra final). Si el
+   * argumento aparece más de una vez, se usa la última ocurrencia.
+   *
+   * @param args argumentos tal como los recibe {@link #main(String[])}.
+   */
+  static void applyApiBaseUrlArg(String[] args) {
+    String found = null;
+    for (String arg : args) {
+      if (arg.startsWith("--api-base-url=")) {
+        found = arg.substring("--api-base-url=".length());
+      }
+    }
+    if (found != null && !found.isBlank()) {
+      System.setProperty("api.base.url", found.trim());
+    }
+  }
+
   public static void main(String[] args) {
+    applyApiBaseUrlArg(args);
     launch(args);
   }
 }
