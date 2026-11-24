@@ -48,8 +48,10 @@ del `vercel.json` se encarga de reenviar `/api/*` al backend en Render:
 ```
 Navegador → https://internet-cafe-dev.vercel.app/api/v1/... 
   → Vercel rewrite →
-    https://internet-cafe-backend-dev.onrender.com/api/v1/...
+    https://internet-cafe-tq03.onrender.com/api/v1/...
 ```
+
+Asimismo, las rutas de la SPA se resuelven hacia `/index.html` mediante la regla de fallback en `vercel.json`.
 
 ### Configurar el proyecto en Vercel
 
