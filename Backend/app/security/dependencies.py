@@ -152,6 +152,11 @@ async def require_machine_retos(
         ).scalar_one_or_none()
         if machine is None:
             raise _error(401, "MACHINE_SIGNATURE_INVALID")
+        if machine.status == MachineStatus.disabled:
+            raise _error(403, "MACHINE_DISABLED")
+        if machine.status != MachineStatus.active:
+            raise _error(401, "MACHINE_SIGNATURE_INVALID")
+
         _logger.warning(
             "Reto pedido solo con X-Machine-Code (salida transitoria)",
             extra={"datos": {"evento": "machine.retos_solo_codigo", "machine_id": str(machine.id)}},
