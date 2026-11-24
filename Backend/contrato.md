@@ -25,6 +25,10 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 - **Nuevas** respuestas `Locked` (423), `TooManyRequests` (429) y `ServiceUnavailable` (503), y los esquemas `AccessToken`, `SessionUser`, `LoginResponse` y `MachineJwk`.
 - **Retiradas** `/registro`, `/enroll`, `/credencial-provisional` y `/long-poll`: venían del borrador v0.1 y la API nunca las implementó. Sus reemplazos son `/auth/register`, `/machine/enroll`, la credencial que devuelve `/machine/enroll` y `/machine/challenges/wait`.
 
+### BE-13 (Sprint 3)
+- **Nuevo** `POST /admin/machines/{id}/enrollment-code` (201) y `POST /admin/machines/{id}/revoke-key` (200).
+- **Cambia** `PATCH /admin/machines/{id}`: activar un equipo deshabilitado sin clave lo deja en `pending_enrollment` (antes 409).
+
 ### v0.2 respecto a v0.1
 - **Nuevo** `POST /machine/heartbeat`, `GET /machine/sessions/current`, `POST /machine/sessions/current/end`.
 - **Nuevo** `GET /me`, `GET /me/sessions`, `GET /me/sessions/active`, `POST /me/sessions/{id}/end`.
@@ -72,7 +76,7 @@ Si se presenta un refresh token ya revocado **fuera de la gracia de 10 s** se co
 **Bloqueo y límites (SEC-09):** 5 contraseñas fallidas seguidas bloquean la cuenta 15 min (423 `AUTH_ACCOUNT_LOCKED`). `/auth/*`, `/scan/claim` y `/machine/enroll` admiten 10 peticiones por minuto por cuenta y por IP (429 `RATE_LIMITED` con `Retry-After`); el refresh solo cuenta por su token.
 
 ## 5. Enrolamiento del equipo (`POST /machine/enroll`)
-1. El administrador genera un código de un solo uso que vence en 24 h. En el MVP lo genera la semilla de dev (QA-02a); el endpoint de administración llega con BE-13.
+1. El administrador genera un código de un solo uso que vence en 24 h. Lo genera `POST /admin/machines/{id}/enrollment-code` (BE-13), que lo muestra una sola vez e invalida los anteriores sin usar; en dev también lo genera la semilla (QA-02a). `POST /admin/machines/{id}/revoke-key` borra la clave y la credencial del equipo y exige enrolarlo de nuevo.
 2. El equipo genera un par ECDSA P-256 y envía `{enrollment_code, jwk, proof}`. `jwk` es la clave pública (`kty = EC`, `crv = P-256`, `x`, `y`; sin `d`). `proof` es la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y base64url sin relleno.
    - **Clave del TPM (ST-SEC-04, HU-28):** en Windows con TPM 2.0 el equipo puede enrolar en su lugar la clave RSA no exportable de `Windows-MY` (SunMSCAPI). `jwk` es `{kty: "RSA", n, e}` (2048 a 4096 bits, `e = AQAB`, sin parte privada ni ceros a la izquierda) y `proof` es la firma RSASSA-PKCS1-v1_5 / SHA-256 (`SHA256withRSA`) del código, en base64url sin relleno (342 caracteres con 2048 bits). La huella RFC 7638 usa `e`, `kty` y `n`. Después el equipo firma sus peticiones con `alg="rsa-v1_5-sha256"`. Sin TPM se sigue usando la clave P-256 del PKCS12.
 3. La API valida el JWK, verifica la firma, calcula la huella RFC 7638 (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional y audita `machine.enroll`. Todo en una transacción.
@@ -1029,7 +1033,8 @@ paths:
       security: *id005
       summary: Editar sala, modo o estado de un equipo (v0.2)
       description: 'Deshabilitar un equipo (`status: disabled`) cancela sus retos pendientes y cierra su sesión
-        abierta con `admin_forced` (RN-08). Activar un equipo que no se enroló responde 409 `CONFLICT`.'
+        abierta con `admin_forced` (RN-08). Activar un equipo que no se enroló responde 409 `CONFLICT`;
+        si además estaba `disabled`, queda en `pending_enrollment` para enrolarlo de nuevo.'
       parameters:
       - in: path
         name: id
@@ -1056,6 +1061,72 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines/{id}/enrollment-code:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Generar un código de enrolamiento (BE-13)
+      description: 'Genera un código de un solo uso que vence en 24 h. Los códigos anteriores sin usar del equipo
+        dejan de servir. El código se muestra solo en esta respuesta (la API guarda su hash), que lleva `Cache-Control:
+        no-store`. Audita `machine_enrollment_code_created`. Equipo deshabilitado → 409 `CONFLICT`.'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      responses:
+        '201':
+          description: Código generado.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentCode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines/{id}/revoke-key:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Revocar la clave de un equipo (BE-13)
+      description: 'Borra la clave pública y la credencial provisional, invalida los códigos de enrolamiento sin usar,
+        cancela los retos pendientes y cierra la sesión abierta con `admin_forced`. El equipo queda en `pending_enrollment`;
+        si estaba `disabled`, conserva ese estado (RN-08). Es idempotente. Audita `machine_key_revoked`.'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: Equipo sin credenciales.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
   /api/v1/admin/sessions:
@@ -1550,6 +1621,18 @@ components:
           nullable: true
         mode:
           $ref: '#/components/schemas/MachineMode'
+    EnrollmentCode:
+      type: object
+      required:
+      - machine_id
+      - code
+      - expires_at
+      properties:
+        machine_id: *id001
+        code:
+          type: string
+          description: Código de un solo uso; se muestra solo una vez.
+        expires_at: *id002
     MachinePatch:
       type: object
       additionalProperties: false
