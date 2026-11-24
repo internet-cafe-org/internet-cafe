@@ -551,6 +551,7 @@ async def test_repetir_la_misma_peticion_de_apagado_se_rechaza(
 ):
     """Capturar y reenviar el cierre no sirve: el nonce ya se usó."""
     await abrir_sesion(sesiones, datos.pc01, datos.ana, 0)
+    reloj.en(100)
     crudo = b'{"reason":"machine_shutdown"}'
     cabeceras = {
         "Content-Type": "application/json",
