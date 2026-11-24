@@ -110,8 +110,8 @@ El cliente no puede continuar sin el enrolamiento local, su contraseña protegid
 correcto ni el `keyid` guardado. En modo `dual`, la firma válida de una petición se debe validar;
 una firma inválida no debe volver al fallback de credencial provisional. El endpoint de enrolamiento
 conserva su propia prueba de posesión y no usa esta firma de máquina. Para Render dev, configura
-`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend, mantenlo
-en `MACHINE_AUTH_MODE=dual` y usa un equipo enrolado de prueba.
+`API_BASE_URL` con el origen público que coincide con `PUBLIC_API_BASE_URL` del backend, que está
+en `MACHINE_AUTH_MODE=signature` (OPS-16), y usa un equipo enrolado de prueba.
 
 ## Modo kiosco (DSK-11)
 

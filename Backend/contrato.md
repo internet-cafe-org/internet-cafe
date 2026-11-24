@@ -50,8 +50,8 @@ Los routers no cambian al activar la firma: solo se reemplaza la dependencia `re
 
 **Modo de autenticación del equipo (`MACHINE_AUTH_MODE`, SEC-07):**
 - `token`: solo `X-Machine-Code` + `X-Machine-Key`.
-- `dual` (dev hoy): si la petición trae `Signature-Input` y `Signature`, la firma debe ser válida; si no, se acepta la credencial provisional.
-- `signature` (producción, y dev tras OPS-16): solo la firma.
+- `dual` (transición, ya no se usa en dev): si la petición trae `Signature-Input` y `Signature`, la firma debe ser válida; si no, se acepta la credencial provisional.
+- `signature` (producción y dev, OPS-16): solo la firma.
 
 **Salida transitoria (solo dev):** con `RETOS_ACEPTAN_SOLO_CODIGO=true`, `/machine/challenges` y `/machine/challenges/wait` aceptan una petición con solo `X-Machine-Code`, para no dejar sin QR al escritorio actual mientras se actualiza. Se ignora con `APP_ENV=prod`, cada uso queda en el log (`machine.retos_solo_codigo`) y se elimina con SEC-14.
 
