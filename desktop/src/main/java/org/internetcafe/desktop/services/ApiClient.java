@@ -173,7 +173,7 @@ public class ApiClient {
         JsonNode.class);
   }
 
-    /**
+  /**
    * Returns the student's most recent closed accesses for the board (RF-EQU-09).
    *
    * <p>Calls the signed {@code GET /api/v1/machine/sessions/current} and reads {@code

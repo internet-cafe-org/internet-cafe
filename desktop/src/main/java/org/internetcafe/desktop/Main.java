@@ -455,11 +455,11 @@ public class Main extends Application {
   }
 
   /**
-   * Lee el argumento {@code --api-base-url=<url>} de la línea de comandos y, si está presente,
-   * lo establece como propiedad del sistema {@code api.base.url} con la mayor prioridad, antes de
-   * que {@link AppConfig#getApiBaseUrl()} sea invocado por primera vez. Esto permite que el script
-   * de arranque {@code Register-Startup.ps1} sobreescriba la URL que quedó fija en el MSI al
-   * momento del build, sin necesidad de recompilar la aplicación.
+   * Lee el argumento {@code --api-base-url=<url>} de la línea de comandos y, si está presente, lo
+   * establece como propiedad del sistema {@code api.base.url} con la mayor prioridad, antes de que
+   * {@link AppConfig#getApiBaseUrl()} sea invocado por primera vez. Esto permite que el script de
+   * arranque {@code Register-Startup.ps1} sobreescriba la URL que quedó fija en el MSI al momento
+   * del build, sin necesidad de recompilar la aplicación.
    *
    * <p>El formato aceptado es {@code --api-base-url=https://host} (sin barra final). Si el
    * argumento aparece más de una vez, se usa la última ocurrencia.

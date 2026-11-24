@@ -100,8 +100,7 @@ class ApiClientRecentSessionsTest {
   void failsClosedWhenNoSignerIsConfigured() {
     ApiClient unsignedClient = new ApiClient(HttpClient.newHttpClient(), baseUrl);
 
-    assertThrows(
-        IllegalStateException.class, () -> unsignedClient.getRecentSessions("PC-01", 5));
+    assertThrows(IllegalStateException.class, () -> unsignedClient.getRecentSessions("PC-01", 5));
   }
 
   private void handleRequest(HttpExchange exchange) throws IOException {
