@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
 from app.crypto import sha256_digest
+from app.locks import bloquear_equipo
 from app.models import AuditActorType, EnrollmentCode, Lab, Machine, MachineMode, MachineStatus
 from app.security.dependencies import hash_machine_credential
 
@@ -289,9 +290,22 @@ async def enrolar(
         EquipoDeshabilitado: Si el equipo del código está deshabilitado.
         ClaveEnUso: Si otro equipo ya registró la misma clave.
     """
-    ahora = now or datetime.now(UTC)
     clave = clave_publica_desde_jwk(jwk)
 
+    machine_id = await db.scalar(
+        select(EnrollmentCode.machine_id).where(
+            EnrollmentCode.code_hash == sha256_digest(codigo)
+        )
+    )
+    if machine_id is None:
+        raise CodigoInvalido()
+
+    # Serializa el consumo del codigo con su generacion y revocacion.
+    await bloquear_equipo(db, machine_id)
+
+    ahora = now or datetime.now(UTC)
+
+    # Se vuelve a consultar despues del bloqueo para validar su estado actual.
     registro = await db.scalar(
         select(EnrollmentCode)
         .where(EnrollmentCode.code_hash == sha256_digest(codigo))

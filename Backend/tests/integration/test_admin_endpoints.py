@@ -9,14 +9,14 @@ Cubren sobre la API real (/api/v1) y PostgreSQL:
 - cierre forzado `admin_forced`: idempotente y con auditoría (RF-ADM-07, RF-SES-08, RF-ADM-09);
 - recursos ajenos (IDOR) por rol: una sesión ajena responde igual que una inexistente.
 
-Quedan marcadas como pendientes (skip) las pruebas de lo que aún no está en `develop`:
-códigos de enrolamiento y revocación de clave (BE-13), CLI `block-user` (BE-20) y el filtro
-por estudiante exacto de BE-14. Hay que activarlas cuando esas tareas se fusionen.
+Siguen pendientes (skip) unicamente las pruebas de CLI `block-user` (BE-20) y del filtro por estudiante exacto (BE-14).
 
 No hay credenciales reales: los tokens se firman con claves efímeras, los equipos usan una
 credencial ficticia y los usuarios son datos inventados.
 """
 
+import asyncio
+import base64
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -24,14 +24,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from httpx import ASGITransport, AsyncClient, Response
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.crypto import sha256_digest
 from app.config import settings
+from app.crypto import sha256_digest
 from app.database import obtener_base_datos
 from app.jwt import create_access_token
 from app.main import app
@@ -50,6 +52,7 @@ from app.models import (
     UserRole,
     UserStatus,
 )
+from app.routers import admin as admin_router
 from app.security.dependencies import hash_machine_credential
 
 API = "/api/v1"
@@ -1032,7 +1035,9 @@ async def test_codigo_de_enrolamiento_se_muestra_una_sola_vez(
         headers=cab_admin,
     )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 201
+    assert resp.headers["Cache-Control"] == "no-store"
+
     cuerpo = resp.json()
     codigo = cuerpo["code"]
     assert codigo.startswith("ENR-")
@@ -1072,6 +1077,103 @@ async def test_codigo_de_enrolamiento_se_muestra_una_sola_vez(
     assert auditorias[0].target_id == datos.pc01.id
     assert codigo not in str(auditorias[0].metadata_info)
     assert codigo not in caplog.text
+
+
+async def test_generar_un_codigo_nuevo_invalida_el_anterior(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+    datos: Any,
+    sesiones: async_sessionmaker[AsyncSession],
+) -> None:
+    """Al generar un codigo nuevo, el anterior deja de ser valido."""
+    url = f"{API}/admin/machines/{datos.pc01.id}/enrollment-code"
+
+    primera_respuesta = await cliente.post(url, headers=cab_admin)
+    assert primera_respuesta.status_code == 201
+    codigo_anterior = primera_respuesta.json()["code"]
+
+    segunda_respuesta = await cliente.post(url, headers=cab_admin)
+    assert segunda_respuesta.status_code == 201
+    codigo_nuevo = segunda_respuesta.json()["code"]
+
+    assert codigo_anterior != codigo_nuevo
+
+    async with sesiones() as db:
+        registro_anterior = await db.scalar(
+            select(EnrollmentCode).where(
+                EnrollmentCode.machine_id == datos.pc01.id,
+                EnrollmentCode.code_hash == sha256_digest(codigo_anterior),
+            )
+        )
+        registro_nuevo = await db.scalar(
+            select(EnrollmentCode).where(
+                EnrollmentCode.machine_id == datos.pc01.id,
+                EnrollmentCode.code_hash == sha256_digest(codigo_nuevo),
+            )
+        )
+
+    assert registro_anterior is not None
+    assert registro_anterior.used_at is not None
+    assert registro_nuevo is not None
+    assert registro_nuevo.used_at is None
+
+
+async def test_endpoints_de_enrolamiento_responden_404_si_el_equipo_no_existe(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+) -> None:
+    """Los endpoints de BE-13 responden NOT_FOUND para equipos inexistentes."""
+    rutas = (
+        f"{API}/admin/machines/{ID_INEXISTENTE}/enrollment-code",
+        f"{API}/admin/machines/{ID_INEXISTENTE}/revoke-key",
+    )
+
+    for ruta in rutas:
+        respuesta = await cliente.post(ruta, headers=cab_admin)
+        assert respuesta.status_code == 404
+        assert respuesta.json()["code"] == "NOT_FOUND"
+
+
+async def test_revocar_clave_exige_permisos_de_administrador(
+    cliente: AsyncClient,
+    claves: str,
+    datos: Any,
+) -> None:
+    """La revocacion requiere autenticacion y rol de administrador."""
+    ruta = f"{API}/admin/machines/{datos.pc01.id}/revoke-key"
+
+    sin_token = await cliente.post(ruta)
+    estudiante = await cliente.post(
+        ruta,
+        headers=_bearer(claves, datos.ana),
+    )
+
+    assert sin_token.status_code == 401
+    assert estudiante.status_code == 403
+
+
+async def test_generar_codigo_para_equipo_deshabilitado_responde_409(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+) -> None:
+    """No se permite generar codigos para equipos deshabilitados."""
+    async with sesiones() as db:
+        await db.execute(
+            update(Machine)
+            .where(Machine.id == datos.pc01.id)
+            .values(status=MachineStatus.disabled)
+        )
+        await db.commit()
+
+    respuesta = await cliente.post(
+        f"{API}/admin/machines/{datos.pc01.id}/enrollment-code",
+        headers=cab_admin,
+    )
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["code"] == "CONFLICT"
 
 
 async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
@@ -1197,6 +1299,50 @@ async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
     assert latido.json()["code"] == "MACHINE_SIGNATURE_INVALID"
 
 
+async def test_revocar_clave_de_equipo_deshabilitado_conserva_estado_disabled(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+) -> None:
+    """Revocar las credenciales no debe rehabilitar un equipo deshabilitado."""
+    equipo = datos.pc01
+    credencial = f"{CREDENCIAL_PC}-{equipo.code}"
+
+    async with sesiones() as db:
+        await db.execute(
+            update(Machine)
+            .where(Machine.id == equipo.id)
+            .values(
+                status=MachineStatus.disabled,
+                public_key_jwk={"kty": "EC"},
+                key_thumbprint="b" * 64,
+                credential_hash=hash_machine_credential(credencial),
+                enrolled_at=datetime.now(UTC),
+            )
+        )
+        await db.commit()
+
+    respuesta = await cliente.post(
+        f"{API}/admin/machines/{equipo.id}/revoke-key",
+        headers=cab_admin,
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["status"] == "disabled"
+
+    equipo_actualizado = await _leer_equipo(sesiones, equipo.id)
+    assert equipo_actualizado.status == MachineStatus.disabled
+    assert equipo_actualizado.public_key_jwk is None
+    assert equipo_actualizado.key_thumbprint is None
+    assert equipo_actualizado.credential_hash is None
+    assert equipo_actualizado.enrolled_at is None
+
+    auditorias = await _auditorias(sesiones, "machine_key_revoked")
+    assert len(auditorias) == 1
+    assert auditorias[0].metadata_info["status"] == "disabled"
+
+
 @pytest.mark.skip(reason="BE-20 aún no está en develop: CLI create-admin y block-user")
 async def test_block_user_bloquea_la_cuenta_revoca_sesiones_web_y_cierra_el_acceso() -> None:
     """RN-12: bloquear una cuenta la deja en `blocked`, revoca sus refresh tokens y cierra su
@@ -1209,3 +1355,170 @@ async def test_accesos_se_filtran_por_estudiante_con_correo_o_codigo_exacto() ->
     """HU-15: el filtro usa el correo o el código exacto a través del blind index; una parte
     del código o del correo no devuelve resultados.
     """
+
+
+async def test_enrolamiento_concurrente_con_revocacion_no_produce_deadlock(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El enrolamiento y la revocación concurrentes respetan el orden de bloqueos."""
+    equipo = datos.pc01
+
+    respuesta_codigo = await cliente.post(
+        f"{API}/admin/machines/{equipo.id}/enrollment-code",
+        headers=cab_admin,
+    )
+    assert respuesta_codigo.status_code == 201
+    codigo = respuesta_codigo.json()["code"]
+
+    clave = ec.generate_private_key(ec.SECP256R1())
+    numeros = clave.public_key().public_numbers()
+
+    def b64(valor: bytes) -> str:
+        return base64.urlsafe_b64encode(valor).rstrip(b"=").decode()
+
+    jwk = {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": b64(numeros.x.to_bytes(32, "big")),
+        "y": b64(numeros.y.to_bytes(32, "big")),
+    }
+
+    firma_der = clave.sign(codigo.encode(), ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(firma_der)
+    prueba = b64(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+
+    codigo_bloqueado = asyncio.Event()
+    continuar = asyncio.Event()
+    revocacion_intenta_bloqueo = asyncio.Event()
+
+    pausa_realizada = False
+    pid_revocacion: int | None = None
+
+    get_original = AsyncSession.get
+    bloquear_original = admin_router.bloquear_equipo
+
+    async def get_pausado(self, entity, ident, **kwargs):
+        nonlocal pausa_realizada
+
+        if (
+            entity is Machine
+            and kwargs.get("with_for_update")
+            and not pausa_realizada
+        ):
+            pausa_realizada = True
+            codigo_bloqueado.set()
+            await continuar.wait()
+
+        return await get_original(self, entity, ident, **kwargs)
+
+    async def bloquear_observado(db, machine_id):
+        nonlocal pid_revocacion
+
+        if machine_id == equipo.id:
+            pid_revocacion = await db.scalar(
+                text("SELECT pg_backend_pid()")
+            )
+            revocacion_intenta_bloqueo.set()
+
+        await bloquear_original(db, machine_id)
+
+    monkeypatch.setattr(AsyncSession, "get", get_pausado)
+    monkeypatch.setattr(
+        admin_router,
+        "bloquear_equipo",
+        bloquear_observado,
+    )
+
+    enrolamiento = asyncio.create_task(
+        cliente.post(
+            f"{API}/machine/enroll",
+            json={
+                "enrollment_code": codigo,
+                "jwk": jwk,
+                "proof": prueba,
+                "hostname": "PC-CONCURRENCIA",
+                "app_version": "1.0.0",
+            },
+        )
+    )
+
+    revocacion = None
+
+    try:
+        await asyncio.wait_for(codigo_bloqueado.wait(), timeout=5)
+
+        revocacion = asyncio.create_task(
+            cliente.post(
+                f"{API}/admin/machines/{equipo.id}/revoke-key",
+                headers=cab_admin,
+            )
+        )
+
+        await asyncio.wait_for(
+            revocacion_intenta_bloqueo.wait(),
+            timeout=5,
+        )
+
+        assert pid_revocacion is not None
+
+        async def esperar_bloqueo_advisory() -> None:
+            while True:
+                async with sesiones() as db:
+                    esperando = await db.scalar(
+                        text("""
+                            SELECT EXISTS (
+                                SELECT 1
+                                FROM pg_stat_activity
+                                WHERE pid = :pid
+                                  AND wait_event_type = 'Lock'
+                                  AND wait_event = 'advisory'
+                            )
+                        """),
+                        {"pid": pid_revocacion},
+                    )
+
+                if esperando:
+                    return
+
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(
+            esperar_bloqueo_advisory(),
+            timeout=5,
+        )
+
+    finally:
+        continuar.set()
+
+        tareas = [enrolamiento]
+        if revocacion is not None:
+            tareas.append(revocacion)
+
+        resultados = await asyncio.wait_for(
+            asyncio.gather(*tareas, return_exceptions=True),
+            timeout=10,
+        )
+
+    for resultado in resultados:
+        if isinstance(resultado, BaseException):
+            raise resultado
+
+    respuesta_enrolamiento = resultados[0]
+    assert revocacion is not None
+    respuesta_revocacion = resultados[1]
+
+    assert respuesta_enrolamiento.status_code == 201
+    assert respuesta_revocacion.status_code == 200
+
+    async with sesiones() as db:
+        maquina_final = await db.get(Machine, equipo.id)
+
+    assert maquina_final is not None
+    assert maquina_final.status == MachineStatus.pending_enrollment
+    assert maquina_final.credential_hash is None
+    assert maquina_final.public_key_jwk is None
+    assert maquina_final.key_thumbprint is None

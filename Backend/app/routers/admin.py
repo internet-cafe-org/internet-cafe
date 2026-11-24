@@ -21,9 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
 from app.config import settings
+from app.crypto import sha256_digest
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
-from app.crypto import sha256_digest
+from app.locks import bloquear_equipo
 from app.models import (
     AccessSession,
     AuditActorType,
@@ -44,6 +45,7 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(requir
 
 # Máximo de filas que devuelve la exportación CSV; si hay más, se avisa en la respuesta.
 LIMITE_FILAS_CSV = 10_000
+DURACION_CODIGO_ENROLAMIENTO = timedelta(hours=24)
 
 
 # ------------------------------------------------------------------------- esquemas
@@ -626,18 +628,47 @@ async def editar_equipo(
 @router.post(
     "/machines/{machine_id}/enrollment-code",
     response_model=EnrollmentCodeResponse,
+    status_code=201,
 )
 async def generar_codigo_enrolamiento(
     machine_id: uuid.UUID,
+    response: Response,
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> EnrollmentCodeResponse:
-    """Genera un código de enrolamiento de un solo uso, válido durante 24 horas."""
+    """Genera un código de enrolamiento de un solo uso, válido durante 24 horas.
+
+    Args:
+        machine_id: Identificador del equipo.
+        response: Respuesta HTTP para establecer cabeceras de seguridad.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El código de enrolamiento y su fecha de expiración.
+
+    Raises:
+        AppError: Si el equipo no existe o está deshabilitado.
+    """
+    await bloquear_equipo(db, machine_id)
+
+    # Mantiene el orden de bloqueos de /machine/enroll: códigos y después equipo.
+    await db.execute(
+        select(EnrollmentCode)
+        .where(
+            EnrollmentCode.machine_id == machine_id,
+            EnrollmentCode.used_at.is_(None),
+        )
+        .order_by(EnrollmentCode.id)
+        .with_for_update()
+    )
+
     machine = (
         await db.execute(
             select(Machine)
             .where(Machine.id == machine_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
 
@@ -650,10 +681,22 @@ async def generar_codigo_enrolamiento(
             detail="No se puede generar un código para un equipo deshabilitado.",
         )
 
-    codigo = f"ENR-{secrets.token_urlsafe(24)}"
-    ahora = datetime.now(timezone.utc)
-    vence = ahora + timedelta(hours=24)
+    ahora = challenges.ahora()
+    vence = ahora + DURACION_CODIGO_ENROLAMIENTO
 
+    # Segunda comprobación tras bloquear el equipo: captura códigos pendientes
+    # que hayan podido crearse mientras esta petición esperaba el bloqueo.
+    await db.execute(
+        update(EnrollmentCode)
+        .where(
+            EnrollmentCode.machine_id == machine.id,
+            EnrollmentCode.used_at.is_(None),
+        )
+        .values(used_at=ahora)
+        .execution_options(synchronize_session=False)
+    )
+
+    codigo = f"ENR-{secrets.token_urlsafe(24)}"
     registro = EnrollmentCode(
         machine_id=machine.id,
         code_hash=sha256_digest(codigo),
@@ -676,6 +719,8 @@ async def generar_codigo_enrolamiento(
 
     await db.commit()
 
+    response.headers["Cache-Control"] = "no-store"
+
     return EnrollmentCodeResponse(
         machine_id=machine.id,
         code=codigo,
@@ -692,7 +737,32 @@ async def revocar_clave_equipo(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachineItem:
-    """Revoca las credenciales del equipo y exige un nuevo enrolamiento."""
+    """Revoca las credenciales del equipo sin rehabilitar equipos deshabilitados.
+
+    Args:
+        machine_id: Identificador del equipo.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El equipo con sus credenciales revocadas.
+
+    Raises:
+        AppError: Si el equipo no existe.
+    """
+    await bloquear_equipo(db, machine_id)
+
+    # Mismo orden de bloqueos que /machine/enroll: códigos y después equipo.
+    await db.execute(
+        select(EnrollmentCode)
+        .where(
+            EnrollmentCode.machine_id == machine_id,
+            EnrollmentCode.used_at.is_(None),
+        )
+        .order_by(EnrollmentCode.id)
+        .with_for_update()
+    )
+
     machine = (
         await db.execute(
             select(Machine)
@@ -707,7 +777,8 @@ async def revocar_clave_equipo(
 
     ahora = challenges.ahora()
 
-    # Invalida los códigos de enrolamiento anteriores que aún no se usaron.
+    # Se repite después de bloquear el equipo para incluir cualquier código
+    # pendiente creado durante la espera por el bloqueo.
     await db.execute(
         update(EnrollmentCode)
         .where(
@@ -718,7 +789,7 @@ async def revocar_clave_equipo(
         .execution_options(synchronize_session=False)
     )
 
-    # Cancela los retos que todavía estén pendientes.
+    # Cancela los retos que todavía están pendientes.
     await db.execute(
         update(LoginChallenge)
         .where(
@@ -747,7 +818,10 @@ async def revocar_clave_equipo(
     machine.key_thumbprint = None
     machine.credential_hash = None
     machine.enrolled_at = None
-    machine.status = MachineStatus.pending_enrollment
+
+    # RN-08: revocar credenciales no debe rehabilitar un equipo deshabilitado.
+    if machine.status != MachineStatus.disabled:
+        machine.status = MachineStatus.pending_enrollment
 
     await audit(
         db,
@@ -756,7 +830,7 @@ async def revocar_clave_equipo(
         action="machine_key_revoked",
         target_type="machine",
         target_id=machine.id,
-        metadata_info={"status": MachineStatus.pending_enrollment.value},
+        metadata_info={"status": machine.status.value},
     )
 
     await db.flush()

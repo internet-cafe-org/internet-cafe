@@ -1058,6 +1058,67 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines/{machine_id}/enrollment-code:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Generar código de enrolamiento de un equipo (BE-13)
+      description: Genera un código de un solo uso, válido durante 24 horas. El código completo solo se devuelve en esta respuesta y no debe almacenarse en caché.
+      parameters:
+      - in: path
+        name: machine_id
+        required: true
+        schema: *id001
+      responses:
+        '201':
+          description: Código de enrolamiento generado.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Directiva no-store para impedir el almacenamiento en caché.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentCodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/machines/{machine_id}/revoke-key:
+    post:
+      tags:
+      - admin
+      security: *id005
+      summary: Revocar credenciales de un equipo (BE-13)
+      description: Revoca las credenciales del equipo, invalida códigos de enrolamiento pendientes, cancela retos y cierra la sesión activa. Un equipo deshabilitado conserva ese estado.
+      parameters:
+      - in: path
+        name: machine_id
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: Credenciales revocadas; se devuelve el estado actualizado del equipo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Machine'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/admin/sessions:
     get:
       tags:
@@ -1534,6 +1595,22 @@ components:
           type: integer
         offset:
           type: integer
+    EnrollmentCodeResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - machine_id
+      - code
+      - expires_at
+      properties:
+        machine_id: *id001
+        code:
+          type: string
+          description: Código de un solo uso mostrado únicamente al generarlo.
+        expires_at:
+          type: string
+          format: date-time
+          description: Fecha y hora de expiración del código.
     MachineCreate:
       type: object
       additionalProperties: false
@@ -1852,6 +1929,5 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
-
 ```
 
