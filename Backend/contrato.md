@@ -55,7 +55,7 @@ Los routers no cambian al activar la firma: solo se reemplaza la dependencia `re
 
 **Salida transitoria (solo dev):** con `RETOS_ACEPTAN_SOLO_CODIGO=true`, `/machine/challenges` y `/machine/challenges/wait` aceptan una petición con solo `X-Machine-Code`, para no dejar sin QR al escritorio actual mientras se actualiza. Se ignora con `APP_ENV=prod`, cada uso queda en el log (`machine.retos_solo_codigo`) y se elimina con SEC-14.
 
-Perfil de la firma (vectores en `contracts/test-vectors`, SEC-08): `sig1`, `ecdsa-p256-sha256`, componentes `@method`, `@target-uri` y, solo con cuerpo, `content-digest`; parámetros `created`, `keyid` (huella RFC 7638), `alg` y `nonce`; `@target-uri` = `PUBLIC_API_BASE_URL` + ruta + query; firma `r||s` de 64 bytes en base64.
+Perfil de la firma (vectores en `contracts/test-vectors`, SEC-08): `sig1`, `ecdsa-p256-sha256` (o `rsa-v1_5-sha256` si el equipo enroló la clave RSA del TPM, ST-SEC-04; el `alg` debe ser el del tipo de la clave), componentes `@method`, `@target-uri` y, solo con cuerpo, `content-digest`; parámetros `created`, `keyid` (huella RFC 7638), `alg` y `nonce`; `@target-uri` = `PUBLIC_API_BASE_URL` + ruta + query; firma `r||s` de 64 bytes en base64 (con RSA, la firma RSASSA-PKCS1-v1_5 del largo del módulo).
 
 ## 4. Sesión web: registro, login, refresh y logout
 - **Registro** (`POST /auth/register`): con datos válidos responde siempre 202 con el cuerpo vacío, también si el correo o el código estudiantil ya existen (no se crea otra cuenta ni se revela cuál existe). Contraseña de 10 a 128 caracteres (Argon2id); `privacy_consent` debe ser `true`; un dominio de correo no permitido devuelve 422. En el MVP la cuenta queda activa (`REQUIRE_EMAIL_VERIFICATION=false`, backlog §4) y la web inicia sesión sola.
@@ -74,6 +74,7 @@ Si se presenta un refresh token ya revocado **fuera de la gracia de 10 s** se co
 ## 5. Enrolamiento del equipo (`POST /machine/enroll`)
 1. El administrador genera un código de un solo uso que vence en 24 h. En el MVP lo genera la semilla de dev (QA-02a); el endpoint de administración llega con BE-13.
 2. El equipo genera un par ECDSA P-256 y envía `{enrollment_code, jwk, proof}`. `jwk` es la clave pública (`kty = EC`, `crv = P-256`, `x`, `y`; sin `d`). `proof` es la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y base64url sin relleno.
+   - **Clave del TPM (ST-SEC-04, HU-28):** en Windows con TPM 2.0 el equipo puede enrolar en su lugar la clave RSA no exportable de `Windows-MY` (SunMSCAPI). `jwk` es `{kty: "RSA", n, e}` (2048 a 4096 bits, `e = AQAB`, sin parte privada ni ceros a la izquierda) y `proof` es la firma RSASSA-PKCS1-v1_5 / SHA-256 (`SHA256withRSA`) del código, en base64url sin relleno (342 caracteres con 2048 bits). La huella RFC 7638 usa `e`, `kty` y `n`. Después el equipo firma sus peticiones con `alg="rsa-v1_5-sha256"`. Sin TPM se sigue usando la clave P-256 del PKCS12.
 3. La API valida el JWK, verifica la firma, calcula la huella RFC 7638 (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional y audita `machine.enroll`. Todo en una transacción.
 4. Respuesta 201: `{machine_id, code, lab, mode, keyid, provisional_credential}`. La credencial se muestra una sola vez; la API guarda solo su hash.
 
@@ -337,9 +338,10 @@ paths:
       - machine
       security: []
       summary: Enrolar el equipo con su clave pública (SEC-05)
-      description: 'El equipo envía el código de un solo uso, su clave pública P-256 en JWK y una prueba de posesión:
-        la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y
-        base64url sin relleno. La API valida el JWK (P-256, sin `d`), verifica la firma, calcula la huella RFC 7638
+      description: 'El equipo envía el código de un solo uso, su clave pública en JWK (EC P-256, o RSA de 2048 a
+        4096 bits con e = 65537 para la clave no exportable del TPM, ST-SEC-04) y una prueba de posesión: la firma
+        SHA-256 de los bytes UTF-8 de `enrollment_code` en base64url sin relleno (ECDSA en `r||s` de 64 bytes con
+        EC; RSASSA-PKCS1-v1_5 del largo del módulo con RSA). La API valida el JWK (sin parte privada), verifica la firma, calcula la huella RFC 7638
         (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional (se muestra
         una sola vez; la API guarda solo su hash) y audita `machine.enroll`. Código inexistente, usado o vencido
         → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido → 422; clave
@@ -365,7 +367,8 @@ paths:
                   $ref: '#/components/schemas/MachineJwk'
                 proof:
                   type: string
-                  description: Firma `r||s` (64 bytes) en base64url sin relleno.
+                  description: Firma del código en base64url sin relleno. EC P-256 → `r||s` de 64 bytes; RSA →
+                    RSASSA-PKCS1-v1_5 / SHA-256 del largo del módulo (256 bytes con 2048 bits).
                   example: MEUCIQ…
                 hostname:
                   type: string
@@ -1208,7 +1211,8 @@ components:
       name: Signature
       description: 'OBJETIVO v0.2 (RFC 9421 + RFC 9530). Cabeceras: `Content-Digest: sha-256=:<base64>:`, `Signature-Input:
         sig1=("@method" "@target-uri" "content-digest");created=<epoch>;nonce="<id>";keyid="<thumbprint>";alg="ecdsa-p256-sha256"`
-        y `Signature: sig1=:<r||s 64 bytes base64>:`. Tolerancia de reloj ±30 s (`MACHINE_CLOCK_SKEW`), nonce no
+        y `Signature: sig1=:<r||s 64 bytes base64>:`. Con una clave RSA enrolada (TPM, ST-SEC-04) `alg="rsa-v1_5-sha256"`
+        y la firma mide lo que el módulo; el `alg` debe ser el del tipo de la clave. Tolerancia de reloj ±30 s (`MACHINE_CLOCK_SKEW`), nonce no
         repetido en 60 s, firma inválida o repetida → `MACHINE_SIGNATURE_INVALID`. Estado: contrato propuesto; la
         verificación en el servidor la entrega el equipo de Seguridad.'
   schemas:
@@ -1722,6 +1726,17 @@ components:
           user:
             $ref: '#/components/schemas/SessionUser'
     MachineJwk:
+      description: Clave pública del equipo (RFC 7517). EC P-256 (clave PKCS12) o RSA (clave no exportable del TPM,
+        ST-SEC-04). No puede incluir la parte privada.
+      oneOf:
+      - $ref: '#/components/schemas/MachineJwkEc'
+      - $ref: '#/components/schemas/MachineJwkRsa'
+      discriminator:
+        propertyName: kty
+        mapping:
+          EC: '#/components/schemas/MachineJwkEc'
+          RSA: '#/components/schemas/MachineJwkRsa'
+    MachineJwkEc:
       type: object
       description: Clave pública EC P-256 (RFC 7517). No puede incluir la parte privada (`d`).
       required:
@@ -1747,6 +1762,30 @@ components:
           type: string
           description: Coordenada y en base64url sin relleno (32 bytes).
           example: x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0
+    MachineJwkRsa:
+      type: object
+      description: Clave pública RSA (RFC 7518 §6.3) de 2048 a 4096 bits con exponente 65537. Es la clave no
+        exportable del TPM (HU-28). No puede incluir la parte privada (`d`, `p`, `q`, `dp`, `dq`, `qi`).
+      required:
+      - kty
+      - n
+      - e
+      additionalProperties: false
+      properties:
+        kty:
+          type: string
+          enum:
+          - RSA
+        n:
+          type: string
+          minLength: 342
+          maxLength: 683
+          description: Módulo en base64url sin relleno y sin ceros a la izquierda.
+        e:
+          type: string
+          enum:
+          - AQAB
+          description: Exponente público 65537 en base64url.
   responses:
     BadRequest:
       description: Petición inválida.
