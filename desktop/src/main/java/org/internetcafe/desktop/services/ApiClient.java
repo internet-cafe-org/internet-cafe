@@ -2,6 +2,7 @@ package org.internetcafe.desktop.services;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -13,7 +14,9 @@ import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.internetcafe.desktop.AppConfig;
@@ -170,40 +173,40 @@ public class ApiClient {
         JsonNode.class);
   }
 
-  /**
-   * Returns the last {@code limit} closed sessions for this machine (RF-EQU-09: últimos 5 accesos).
+    /**
+   * Returns the student's most recent closed accesses for the board (RF-EQU-09).
    *
-   * <p>Calls {@code GET /api/v1/machine/sessions/recent?limit=<n>}. Returns an empty list when the
-   * endpoint does not exist yet or the response cannot be parsed, so the board degrades gracefully.
+   * <p>Calls the signed {@code GET /api/v1/machine/sessions/current} and reads {@code
+   * recent_accesses}; the server sends at most 5 and never includes the open session. When the
+   * machine has no open session the server answers 204 without a body and the list is empty.
    */
-  public java.util.List<org.internetcafe.desktop.contract.RecentSession> getRecentSessions(
-      String machineCode, int limit) throws IOException, InterruptedException {
-    HttpRequest request =
-        requestBuilder(API_PATH + "/machine/sessions/recent?limit=" + limit)
-            .header("X-Machine-Code", machineCode)
-            .GET()
-            .build();
+  public List<RecentSession> getRecentSessions(String machineCode, int limit)
+      throws IOException, InterruptedException {
+    JsonNode root;
     try {
-      JsonNode root = send(request, JsonNode.class);
-      java.util.List<org.internetcafe.desktop.contract.RecentSession> sessions =
-          new java.util.ArrayList<>();
-      JsonNode items = root.isArray() ? root : root.path("items");
-      if (items.isArray()) {
-        for (JsonNode node : items) {
-          String startedAt = node.path("started_at").asText(null);
-          String endedAt = node.path("ended_at").asText(null);
-          String endReason = node.path("end_reason").asText(null);
-          if (startedAt != null) {
-            sessions.add(
-                new org.internetcafe.desktop.contract.RecentSession(startedAt, endedAt, endReason));
-          }
-        }
-      }
-      return sessions;
-    } catch (ApiException e) {
-      // Backend aún no tiene el endpoint (404) u otro error — lista vacía.
-      return java.util.List.of();
+      root =
+          sendMachineRequest(
+              "GET",
+              API_PATH + "/machine/sessions/current",
+              machineCode,
+              null,
+              null,
+              JsonNode.class);
+    } catch (MismatchedInputException noBody) {
+      return List.of();
     }
+    JsonNode accesses = root.path("recent_accesses");
+    if (!accesses.isArray()) {
+      return List.of();
+    }
+    List<RecentSession> sessions = new ArrayList<>();
+    for (JsonNode access : accesses) {
+      if (sessions.size() >= limit) {
+        break;
+      }
+      sessions.add(OBJECT_MAPPER.treeToValue(access, RecentSession.class));
+    }
+    return sessions;
   }
 
   public LongPollResponse longPoll(String lastEventId) throws IOException, InterruptedException {
