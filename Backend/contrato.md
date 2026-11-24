@@ -94,7 +94,7 @@ Errores: código inexistente, usado o vencido → 401 `ENROLLMENT_CODE_INVALID`;
 - Los 422 llevan `code: VALIDATION_ERROR` y `errors[]` con `field` y `message`. No devuelven `input` ni `ctx`, para no repetir contraseñas u otros datos del cliente. Los cuerpos de `/auth/*`, `/machine/enroll`, `/machine/heartbeat`, `/me` y `/admin` rechazan campos desconocidos.
 - Además del catálogo del SRS §10.5 existen los códigos genéricos `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `INTERNAL_ERROR` y `CONFLICT`.
 - Un 500 no incluye la traza; el servidor registra un `request_id` que viaja en la cabecera `X-Request-ID`.
-- Ninguna respuesta incluye contraseñas, hashes, refresh tokens, claves privadas ni el código de estudiante completo (siempre `student_code_masked`).
+- Ninguna respuesta incluye contraseñas, hashes, refresh tokens, claves privadas ni el código de estudiante completo (siempre `student_code_masked`). La única excepción es el código de enrolamiento de un solo uso, que `POST /admin/machines/{id}/enrollment-code` (BE-13) muestra una sola vez, con `Cache-Control: no-store`; la API guarda solo su hash.
 
 ## 8. Especificación OpenAPI v0.2.1
 ```yaml
