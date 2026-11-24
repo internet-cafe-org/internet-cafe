@@ -7,25 +7,28 @@ nueva queda abierta por olvido. Las respuestas de administración nunca incluyen
 
 import csv
 import io
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
 from app.config import settings
+from app.crypto import sha256_digest
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.models import (
     AccessSession,
     AuditActorType,
     ChallengeStatus,
+    EnrollmentCode,
     Lab,
     LoginChallenge,
     Machine,
@@ -41,6 +44,9 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(requir
 
 # Máximo de filas que devuelve la exportación CSV; si hay más, se avisa en la respuesta.
 LIMITE_FILAS_CSV = 10_000
+
+# Vigencia del código de enrolamiento (contrato, sección 5).
+VIGENCIA_CODIGO_ENROLAMIENTO = timedelta(hours=24)
 
 
 # ------------------------------------------------------------------------- esquemas
@@ -135,6 +141,14 @@ class MachinesPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class EnrollmentCodeResponse(BaseModel):
+    """Código de enrolamiento mostrado una sola vez."""
+
+    machine_id: uuid.UUID
+    code: str
+    expires_at: datetime
 
 
 class AdminUserInfo(BaseModel):
@@ -265,6 +279,51 @@ def _item_equipo(machine: Machine, lab_name: str | None) -> MachineItem:
         app_version=machine.app_version,
         enrolled_at=machine.enrolled_at,
         last_seen_at=machine.last_seen_at,
+    )
+
+
+async def _bloquear_equipo(db: AsyncSession, machine_id: uuid.UUID) -> Machine:
+    """Lee el equipo con ``FOR UPDATE``, el primer paso del orden de bloqueos.
+
+    Args:
+        db: Sesión de base de datos.
+        machine_id: Id del equipo.
+
+    Returns:
+        El equipo bloqueado, con su estado actual.
+
+    Raises:
+        AppError: ``NOT_FOUND`` si el equipo no existe.
+    """
+    machine = (
+        await db.execute(
+            select(Machine)
+            .where(Machine.id == machine_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if machine is None:
+        raise AppError(ErrorCode.NOT_FOUND, detail="El equipo no existe.")
+    return machine
+
+
+async def _invalidar_codigos(db: AsyncSession, machine_id: uuid.UUID, ahora: datetime) -> None:
+    """Marca como usados los códigos de enrolamiento pendientes del equipo.
+
+    Quien llama debe tener bloqueado el equipo (``_bloquear_equipo``): así no se
+    cruza con ``services.enrolamiento.enrolar``.
+
+    Args:
+        db: Sesión de base de datos.
+        machine_id: Equipo dueño de los códigos.
+        ahora: Momento de la invalidación.
+    """
+    await db.execute(
+        update(EnrollmentCode)
+        .where(EnrollmentCode.machine_id == machine_id, EnrollmentCode.used_at.is_(None))
+        .values(used_at=ahora)
+        .execution_options(synchronize_session=False)
     )
 
 
@@ -540,17 +599,10 @@ async def editar_equipo(
     Deshabilitar un equipo (RN-08) cancela sus retos pendientes y cierra su sesión
     abierta con `admin_forced`. El equipo se bloquea primero con FOR UPDATE: respeta el
     orden de bloqueos de `services.challenges` (equipo -> retos -> sesiones).
+
+    Activar un equipo deshabilitado que no tiene clave lo deja en `pending_enrollment`.
     """
-    machine = (
-        await db.execute(
-            select(Machine)
-            .where(Machine.id == machine_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if machine is None:
-        raise AppError(ErrorCode.NOT_FOUND, detail="El equipo no existe.")
+    machine = await _bloquear_equipo(db, machine_id)
 
     cambios = sorted(body.model_fields_set)
     if "lab_id" in body.model_fields_set and body.lab_id is not None:
@@ -564,10 +616,14 @@ async def editar_equipo(
     if body.status is not None:
         nuevo = MachineStatus(body.status)
         if nuevo == MachineStatus.active and machine.enrolled_at is None:
-            raise AppError(
-                ErrorCode.CONFLICT,
-                detail="El equipo aún no se enroló; no se puede activar.",
-            )
+            if machine.status != MachineStatus.disabled:
+                raise AppError(
+                    ErrorCode.CONFLICT,
+                    detail="El equipo aún no se enroló; no se puede activar.",
+                )
+            # Deshabilitado y sin clave (revocada o nunca enrolada): se rehabilita para
+            # enrolarlo de nuevo, sin dejarlo `active` sin credenciales.
+            nuevo = MachineStatus.pending_enrollment
         if nuevo == MachineStatus.disabled and machine.status != MachineStatus.disabled:
             ahora = challenges.ahora()
             await db.execute(
@@ -602,6 +658,148 @@ async def editar_equipo(
         metadata_info={"fields": cambios},
     )
     await db.flush()
+    lab_name = None
+    if machine.lab_id is not None:
+        lab_name = (
+            await db.execute(select(Lab.name).where(Lab.id == machine.lab_id))
+        ).scalar_one_or_none()
+    item = _item_equipo(machine, lab_name)
+    await db.commit()
+    return item
+
+
+@router.post(
+    "/machines/{machine_id}/enrollment-code",
+    response_model=EnrollmentCodeResponse,
+    status_code=201,
+)
+async def generar_codigo_enrolamiento(
+    machine_id: uuid.UUID,
+    response: Response,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> EnrollmentCodeResponse:
+    """Genera un código de enrolamiento de un solo uso, válido durante 24 horas.
+
+    Los códigos anteriores que el equipo no haya usado dejan de servir. La base guarda
+    solo el hash; el código se ve únicamente en esta respuesta, que no se cachea.
+
+    Args:
+        machine_id: Id del equipo.
+        response: Respuesta, para marcarla como no cacheable.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El código en claro y su vencimiento.
+
+    Raises:
+        AppError: ``NOT_FOUND`` si el equipo no existe; ``CONFLICT`` si está
+            deshabilitado.
+    """
+    machine = await _bloquear_equipo(db, machine_id)
+    if machine.status == MachineStatus.disabled:
+        raise AppError(
+            ErrorCode.CONFLICT,
+            detail="No se puede generar un código para un equipo deshabilitado.",
+        )
+
+    ahora = challenges.ahora()
+    await _invalidar_codigos(db, machine.id, ahora)
+
+    codigo = f"ENR-{secrets.token_urlsafe(24)}"
+    vence = ahora + VIGENCIA_CODIGO_ENROLAMIENTO
+    db.add(
+        EnrollmentCode(
+            machine_id=machine.id,
+            code_hash=sha256_digest(codigo),
+            created_by=admin.id,
+            expires_at=vence,
+        )
+    )
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="machine_enrollment_code_created",
+        target_type="machine",
+        target_id=machine.id,
+        metadata_info={"expires_at": vence.isoformat()},
+    )
+    await db.commit()
+
+    response.headers["Cache-Control"] = "no-store"
+    return EnrollmentCodeResponse(machine_id=machine.id, code=codigo, expires_at=vence)
+
+
+@router.post("/machines/{machine_id}/revoke-key", response_model=MachineItem)
+async def revocar_clave_equipo(
+    machine_id: uuid.UUID,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> MachineItem:
+    """Revoca la clave y la credencial del equipo y exige un nuevo enrolamiento.
+
+    Invalida sus códigos pendientes, cancela sus retos y cierra su sesión abierta con
+    `admin_forced`. Un equipo deshabilitado conserva ese estado (RN-08); los demás
+    quedan en `pending_enrollment`. Es idempotente. Respeta el orden de bloqueos de
+    `services.challenges` (equipo -> códigos -> retos -> sesiones).
+
+    Args:
+        machine_id: Id del equipo.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El equipo sin credenciales, con su estado actual.
+
+    Raises:
+        AppError: ``NOT_FOUND`` si el equipo no existe.
+    """
+    machine = await _bloquear_equipo(db, machine_id)
+    ahora = challenges.ahora()
+    await _invalidar_codigos(db, machine.id, ahora)
+
+    await db.execute(
+        update(LoginChallenge)
+        .where(
+            LoginChallenge.machine_id == machine.id,
+            LoginChallenge.status == ChallengeStatus.pending,
+        )
+        .values(status=ChallengeStatus.cancelled)
+        .execution_options(synchronize_session=False)
+    )
+    cerrada = await sesiones.cerrar_sesion_de_equipo(
+        db, machine.id, SessionEndReason.admin_forced, ahora
+    )
+    if cerrada is not None:
+        await sesiones.auditar_cierre(
+            db,
+            actor_type=AuditActorType.user,
+            actor_id=admin.id,
+            session_id=cerrada,
+            motivo=SessionEndReason.admin_forced,
+        )
+
+    # `null()` y no None: en una columna JSONB, None guardaría el JSON `null`.
+    machine.public_key_jwk = null()
+    machine.key_thumbprint = None
+    machine.credential_hash = None
+    machine.enrolled_at = None
+    if machine.status != MachineStatus.disabled:
+        machine.status = MachineStatus.pending_enrollment
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="machine_key_revoked",
+        target_type="machine",
+        target_id=machine.id,
+        metadata_info={"status": machine.status.value},
+    )
+    await db.flush()
+
     lab_name = None
     if machine.lab_id is not None:
         lab_name = (

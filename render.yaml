@@ -69,14 +69,14 @@ services:
       - key: APP_ENV
         value: dev
 
-      # Firma del equipo (SEC-07): dual hasta que Desktop firme; OPS-16 la pasa a signature.
+      # Firma del equipo (SEC-07): solo peticiones firmadas (OPS-16). Para volver
+      # atrás si un equipo falla: dual.
       - key: MACHINE_AUTH_MODE
-        value: dual
+        value: signature
 
-      # TRANSITORIO: el escritorio actual pide QR solo con X-Machine-Code. Poner en
-      # false cuando Desktop envíe X-Machine-Key o firma (OPS-16); se ignora en prod.
+      # Los retos QR también exigen firma (OPS-16). SEC-14 elimina esta variable.
       - key: RETOS_ACEPTAN_SOLO_CODIGO
-        value: "true"
+        value: "false"
 
       # Base con la que el equipo firma @target-uri (no la URL interna del proxy).
       # Corregido al host real de Render.

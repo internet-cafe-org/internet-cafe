@@ -1,0 +1,204 @@
+name: release-msi
+
+# OPS-14: publica el instalador .msi de prod en GitHub Releases.
+# - Etiqueta v*: construye el .msi con la URL de la API de prod (variable PROD_API_URL del
+#   environment prod, que exige la aprobación del PO o el SM) y lo publica con su SHA-256.
+#   La etiqueta debe salir de main, igual que en deploy-prod. El job que construye solo lee el
+#   repositorio; el permiso de escritura queda en el job que publica, que no ejecuta Gradle.
+# - Pull request que toca desktop/ o este workflow: construye el .msi para comprobar que el
+#   instalador se arma, pero no publica nada.
+# Antes de subir cualquier .msi, .github/scripts/verificar-msi.ps1 lo extrae sin instalarlo y
+# exige que el lanzador fije -Dapi.base.url con la URL pedida: un instalador que apunte a otra
+# API nunca se publica.
+# Windows solo acepta versiones numéricas (X.Y.Z): el .msi usa X.Y de la etiqueta y el
+# número de ejecución como tercer campo, para que cada versión candidata actualice a la
+# anterior (DSK-14a: versiones crecientes). La etiqueta completa queda en el release.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/release-msi.yml'
+      - '.github/scripts/verificar-msi.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  prueba:
+    name: instalador .msi (prueba, sin publicar)
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Verificar WiX 3.14
+        run: |
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          if [ ! -x "$wix/candle.exe" ]; then
+            echo "::error::WiX 3.14 no está en el runner; jpackage no puede generar el .msi."
+            exit 1
+          fi
+          echo "$wix" >> "$GITHUB_PATH"
+      - name: Construir el .msi
+        env:
+          # URL ficticia: la verificación comprueba que la URL pedida quede en el lanzador
+          URL_PRUEBA: https://api.prueba.invalid
+        run: gradle -p desktop jpackageMsi "-PapiBaseUrl=$URL_PRUEBA" "-PappVersion=0.0.${GITHUB_RUN_NUMBER}"
+      - name: Verificar el .msi
+        id: verificar
+        shell: pwsh
+        run: ./.github/scripts/verificar-msi.ps1 -Directorio desktop/build/installer -UrlEsperada https://api.prueba.invalid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msi-prueba
+          path: ${{ steps.verificar.outputs.msi }}
+          retention-days: 3
+
+  release:
+    name: instalador .msi de prod
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2022
+    environment: prod
+    outputs:
+      version: ${{ steps.version.outputs.msi }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    timeout-minutes: 30
+    concurrency:
+      group: release-msi-${{ github.ref_name }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # trae origin/main para comprobar la etiqueta
+          persist-credentials: false
+
+      - name: Verificar que la etiqueta sale de main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::La etiqueta $GITHUB_REF_NAME no apunta a un commit de main."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Verificar WiX 3.14
+        run: |
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          if [ ! -x "$wix/candle.exe" ]; then
+            echo "::error::WiX 3.14 no está en el runner; jpackage no puede generar el .msi."
+            exit 1
+          fi
+          echo "$wix" >> "$GITHUB_PATH"
+
+      - name: Calcular la versión del .msi
+        id: version
+        env:
+          ETIQUETA: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$ETIQUETA" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::La etiqueta $ETIQUETA no sigue vX.Y.Z o vX.Y.Z-sufijo."
+            exit 1
+          fi
+          mayor="${BASH_REMATCH[1]}"; menor="${BASH_REMATCH[2]}"
+          if [ "$mayor" -gt 255 ] || [ "$menor" -gt 255 ] || [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
+            echo "::error::Windows limita la versión del .msi a 255.255.65535."
+            exit 1
+          fi
+          echo "msi=${mayor}.${menor}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          if [ -n "${BASH_REMATCH[4]}" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Construir el .msi de prod
+        env:
+          PROD_API_URL: ${{ vars.PROD_API_URL }}
+          VERSION_MSI: ${{ steps.version.outputs.msi }}
+        run: |
+          if [[ ! "$PROD_API_URL" =~ ^https://[^/?#@]+$ ]]; then
+            echo "::error::La variable PROD_API_URL del environment prod falta o no es https://host (sin / final)."
+            exit 1
+          fi
+          gradle -p desktop jpackageMsi "-PapiBaseUrl=$PROD_API_URL" "-PappVersion=$VERSION_MSI"
+
+      - name: Verificar el .msi de prod
+        id: verificar
+        shell: pwsh
+        env:
+          PROD_API_URL: ${{ vars.PROD_API_URL }}
+        run: ./.github/scripts/verificar-msi.ps1 -Directorio desktop/build/installer -UrlEsperada $env:PROD_API_URL
+
+      - name: Preparar el .msi y su SHA-256
+        env:
+          ETIQUETA: ${{ github.ref_name }}
+          ORIGEN: ${{ steps.verificar.outputs.msi }}
+        run: |
+          mkdir publicar
+          msi="internet-cafe-desktop-${ETIQUETA}.msi"
+          cp "$(cygpath -u "$ORIGEN")" "publicar/$msi"
+          cd publicar
+          sha256sum "$msi" > "$msi.sha256"
+          cat "$msi.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msi-prod
+          path: publicar/
+          if-no-files-found: error
+          retention-days: 3
+
+  publicar:
+    name: publicar en GitHub Releases
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # crear el release y subir el .msi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: msi-prod
+      - name: Publicar en GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ETIQUETA: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.release.outputs.prerelease }}
+          VERSION_MSI: ${{ needs.release.outputs.version }}
+        run: |
+          msi="internet-cafe-desktop-${ETIQUETA}.msi"
+          sha256sum --check "$msi.sha256"
+          if gh release view "$ETIQUETA" > /dev/null 2>&1; then
+            gh release upload "$ETIQUETA" "$msi" "$msi.sha256" --clobber
+          else
+            opciones=()
+            if [ "$PRERELEASE" = "true" ]; then opciones+=(--prerelease); fi
+            gh release create "$ETIQUETA" "$msi" "$msi.sha256" --verify-tag \
+              --title "$ETIQUETA" \
+              --notes "Instalador de prod (versión de Windows $VERSION_MSI). Sin firma Authenticode hasta PEND-08." \
+              "${opciones[@]}"
+          fi

@@ -37,3 +37,8 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+# Resultados de Playwright (QA-10)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

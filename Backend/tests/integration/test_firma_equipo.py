@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from httpx import ASGITransport, AsyncClient
 
@@ -46,8 +46,22 @@ class Firmador:
                     "x": _b64url(n.x.to_bytes(32, "big")), "y": _b64url(n.y.to_bytes(32, "big"))}
         self.keyid = huella_jwk(self.jwk)
 
+    alg = firma.ALGORITMO
+
+    def firmar(self, base: str) -> bytes:
+        """Firma la base con ECDSA P-256 / SHA-256 en ``r||s``.
+
+        Args:
+            base: Base de firma.
+
+        Returns:
+            Los 64 bytes de la firma.
+        """
+        r, s = decode_dss_signature(self.clave.sign(base.encode(), ec.ECDSA(hashes.SHA256())))
+        return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
     def cabeceras(self, metodo: str, uri: str, cuerpo: bytes = b"", *, created: int | None = None,
-                  nonce: str | None = None, alg: str = firma.ALGORITMO) -> dict[str, str]:
+                  nonce: str | None = None, alg: str | None = None) -> dict[str, str]:
         """Arma las cabeceras ``Signature-Input``, ``Signature`` y ``Content-Digest``.
 
         Args:
@@ -63,17 +77,41 @@ class Firmador:
         """
         created = int(time.time()) if created is None else created
         nonce = nonce or secrets.token_urlsafe(12)
+        alg = alg or self.alg
         componentes = ["@method", "@target-uri"] + (["content-digest"] if cuerpo else [])
         lista = " ".join(f'"{c}"' for c in componentes)
         params = f'({lista});created={created};keyid="{self.keyid}";alg="{alg}";nonce="{nonce}"'
         valores = {"@method": metodo, "@target-uri": uri, "content-digest": firma.content_digest(cuerpo)}
         base = "\n".join([f'"{c}": {valores[c]}' for c in componentes] + [f'"@signature-params": {params}'])
-        r, s = decode_dss_signature(self.clave.sign(base.encode(), ec.ECDSA(hashes.SHA256())))
         cab = {"Signature-Input": f"sig1={params}",
-               "Signature": f"sig1=:{base64.b64encode(r.to_bytes(32, 'big') + s.to_bytes(32, 'big')).decode()}:"}
+               "Signature": f"sig1=:{base64.b64encode(self.firmar(base)).decode()}:"}
         if cuerpo:
             cab["Content-Digest"] = firma.content_digest(cuerpo)
         return cab
+
+
+class FirmadorRsa(Firmador):
+    """Firma como la clave RSA del TPM (ST-SEC-04): ``rsa-v1_5-sha256``."""
+
+    alg = firma.ALGORITMO_RSA
+
+    def __init__(self) -> None:
+        """Genera un par RSA 2048 y su JWK público."""
+        self.clave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        n = self.clave.public_key().public_numbers()
+        self.jwk = {"kty": "RSA", "n": _b64url(n.n.to_bytes(256, "big")), "e": "AQAB"}
+        self.keyid = huella_jwk(self.jwk)
+
+    def firmar(self, base: str) -> bytes:
+        """Firma la base con RSASSA-PKCS1-v1_5 / SHA-256.
+
+        Args:
+            base: Base de firma.
+
+        Returns:
+            Los 256 bytes de la firma.
+        """
+        return self.clave.sign(base.encode(), padding.PKCS1v15(), hashes.SHA256())
 
 
 @pytest.fixture(autouse=True)
@@ -130,6 +168,53 @@ async def _latido(cliente, cabeceras: dict, cuerpo: bytes = CUERPO, ruta: str = 
 
 
 # ---------------------------------------------------------------- camino feliz
+
+
+async def _enrolar_rsa(sesiones, datos) -> FirmadorRsa:
+    """Deja ``pc01`` enrolado con una clave RSA como la del TPM."""
+    rsa_ = FirmadorRsa()
+    async with sesiones() as db:
+        machine = await db.get(Machine, datos.pc01.id)
+        machine.public_key_jwk = rsa_.jwk
+        machine.key_thumbprint = rsa_.keyid
+        await db.commit()
+    return rsa_
+
+
+async def test_latido_firmado_con_clave_rsa_del_tpm(cliente, sesiones, datos, equipo, monkeypatch):
+    """Un equipo enrolado con la clave RSA del TPM firma con ``rsa-v1_5-sha256``."""
+    _modo(monkeypatch, "signature")
+    rsa_ = await _enrolar_rsa(sesiones, datos)
+
+    r = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO))
+    alterado = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO), cuerpo=CUERPO + b" ")
+
+    assert r.status_code == 200
+    assert alterado.status_code == 401
+
+
+async def test_el_alg_debe_ser_el_de_la_clave(cliente, sesiones, datos, equipo, firmador, monkeypatch):
+    """Una clave RSA no acepta ``ecdsa-p256-sha256`` ni una EC acepta ``rsa-v1_5-sha256``."""
+    _modo(monkeypatch, "signature")
+    rsa_ = await _enrolar_rsa(sesiones, datos)
+
+    r_rsa = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO, alg=firma.ALGORITMO))
+    async with sesiones() as db:
+        machine = await db.get(Machine, datos.pc01.id)
+        machine.public_key_jwk = firmador.jwk
+        machine.key_thumbprint = firmador.keyid
+        await db.commit()
+    r_ec = await _latido(
+        cliente, firmador.cabeceras("POST", BASE + LATIDO, CUERPO, alg=firma.ALGORITMO_RSA)
+    )
+
+    assert r_ec.status_code == 401
+    assert r_ec.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+    assert r_rsa.status_code == 401
+    assert r_rsa.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+    assert not firma.verificar(firmador.jwk, firma.ALGORITMO_RSA, "base", b"\x00" * 256)
+    assert not firma.verificar_rsa(rsa_.jwk, "base", b"\x00" * 64)
+    assert not firma.verificar_r_s(firmador.jwk, "base", b"\x00" * 256)
 
 
 async def test_latido_firmado_se_acepta(cliente, equipo, firmador, monkeypatch):

@@ -152,6 +152,11 @@ async def require_machine_retos(
         ).scalar_one_or_none()
         if machine is None:
             raise _error(401, "MACHINE_SIGNATURE_INVALID")
+        if machine.status == MachineStatus.disabled:
+            raise _error(403, "MACHINE_DISABLED")
+        if machine.status != MachineStatus.active:
+            raise _error(401, "MACHINE_SIGNATURE_INVALID")
+
         _logger.warning(
             "Reto pedido solo con X-Machine-Code (salida transitoria)",
             extra={"datos": {"evento": "machine.retos_solo_codigo", "machine_id": str(machine.id)}},
@@ -189,7 +194,7 @@ async def _por_firma(request: Request, db: AsyncSession) -> Machine:
     ).scalar_one_or_none()
     if machine is None or not machine.public_key_jwk:
         raise _error(401, "MACHINE_SIGNATURE_INVALID")
-    if not firma.verificar_r_s(machine.public_key_jwk, base, crudo):
+    if not firma.verificar(machine.public_key_jwk, entrada.alg, base, crudo):
         raise _error(401, "MACHINE_SIGNATURE_INVALID")
     # El nonce se registra solo tras una firma válida: un tercero no puede "gastarlo".
     if not firma.nonces.registrar(entrada.keyid, entrada.nonce):
