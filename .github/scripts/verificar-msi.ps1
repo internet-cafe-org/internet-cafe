@@ -7,7 +7,8 @@
     2. Lo extrae sin instalarlo (msiexec /a, instalación administrativa).
     3. Exige que la configuración del lanzador (app\*.cfg) lleve
        -Dapi.base.url=<URL esperada>, que es la que AppConfig lee al arrancar.
-       Si falta, el equipo instalado buscaría la API en otra dirección.
+       Si falta, el equipo instalado buscaría la API en otra dirección. Debe haber
+       exactamente una línea, porque con dos ganaría la última.
     Escribe la ruta del .msi en la salida "msi" del paso de GitHub Actions.
 
 .PARAMETER Directorio
@@ -61,6 +62,11 @@ if ($contenido -notmatch $patron) {
     Fallar ("El lanzador del .msi no fija -Dapi.base.url=$UrlEsperada. jpackage con " +
         "--runtime-image crea su propio lanzador y no hereda los jvmArgs de jlink: " +
         "jpackageMsi (desktop/build.gradle) debe pasar --java-options con la URL.")
+}
+
+$lineas = [regex]::Matches($contenido, '(?m)^java-options=-Dapi\.base\.url=').Count
+if ($lineas -ne 1) {
+    Fallar "El lanzador debe fijar -Dapi.base.url una sola vez y lo hace $lineas veces."
 }
 
 Write-Output "OK: el .msi fija -Dapi.base.url=$UrlEsperada"
