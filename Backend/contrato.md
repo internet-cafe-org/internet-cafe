@@ -74,11 +74,11 @@ Si se presenta un refresh token ya revocado **fuera de la gracia de 10 s** se co
 ## 5. Enrolamiento del equipo (`POST /machine/enroll`)
 1. El administrador genera un código de un solo uso que vence en 24 h. En el MVP lo genera la semilla de dev (QA-02a); el endpoint de administración llega con BE-13.
 2. El equipo genera un par ECDSA P-256 y envía `{enrollment_code, jwk, proof}`. `jwk` es la clave pública (`kty = EC`, `crv = P-256`, `x`, `y`; sin `d`). `proof` es la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y base64url sin relleno.
-   - **Clave del TPM (ST-SEC-04, HU-28):** en Windows con TPM 2.0 el equipo puede enrolar en su lugar la clave RSA no exportable de `Windows-MY` (SunMSCAPI). `jwk` es `{kty: "RSA", n, e}` (2048 a 4096 bits, `e = AQAB`, sin parte privada ni ceros a la izquierda) y `proof` es la firma RSASSA-PKCS1-v1_5 / SHA-256 (`SHA256withRSA`) del código, en base64url sin relleno (342 caracteres con 2048 bits). La huella RFC 7638 usa `e`, `kty` y `n`. Después el equipo firma sus peticiones con `alg="rsa-v1_5-sha256"`. Sin TPM se sigue usando la clave P-256 del PKCS12.
+   - **Clave del TPM (ST-SEC-04, HU-28):** en Windows con TPM 2.0 el equipo puede enrolar en su lugar la clave RSA no exportable de `Windows-MY` (SunMSCAPI). `jwk` es `{kty: "RSA", n, e}` (2048, 3072 o 4096 bits, `e = AQAB`, sin parte privada ni ceros a la izquierda) y `proof` es la firma RSASSA-PKCS1-v1_5 / SHA-256 (`SHA256withRSA`) del código, en base64url sin relleno (342 caracteres con 2048 bits). La huella RFC 7638 usa `e`, `kty` y `n`. Después el equipo firma sus peticiones con `alg="rsa-v1_5-sha256"`. Sin TPM se sigue usando la clave P-256 del PKCS12.
 3. La API valida el JWK, verifica la firma, calcula la huella RFC 7638 (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional y audita `machine.enroll`. Todo en una transacción.
 4. Respuesta 201: `{machine_id, code, lab, mode, keyid, provisional_credential}`. La credencial se muestra una sola vez; la API guarda solo su hash.
 
-Errores: código inexistente, usado o vencido → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido → 422 `VALIDATION_ERROR`; clave ya registrada por otro equipo → 409 `CONFLICT`.
+Errores: código inexistente, usado o vencido → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido, o con miembros en base64url con relleno o no canónico → 422 `VALIDATION_ERROR`; clave ya registrada por otro equipo → 409 `CONFLICT`.
 
 ## 6. Latido y cierres
 - `POST /machine/heartbeat` (cada 60 s): `{ "server_time", "mode", "session_status", "session_id?", "end_reason?" }`.
@@ -338,8 +338,8 @@ paths:
       - machine
       security: []
       summary: Enrolar el equipo con su clave pública (SEC-05)
-      description: 'El equipo envía el código de un solo uso, su clave pública en JWK (EC P-256, o RSA de 2048 a
-        4096 bits con e = 65537 para la clave no exportable del TPM, ST-SEC-04) y una prueba de posesión: la firma
+      description: 'El equipo envía el código de un solo uso, su clave pública en JWK (EC P-256, o RSA de 2048,
+        3072 o 4096 bits con e = 65537 para la clave no exportable del TPM, ST-SEC-04) y una prueba de posesión: la firma
         SHA-256 de los bytes UTF-8 de `enrollment_code` en base64url sin relleno (ECDSA en `r||s` de 64 bytes con
         EC; RSASSA-PKCS1-v1_5 del largo del módulo con RSA). La API valida el JWK (sin parte privada), verifica la firma, calcula la huella RFC 7638
         (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional (se muestra
@@ -1764,7 +1764,7 @@ components:
           example: x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0
     MachineJwkRsa:
       type: object
-      description: Clave pública RSA (RFC 7518 §6.3) de 2048 a 4096 bits con exponente 65537. Es la clave no
+      description: Clave pública RSA (RFC 7518 §6.3) de 2048, 3072 o 4096 bits con exponente 65537. Es la clave no
         exportable del TPM (HU-28). No puede incluir la parte privada (`d`, `p`, `q`, `dp`, `dq`, `qi`).
       required:
       - kty
