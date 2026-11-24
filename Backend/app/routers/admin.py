@@ -7,8 +7,9 @@ nueva queda abierta por olvido. Las respuestas de administración nunca incluyen
 
 import csv
 import io
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -22,10 +23,12 @@ from app.audit import audit
 from app.config import settings
 from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
+from app.crypto import sha256_digest
 from app.models import (
     AccessSession,
     AuditActorType,
     ChallengeStatus,
+    EnrollmentCode,
     Lab,
     LoginChallenge,
     Machine,
@@ -135,6 +138,14 @@ class MachinesPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class EnrollmentCodeResponse(BaseModel):
+    """Código de enrolamiento mostrado una sola vez."""
+
+    machine_id: uuid.UUID
+    code: str
+    expires_at: datetime
 
 
 class AdminUserInfo(BaseModel):
@@ -608,6 +619,155 @@ async def editar_equipo(
             await db.execute(select(Lab.name).where(Lab.id == machine.lab_id))
         ).scalar_one_or_none()
     item = _item_equipo(machine, lab_name)
+    await db.commit()
+    return item
+
+
+@router.post(
+    "/machines/{machine_id}/enrollment-code",
+    response_model=EnrollmentCodeResponse,
+)
+async def generar_codigo_enrolamiento(
+    machine_id: uuid.UUID,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> EnrollmentCodeResponse:
+    """Genera un código de enrolamiento de un solo uso, válido durante 24 horas."""
+    machine = (
+        await db.execute(
+            select(Machine)
+            .where(Machine.id == machine_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if machine is None:
+        raise AppError(ErrorCode.NOT_FOUND, detail="El equipo no existe.")
+
+    if machine.status == MachineStatus.disabled:
+        raise AppError(
+            ErrorCode.CONFLICT,
+            detail="No se puede generar un código para un equipo deshabilitado.",
+        )
+
+    codigo = f"ENR-{secrets.token_urlsafe(24)}"
+    ahora = datetime.now(timezone.utc)
+    vence = ahora + timedelta(hours=24)
+
+    registro = EnrollmentCode(
+        machine_id=machine.id,
+        code_hash=sha256_digest(codigo),
+        created_by=admin.id,
+        expires_at=vence,
+    )
+    db.add(registro)
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="machine_enrollment_code_created",
+        target_type="machine",
+        target_id=machine.id,
+        metadata_info={
+            "expires_at": vence.isoformat(),
+        },
+    )
+
+    await db.commit()
+
+    return EnrollmentCodeResponse(
+        machine_id=machine.id,
+        code=codigo,
+        expires_at=vence,
+    )
+
+
+@router.post(
+    "/machines/{machine_id}/revoke-key",
+    response_model=MachineItem,
+)
+async def revocar_clave_equipo(
+    machine_id: uuid.UUID,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> MachineItem:
+    """Revoca las credenciales del equipo y exige un nuevo enrolamiento."""
+    machine = (
+        await db.execute(
+            select(Machine)
+            .where(Machine.id == machine_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+    if machine is None:
+        raise AppError(ErrorCode.NOT_FOUND, detail="El equipo no existe.")
+
+    ahora = challenges.ahora()
+
+    # Invalida los códigos de enrolamiento anteriores que aún no se usaron.
+    await db.execute(
+        update(EnrollmentCode)
+        .where(
+            EnrollmentCode.machine_id == machine.id,
+            EnrollmentCode.used_at.is_(None),
+        )
+        .values(used_at=ahora)
+        .execution_options(synchronize_session=False)
+    )
+
+    # Cancela los retos que todavía estén pendientes.
+    await db.execute(
+        update(LoginChallenge)
+        .where(
+            LoginChallenge.machine_id == machine.id,
+            LoginChallenge.status == ChallengeStatus.pending,
+        )
+        .values(status=ChallengeStatus.cancelled)
+        .execution_options(synchronize_session=False)
+    )
+
+    # Cierra la sesión abierta, si existe.
+    cerrada = await sesiones.cerrar_sesion_de_equipo(
+        db, machine.id, SessionEndReason.admin_forced, ahora
+    )
+    if cerrada is not None:
+        await sesiones.auditar_cierre(
+            db,
+            actor_type=AuditActorType.user,
+            actor_id=admin.id,
+            session_id=cerrada,
+            motivo=SessionEndReason.admin_forced,
+        )
+
+    # Elimina la clave pública del equipo: su firma deja de valer.
+    machine.public_key_jwk = None
+    machine.key_thumbprint = None
+    machine.enrolled_at = None
+    machine.status = MachineStatus.pending_enrollment
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="machine_key_revoked",
+        target_type="machine",
+        target_id=machine.id,
+        metadata_info={"status": MachineStatus.pending_enrollment.value},
+    )
+
+    await db.flush()
+
+    lab_name = None
+    if machine.lab_id is not None:
+        lab_name = (
+            await db.execute(select(Lab.name).where(Lab.id == machine.lab_id))
+        ).scalar_one_or_none()
+
+    item = _item_equipo(machine, lab_name)
+
     await db.commit()
     return item
 

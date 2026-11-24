@@ -1,10 +1,16 @@
 """Enrolamiento de un equipo con su clave pública (SEC-05, SRS §8.4 y §12.4).
 
-El equipo envía un código de un solo uso, su clave pública P-256 en JWK y una
-prueba de posesión: la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 del
-código, en formato ``r||s`` de 64 bytes y base64url sin relleno. Si todo es
-válido, el equipo queda ``active`` con su JWK y su huella RFC 7638 (el ``keyid``
-de la firma RFC 9421).
+El equipo envía un código de un solo uso, su clave pública en JWK y una prueba
+de posesión: la firma de los bytes UTF-8 del código en base64url sin relleno.
+Se aceptan dos tipos de clave:
+
+- EC P-256 (la clave PKCS12 de DSK-03a): firma ECDSA P-256 / SHA-256 en formato
+  ``r||s`` de 64 bytes.
+- RSA de 2048 a 4096 bits (la clave no exportable del TPM, HU-28 / ST-SEC-04):
+  firma RSASSA-PKCS1-v1_5 / SHA-256, del largo del módulo (256 bytes con 2048).
+
+Si todo es válido, el equipo queda ``active`` con su JWK y su huella RFC 7638 (el
+``keyid`` de la firma RFC 9421).
 """
 
 import base64
@@ -16,7 +22,7 @@ from datetime import UTC, datetime
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +34,15 @@ from app.models import AuditActorType, EnrollmentCode, Lab, Machine, MachineMode
 
 _LARGO_COORDENADA = 32
 _LARGO_FIRMA = 64
+RSA_BITS_MIN = 2048
+RSA_BITS_MAX = 4096
+_RSA_EXPONENTE = 65537
+
+ClavePublica = ec.EllipticCurvePublicKey | rsa.RSAPublicKey
+
+# Miembros públicos de cada tipo de JWK (RFC 7638 §3.2): son los que se guardan y
+# los que entran en la huella, en orden lexicográfico.
+MIEMBROS_PUBLICOS = {"EC": ("crv", "kty", "x", "y"), "RSA": ("e", "kty", "n")}
 
 
 class CodigoInvalido(Exception):
@@ -87,8 +102,8 @@ def _b64url_codificar(datos: bytes) -> str:
     return base64.urlsafe_b64encode(datos).rstrip(b"=").decode("ascii")
 
 
-def clave_publica_desde_jwk(jwk: dict) -> ec.EllipticCurvePublicKey:
-    """Valida un JWK EC P-256 público y lo convierte en clave de ``cryptography``.
+def _clave_ec(jwk: dict) -> ec.EllipticCurvePublicKey:
+    """Valida un JWK EC P-256 público.
 
     Args:
         jwk: Diccionario con ``kty``, ``crv``, ``x`` e ``y``.
@@ -97,13 +112,11 @@ def clave_publica_desde_jwk(jwk: dict) -> ec.EllipticCurvePublicKey:
         La clave pública lista para verificar firmas.
 
     Raises:
-        ValueError: Si no es EC P-256, incluye la parte privada (``d``), las
-            coordenadas no miden 32 bytes o el punto no está en la curva.
+        ValueError: Si no es P-256, las coordenadas no miden 32 bytes o el punto
+            no está en la curva.
     """
-    if "d" in jwk:
-        raise ValueError("El JWK no puede incluir la parte privada.")
-    if jwk.get("kty") != "EC" or jwk.get("crv") != "P-256":
-        raise ValueError("El JWK debe ser EC P-256.")
+    if jwk.get("crv") != "P-256":
+        raise ValueError("El JWK EC debe ser P-256.")
     try:
         x = _b64url_decodificar(jwk["x"])
         y = _b64url_decodificar(jwk["y"])
@@ -120,33 +133,100 @@ def clave_publica_desde_jwk(jwk: dict) -> ec.EllipticCurvePublicKey:
         raise ValueError("El punto del JWK no está en la curva P-256.") from None
 
 
-def huella_jwk(jwk: dict) -> str:
-    """Calcula la huella RFC 7638 de un JWK EC.
-
-    Usa solo los miembros obligatorios (``crv``, ``kty``, ``x``, ``y``) en orden
-    lexicográfico y sin espacios, y devuelve el SHA-256 en base64url.
+def _clave_rsa(jwk: dict) -> rsa.RSAPublicKey:
+    """Valida un JWK RSA público (clave del TPM, ST-SEC-04).
 
     Args:
-        jwk: JWK EC P-256 ya validado.
+        jwk: Diccionario con ``kty``, ``n`` y ``e``.
+
+    Returns:
+        La clave pública lista para verificar firmas.
+
+    Raises:
+        ValueError: Si ``n`` o ``e`` no son base64url, el módulo no mide entre
+            2048 y 4096 bits o el exponente no es 65537.
+    """
+    if any(k in jwk for k in ("p", "q", "dp", "dq", "qi", "oth")):
+        raise ValueError("El JWK no puede incluir la parte privada.")
+    try:
+        n_bytes = _b64url_decodificar(jwk["n"])
+        e_bytes = _b64url_decodificar(jwk["e"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("El módulo o el exponente del JWK no son base64url.") from None
+    if n_bytes[:1] == b"\x00" or e_bytes[:1] == b"\x00":
+        # RFC 7518 §6.3.1: sin ceros a la izquierda, así la huella es única.
+        raise ValueError("El módulo y el exponente no pueden tener ceros a la izquierda.")
+    n = int.from_bytes(n_bytes, "big")
+    e = int.from_bytes(e_bytes, "big")
+    if not RSA_BITS_MIN <= n.bit_length() <= RSA_BITS_MAX:
+        raise ValueError(f"La clave RSA debe medir entre {RSA_BITS_MIN} y {RSA_BITS_MAX} bits.")
+    if e != _RSA_EXPONENTE:
+        raise ValueError("El exponente de la clave RSA debe ser 65537.")
+    try:
+        return rsa.RSAPublicNumbers(e, n).public_key()
+    except ValueError:
+        raise ValueError("La clave RSA del JWK no es válida.") from None
+
+
+def clave_publica_desde_jwk(jwk: dict) -> ClavePublica:
+    """Valida un JWK público (EC P-256 o RSA) y lo convierte en clave de ``cryptography``.
+
+    Args:
+        jwk: JWK EC (``kty``, ``crv``, ``x``, ``y``) o RSA (``kty``, ``n``, ``e``).
+
+    Returns:
+        La clave pública lista para verificar firmas.
+
+    Raises:
+        ValueError: Si incluye la parte privada (``d``), el tipo no es ``EC`` ni
+            ``RSA`` o la clave no cumple las reglas de su tipo.
+    """
+    if "d" in jwk:
+        raise ValueError("El JWK no puede incluir la parte privada.")
+    if jwk.get("kty") == "EC":
+        return _clave_ec(jwk)
+    if jwk.get("kty") == "RSA":
+        return _clave_rsa(jwk)
+    raise ValueError("El JWK debe ser EC P-256 o RSA.")
+
+
+def jwk_publico(jwk: dict) -> dict:
+    """Deja solo los miembros públicos del JWK, que son los que se guardan.
+
+    Args:
+        jwk: JWK ya validado.
+
+    Returns:
+        Copia con los miembros de RFC 7638 de su tipo.
+    """
+    return {k: jwk[k] for k in MIEMBROS_PUBLICOS[jwk["kty"]]}
+
+
+def huella_jwk(jwk: dict) -> str:
+    """Calcula la huella RFC 7638 de un JWK EC o RSA.
+
+    Usa solo los miembros obligatorios del tipo (EC: ``crv``, ``kty``, ``x``,
+    ``y``; RSA: ``e``, ``kty``, ``n``) en orden lexicográfico y sin espacios, y
+    devuelve el SHA-256 en base64url.
+
+    Args:
+        jwk: JWK ya validado.
 
     Returns:
         Huella de 43 caracteres; es el ``keyid`` de la firma RFC 9421.
     """
-    canonico = json.dumps(
-        {"crv": jwk["crv"], "kty": jwk["kty"], "x": jwk["x"], "y": jwk["y"]},
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    canonico = json.dumps(jwk_publico(jwk), separators=(",", ":"), sort_keys=True)
     return _b64url_codificar(hashlib.sha256(canonico.encode("utf-8")).digest())
 
 
-def verificar_prueba(clave: ec.EllipticCurvePublicKey, codigo: str, prueba: str) -> None:
-    """Verifica la prueba de posesión: la firma ``r||s`` del código.
+def verificar_prueba(clave: ClavePublica, codigo: str, prueba: str) -> None:
+    """Verifica la prueba de posesión: la firma del código con la clave enviada.
 
     Args:
         clave: Clave pública del equipo.
         codigo: Código de enrolamiento, tal como lo envió el equipo.
-        prueba: Firma ECDSA P-256 / SHA-256 en ``r||s`` y base64url.
+        prueba: Firma en base64url: ``r||s`` de 64 bytes (EC) o RSASSA-PKCS1-v1_5
+            del largo del módulo (RSA), ambas con SHA-256.
 
     Raises:
         FirmaInvalida: Si la firma no es válida para ese código y esa clave.
@@ -155,12 +235,18 @@ def verificar_prueba(clave: ec.EllipticCurvePublicKey, codigo: str, prueba: str)
         crudo = _b64url_decodificar(prueba)
     except ValueError:
         raise FirmaInvalida() from None
-    if len(crudo) != _LARGO_FIRMA:
-        raise FirmaInvalida()
-    r = int.from_bytes(crudo[:32], "big")
-    s = int.from_bytes(crudo[32:], "big")
+    mensaje = codigo.encode("utf-8")
     try:
-        clave.verify(encode_dss_signature(r, s), codigo.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+        if isinstance(clave, rsa.RSAPublicKey):
+            if len(crudo) != (clave.key_size + 7) // 8:
+                raise FirmaInvalida()
+            clave.verify(crudo, mensaje, padding.PKCS1v15(), hashes.SHA256())
+            return
+        if len(crudo) != _LARGO_FIRMA:
+            raise FirmaInvalida()
+        r = int.from_bytes(crudo[:32], "big")
+        s = int.from_bytes(crudo[32:], "big")
+        clave.verify(encode_dss_signature(r, s), mensaje, ec.ECDSA(hashes.SHA256()))
     except (InvalidSignature, ValueError):
         raise FirmaInvalida() from None
 
@@ -184,8 +270,8 @@ async def enrolar(
     Args:
         db: Sesión de base de datos.
         codigo: Código de un solo uso que entregó el administrador.
-        jwk: Clave pública P-256 del equipo, ya validada por el esquema.
-        prueba: Firma ``r||s`` del código en base64url.
+        jwk: Clave pública EC P-256 o RSA del equipo, ya validada por el esquema.
+        prueba: Firma del código en base64url (``r||s`` o RSASSA-PKCS1-v1_5).
         hostname: Nombre del equipo en la red, si lo envía.
         app_version: Versión de la aplicación de escritorio, si la envía.
         now: Hora actual; solo para las pruebas.
@@ -225,7 +311,7 @@ async def enrolar(
     if otro is not None:
         raise ClaveEnUso()
 
-    machine.public_key_jwk = {k: jwk[k] for k in ("kty", "crv", "x", "y")}
+    machine.public_key_jwk = jwk_publico(jwk)
     machine.key_thumbprint = keyid
     machine.status = MachineStatus.active
     machine.enrolled_at = ahora
@@ -241,7 +327,7 @@ async def enrolar(
         actor_id=machine.id,
         target_type="machine",
         target_id=machine.id,
-        metadata_info={"keyid": keyid, "enrollment_code_id": str(registro.id)},
+        metadata_info={"keyid": keyid, "kty": jwk["kty"], "enrollment_code_id": str(registro.id)},
     )
     try:
         await db.commit()

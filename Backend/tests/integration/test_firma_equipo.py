@@ -21,7 +21,7 @@ from app.main import app
 from app.models import Machine, MachineStatus
 from app.security import firma
 from app.services.enrolamiento import huella_jwk
-from tests.firmador import Firmador
+from tests.firmador import Firmador, FirmadorRsa
 
 BASE = "http://test"
 VECTORES = Path(__file__).resolve().parents[3] / "contracts" / "test-vectors" / "vectores.json"
@@ -76,6 +76,41 @@ async def _latido(cliente, cabeceras: dict, cuerpo: bytes = CUERPO, ruta: str = 
 
 
 # ---------------------------------------------------------------- camino feliz
+
+
+async def _enrolar_rsa(sesiones, datos) -> FirmadorRsa:
+    """Deja ``pc01`` enrolado con una clave RSA como la del TPM."""
+    rsa_ = FirmadorRsa()
+    async with sesiones() as db:
+        machine = await db.get(Machine, datos.pc01.id)
+        machine.public_key_jwk = rsa_.jwk
+        machine.key_thumbprint = rsa_.keyid
+        await db.commit()
+    return rsa_
+
+
+async def test_latido_firmado_con_clave_rsa_del_tpm(cliente, sesiones, datos, equipo):
+    """Un equipo enrolado con la clave RSA del TPM firma con ``rsa-v1_5-sha256``."""
+    rsa_ = await _enrolar_rsa(sesiones, datos)
+
+    r = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO))
+    alterado = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO), cuerpo=CUERPO + b" ")
+
+    assert r.status_code == 200
+    assert alterado.status_code == 401
+
+
+async def test_el_alg_debe_ser_el_de_la_clave(cliente, sesiones, datos, equipo, firmador):
+    """Una clave RSA no acepta ``ecdsa-p256-sha256`` ni una EC acepta ``rsa-v1_5-sha256``."""
+    rsa_ = await _enrolar_rsa(sesiones, datos)
+
+    r_rsa = await _latido(cliente, rsa_.cabeceras("POST", BASE + LATIDO, CUERPO, alg=firma.ALGORITMO))
+
+    assert r_rsa.status_code == 401
+    assert r_rsa.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+    assert not firma.verificar(firmador.jwk, firma.ALGORITMO_RSA, "base", b"\x00" * 256)
+    assert not firma.verificar_rsa(rsa_.jwk, "base", b"\x00" * 64)
+    assert not firma.verificar_r_s(firmador.jwk, "base", b"\x00" * 256)
 
 
 async def test_latido_firmado_se_acepta(cliente, equipo, firmador):

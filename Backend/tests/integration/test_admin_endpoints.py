@@ -30,6 +30,7 @@ from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.crypto import sha256_digest
 from app.config import settings
 from app.database import obtener_base_datos
 from app.jwt import create_access_token
@@ -39,6 +40,7 @@ from app.models import (
     AuditActorType,
     AuditLog,
     ChallengeStatus,
+    EnrollmentCode,
     Lab,
     LoginChallenge,
     Machine,
@@ -988,23 +990,198 @@ async def test_estudiante_no_ve_los_accesos_ajenos_por_la_ruta_admin(
 
 
 # --------------------------------------------------- Pendientes de otras tareas (skip)
-# Se activan cuando la tarea de la que dependen se fusione en `develop`. Hoy no existen ni
-# las rutas ni el CLI, así que no hay nada que probar todavía.
+# BE-13 ya está implementada y sus pruebas están activas.
+# Siguen pendientes BE-20 y BE-14.
 
 
-@pytest.mark.skip(reason="BE-13 aún no está en develop: códigos de enrolamiento")
-async def test_codigo_de_enrolamiento_se_muestra_una_sola_vez() -> None:
+async def test_codigo_de_enrolamiento_se_muestra_una_sola_vez(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+    admin: User,
+    claves: str,
+    datos: Any,
+    sesiones: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Al generar el código se ve completo una vez; una consulta posterior no lo devuelve.
 
     Debe comprobar también que solo el admin puede generarlo (401 sin token, 403 de
     estudiante), que el código no queda en claro en la base ni en los logs y que la
     generación queda auditada.
     """
+    cliente_sin_token = await cliente.post(
+        f"{API}/admin/machines/{datos.pc01.id}/enrollment-code"
+    )
+    cliente_estudiante = await cliente.post(
+        f"{API}/admin/machines/{datos.pc01.id}/enrollment-code",
+        headers=_bearer(claves, datos.ana),
+    )
+
+    assert cliente_sin_token.status_code == 401
+    assert cliente_estudiante.status_code == 403
+
+    resp = await cliente.post(
+        f"{API}/admin/machines/{datos.pc01.id}/enrollment-code",
+        headers=cab_admin,
+    )
+
+    assert resp.status_code == 200
+    cuerpo = resp.json()
+    codigo = cuerpo["code"]
+    assert codigo.startswith("ENR-")
+
+    vence = datetime.fromisoformat(cuerpo["expires_at"])
+    restante = vence - datetime.now(UTC)
+    assert timedelta(hours=23) < restante <= timedelta(hours=24)
+
+    # La base de datos almacena el hash, no el código original.
+    async with sesiones() as db:
+        registro = await db.scalar(
+            select(EnrollmentCode).where(
+                EnrollmentCode.machine_id == datos.pc01.id,
+                EnrollmentCode.code_hash == sha256_digest(codigo),
+            )
+        )
+
+    assert registro is not None
+    assert registro.used_at is None
+    assert len(registro.code_hash) == 32
+    assert registro.code_hash == sha256_digest(codigo)
+
+    # El listado de equipos no vuelve a revelar el código.
+    listado = await cliente.get(
+        f"{API}/admin/machines",
+        headers=cab_admin,
+    )
+    assert listado.status_code == 200
+    assert codigo not in listado.text
+
+    # La generación queda auditada y no incluye el código.
+    auditorias = await _auditorias(
+        sesiones, "machine_enrollment_code_created"
+    )
+    assert len(auditorias) == 1
+    assert auditorias[0].actor_id == admin.id
+    assert auditorias[0].target_id == datos.pc01.id
+    assert codigo not in str(auditorias[0].metadata_info)
+    assert codigo not in caplog.text
 
 
-@pytest.mark.skip(reason="BE-13 aún no está en develop: revocación de la clave del equipo")
-async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse() -> None:
-    """Tras revocar, el equipo ya no firma ni usa su credencial, y la revocación se audita."""
+async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
+    cliente: AsyncClient,
+    cab_admin: dict[str, str],
+    admin: User,
+    sesiones: async_sessionmaker[AsyncSession],
+    datos: Any,
+) -> None:
+    """Tras revocar, la firma del equipo ya no vale, y la revocación se audita."""
+    equipo = datos.pc01
+    firma_pc = firma_de(equipo.code)
+
+    # Prepara un equipo enrolado con su clave de pruebas.
+    async with sesiones() as db:
+        await db.execute(
+            update(Machine)
+            .where(Machine.id == equipo.id)
+            .values(
+                status=MachineStatus.active,
+                **firmador_de(equipo.code).clave_enrolada,
+                enrolled_at=datetime.now(UTC),
+            )
+        )
+
+        codigo = "ENR-CODIGO-FICTICIO-REVOCACION"
+        db.add(
+            EnrollmentCode(
+                machine_id=equipo.id,
+                code_hash=sha256_digest(codigo),
+                created_by=admin.id,
+                expires_at=datetime.now(UTC) + timedelta(hours=24),
+            )
+        )
+        await db.commit()
+
+    # Antes de revocar, la firma vale.
+    previo = await cliente.post(f"{API}/machine/heartbeat", auth=firma_pc, json=None)
+    assert previo.status_code == 200
+
+    # Crea una sesión activa y un reto pendiente para el equipo.
+    sesion_id = await _crear_sesion(
+        sesiones,
+        datos.ana,
+        equipo,
+        hace_min=5,
+        abierta=True,
+    )
+
+    async with sesiones() as db:
+        reto = LoginChallenge(
+            machine_id=equipo.id,
+            token_hash=uuid.uuid4().bytes,
+            status=ChallengeStatus.pending,
+            expires_at=datetime.now(UTC) + timedelta(seconds=60),
+        )
+        db.add(reto)
+        await db.commit()
+
+    # Revoca la clave desde la API de administración.
+    resp = await cliente.post(
+        f"{API}/admin/machines/{equipo.id}/revoke-key",
+        headers=cab_admin,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "pending_enrollment"
+
+    # La respuesta no debe exponer credenciales ni claves.
+    for campo in (
+        "credential_hash",
+        "public_key_jwk",
+        "key_thumbprint",
+        "provisional_credential",
+    ):
+        assert campo not in resp.json()
+
+    # Comprueba que la clave fue eliminada de la base de datos.
+    equipo_actualizado = await _leer_equipo(sesiones, equipo.id)
+
+    assert equipo_actualizado.status == MachineStatus.pending_enrollment
+    assert equipo_actualizado.public_key_jwk is None
+    assert equipo_actualizado.key_thumbprint is None
+    assert equipo_actualizado.enrolled_at is None
+
+    # El código anterior queda invalidado.
+    async with sesiones() as db:
+        codigo_actualizado = await db.scalar(
+            select(EnrollmentCode).where(
+                EnrollmentCode.machine_id == equipo.id,
+                EnrollmentCode.code_hash == sha256_digest(codigo),
+            )
+        )
+        estado_reto = await db.scalar(
+            select(LoginChallenge.status).where(LoginChallenge.id == reto.id)
+        )
+
+    assert codigo_actualizado is not None
+    assert codigo_actualizado.used_at is not None
+    assert estado_reto == ChallengeStatus.cancelled
+
+    # La sesión activa debe quedar cerrada por el administrador.
+    sesion = await _leer_sesion(sesiones, sesion_id)
+    assert sesion.ended_at is not None
+    assert sesion.end_reason == SessionEndReason.admin_forced
+
+    # La revocación debe quedar registrada en auditoría.
+    auditorias = await _auditorias(sesiones, "machine_key_revoked")
+    assert len(auditorias) == 1
+    assert auditorias[0].actor_id == admin.id
+    assert auditorias[0].target_id == equipo.id
+
+    # La firma con la clave revocada ya no permite enviar latidos.
+    latido = await cliente.post(f"{API}/machine/heartbeat", auth=firma_pc, json=None)
+
+    assert latido.status_code == 401
+    assert latido.json()["code"] == "MACHINE_SIGNATURE_INVALID"
 
 
 @pytest.mark.skip(reason="BE-20 aún no está en develop: CLI create-admin y block-user")

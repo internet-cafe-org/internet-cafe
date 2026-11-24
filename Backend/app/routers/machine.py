@@ -7,7 +7,7 @@ exigen ``require_machine``: la firma RFC 9421 de cada petición (SEC-07).
 import asyncio
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -88,21 +88,39 @@ class JwkP256(BaseModel):
     y: str = Field(min_length=43, max_length=44)
 
 
+class JwkRsa(BaseModel):
+    """Clave pública RSA del equipo (RFC 7518 §6.3), sin la parte privada.
+
+    Es la clave no exportable del TPM (HU-28, ST-SEC-04): de 2048 a 4096 bits y
+    exponente 65537. ``n`` mide 342 caracteres con 2048 bits y 683 con 4096.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kty: Literal["RSA"]
+    n: str = Field(min_length=342, max_length=683)
+    e: str = Field(min_length=4, max_length=4)
+
+
+JwkEquipo = Annotated[JwkP256 | JwkRsa, Field(discriminator="kty")]
+
+
 class EnrollRequest(BaseModel):
     """Cuerpo de ``POST /machine/enroll``."""
 
     model_config = ConfigDict(extra="forbid")
 
     enrollment_code: str = Field(min_length=8, max_length=64)
-    jwk: JwkP256
-    proof: str = Field(min_length=86, max_length=88)
+    jwk: JwkEquipo
+    # 86 caracteres con ``r||s`` (EC); 342 a 683 con RSA de 2048 a 4096 bits.
+    proof: str = Field(min_length=86, max_length=684)
     hostname: str | None = Field(default=None, max_length=63)
     app_version: str | None = Field(default=None, max_length=20)
 
     @field_validator("jwk")
     @classmethod
-    def _punto_en_la_curva(cls, jwk: JwkP256) -> JwkP256:
-        """Comprueba que las coordenadas formen un punto válido de P-256.
+    def _clave_valida(cls, jwk: JwkP256 | JwkRsa) -> JwkP256 | JwkRsa:
+        """Comprueba que el JWK sea una clave pública válida de su tipo.
 
         Args:
             jwk: JWK con la forma correcta.
@@ -111,8 +129,9 @@ class EnrollRequest(BaseModel):
             El mismo JWK si es una clave pública válida.
 
         Raises:
-            ValueError: Si las coordenadas no son base64url de 32 bytes o el
-                punto no está en la curva (422 ``VALIDATION_ERROR``).
+            ValueError: Si las coordenadas EC no son base64url de 32 bytes o el
+                punto no está en la curva, o si la clave RSA no mide entre 2048 y
+                4096 bits o su exponente no es 65537 (422 ``VALIDATION_ERROR``).
         """
         enrolamiento.clave_publica_desde_jwk(jwk.model_dump())
         return jwk

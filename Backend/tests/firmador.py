@@ -8,7 +8,7 @@ from functools import lru_cache
 
 import httpx
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 from app.config import settings
@@ -31,8 +31,22 @@ class Firmador:
                     "x": _b64url(n.x.to_bytes(32, "big")), "y": _b64url(n.y.to_bytes(32, "big"))}
         self.keyid = huella_jwk(self.jwk)
 
+    alg = firma.ALGORITMO
+
+    def firmar(self, base: str) -> bytes:
+        """Firma la base con ECDSA P-256 / SHA-256 en ``r||s``.
+
+        Args:
+            base: Base de firma.
+
+        Returns:
+            Los 64 bytes de la firma.
+        """
+        r, s = decode_dss_signature(self.clave.sign(base.encode(), ec.ECDSA(hashes.SHA256())))
+        return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
     def cabeceras(self, metodo: str, uri: str, cuerpo: bytes = b"", *, created: int | None = None,
-                  nonce: str | None = None, alg: str = firma.ALGORITMO) -> dict[str, str]:
+                  nonce: str | None = None, alg: str | None = None) -> dict[str, str]:
         """Arma las cabeceras ``Signature-Input``, ``Signature`` y ``Content-Digest``.
 
         Args:
@@ -48,14 +62,14 @@ class Firmador:
         """
         created = int(time.time()) if created is None else created
         nonce = nonce or secrets.token_urlsafe(12)
+        alg = alg or self.alg
         componentes = ["@method", "@target-uri"] + (["content-digest"] if cuerpo else [])
         lista = " ".join(f'"{c}"' for c in componentes)
         params = f'({lista});created={created};keyid="{self.keyid}";alg="{alg}";nonce="{nonce}"'
         valores = {"@method": metodo, "@target-uri": uri, "content-digest": firma.content_digest(cuerpo)}
         base = "\n".join([f'"{c}": {valores[c]}' for c in componentes] + [f'"@signature-params": {params}'])
-        r, s = decode_dss_signature(self.clave.sign(base.encode(), ec.ECDSA(hashes.SHA256())))
         cab = {"Signature-Input": f"sig1={params}",
-               "Signature": f"sig1=:{base64.b64encode(r.to_bytes(32, 'big') + s.to_bytes(32, 'big')).decode()}:"}
+               "Signature": f"sig1=:{base64.b64encode(self.firmar(base)).decode()}:"}
         if cuerpo:
             cab["Content-Digest"] = firma.content_digest(cuerpo)
         return cab
@@ -64,6 +78,30 @@ class Firmador:
     def clave_enrolada(self) -> dict:
         """Columnas de ``Machine`` que deja el enrolamiento con esta clave."""
         return {"public_key_jwk": self.jwk, "key_thumbprint": self.keyid}
+
+
+class FirmadorRsa(Firmador):
+    """Firma como la clave RSA del TPM (ST-SEC-04): ``rsa-v1_5-sha256``."""
+
+    alg = firma.ALGORITMO_RSA
+
+    def __init__(self) -> None:
+        """Genera un par RSA 2048 y su JWK público."""
+        self.clave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        n = self.clave.public_key().public_numbers()
+        self.jwk = {"kty": "RSA", "n": _b64url(n.n.to_bytes(256, "big")), "e": "AQAB"}
+        self.keyid = huella_jwk(self.jwk)
+
+    def firmar(self, base: str) -> bytes:
+        """Firma la base con RSASSA-PKCS1-v1_5 / SHA-256.
+
+        Args:
+            base: Base de firma.
+
+        Returns:
+            Los 256 bytes de la firma.
+        """
+        return self.clave.sign(base.encode(), padding.PKCS1v15(), hashes.SHA256())
 
 
 @lru_cache

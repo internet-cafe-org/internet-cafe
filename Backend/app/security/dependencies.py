@@ -109,7 +109,7 @@ async def require_machine(
     ).scalar_one_or_none()
     if machine is None or not machine.public_key_jwk:
         raise _error(401, "MACHINE_SIGNATURE_INVALID")
-    if not firma.verificar_r_s(machine.public_key_jwk, base, crudo):
+    if not firma.verificar(machine.public_key_jwk, entrada.alg, base, crudo):
         raise _error(401, "MACHINE_SIGNATURE_INVALID")
     # El nonce se registra solo tras una firma válida: un tercero no puede "gastarlo".
     if not firma.nonces.registrar(entrada.keyid, entrada.nonce):
