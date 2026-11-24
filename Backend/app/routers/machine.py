@@ -84,15 +84,15 @@ class JwkP256(BaseModel):
 
     kty: Literal["EC"]
     crv: Literal["P-256"]
-    x: str = Field(min_length=43, max_length=44)
-    y: str = Field(min_length=43, max_length=44)
+    x: str = Field(min_length=43, max_length=43)
+    y: str = Field(min_length=43, max_length=43)
 
 
 class JwkRsa(BaseModel):
     """Clave pública RSA del equipo (RFC 7518 §6.3), sin la parte privada.
 
-    Es la clave no exportable del TPM (HU-28, ST-SEC-04): de 2048 a 4096 bits y
-    exponente 65537. ``n`` mide 342 caracteres con 2048 bits y 683 con 4096.
+    Es la clave no exportable del TPM (HU-28, ST-SEC-04): de 2048, 3072 o 4096
+    bits y exponente 65537. ``n`` mide 342 caracteres con 2048 bits y 683 con 4096.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -112,7 +112,7 @@ class EnrollRequest(BaseModel):
 
     enrollment_code: str = Field(min_length=8, max_length=64)
     jwk: JwkEquipo
-    # 86 caracteres con ``r||s`` (EC); 342 a 683 con RSA de 2048 a 4096 bits.
+    # 86 caracteres con ``r||s`` (EC); 342 a 683 con RSA de 2048, 3072 o 4096 bits.
     proof: str = Field(min_length=86, max_length=684)
     hostname: str | None = Field(default=None, max_length=63)
     app_version: str | None = Field(default=None, max_length=20)
@@ -130,8 +130,8 @@ class EnrollRequest(BaseModel):
 
         Raises:
             ValueError: Si las coordenadas EC no son base64url de 32 bytes o el
-                punto no está en la curva, o si la clave RSA no mide entre 2048 y
-                4096 bits o su exponente no es 65537 (422 ``VALIDATION_ERROR``).
+                punto no está en la curva, o si la clave RSA no mide 2048, 3072
+                o 4096 bits o su exponente no es 65537 (422 ``VALIDATION_ERROR``).
         """
         enrolamiento.clave_publica_desde_jwk(jwk.model_dump())
         return jwk

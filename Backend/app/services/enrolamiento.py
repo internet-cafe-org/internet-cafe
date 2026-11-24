@@ -6,7 +6,7 @@ Se aceptan dos tipos de clave:
 
 - EC P-256 (la clave PKCS12 de DSK-03a): firma ECDSA P-256 / SHA-256 en formato
   ``r||s`` de 64 bytes.
-- RSA de 2048 a 4096 bits (la clave no exportable del TPM, HU-28 / ST-SEC-04):
+- RSA de 2048, 3072 o 4096 bits (la clave no exportable del TPM, HU-28 / ST-SEC-04):
   firma RSASSA-PKCS1-v1_5 / SHA-256, del largo del módulo (256 bytes con 2048).
 
 Si todo es válido, el equipo queda ``active`` con su JWK y su huella RFC 7638 (el
@@ -34,8 +34,8 @@ from app.models import AuditActorType, EnrollmentCode, Lab, Machine, MachineMode
 
 _LARGO_COORDENADA = 32
 _LARGO_FIRMA = 64
-RSA_BITS_MIN = 2048
-RSA_BITS_MAX = 4096
+# Los tamaños cuya firma acepta `app.security.firma` (256, 384 y 512 bytes).
+RSA_BITS = (2048, 3072, 4096)
 _RSA_EXPONENTE = 65537
 
 ClavePublica = ec.EllipticCurvePublicKey | rsa.RSAPublicKey
@@ -102,6 +102,27 @@ def _b64url_codificar(datos: bytes) -> str:
     return base64.urlsafe_b64encode(datos).rstrip(b"=").decode("ascii")
 
 
+def _b64url_canonico(valor: str) -> bytes:
+    """Decodifica un miembro del JWK y exige su única forma canónica.
+
+    La huella se calcula sobre el texto del JWK: si se aceptara relleno (``=``) o bits
+    sobrantes, la misma clave tendría varias huellas y podría enrolarse en dos equipos.
+
+    Args:
+        valor: Miembro del JWK en base64url.
+
+    Returns:
+        Los bytes decodificados.
+
+    Raises:
+        ValueError: Si no es base64url o no está en forma canónica, sin relleno.
+    """
+    datos = _b64url_decodificar(valor)
+    if _b64url_codificar(datos) != valor:
+        raise ValueError("No es base64url canónico sin relleno.")
+    return datos
+
+
 def _clave_ec(jwk: dict) -> ec.EllipticCurvePublicKey:
     """Valida un JWK EC P-256 público.
 
@@ -112,14 +133,14 @@ def _clave_ec(jwk: dict) -> ec.EllipticCurvePublicKey:
         La clave pública lista para verificar firmas.
 
     Raises:
-        ValueError: Si no es P-256, las coordenadas no miden 32 bytes o el punto
-            no está en la curva.
+        ValueError: Si no es P-256, las coordenadas no son base64url sin relleno o no
+            miden 32 bytes, o el punto no está en la curva.
     """
     if jwk.get("crv") != "P-256":
         raise ValueError("El JWK EC debe ser P-256.")
     try:
-        x = _b64url_decodificar(jwk["x"])
-        y = _b64url_decodificar(jwk["y"])
+        x = _b64url_canonico(jwk["x"])
+        y = _b64url_canonico(jwk["y"])
     except (KeyError, TypeError, ValueError):
         raise ValueError("Las coordenadas del JWK no son base64url.") from None
     if len(x) != _LARGO_COORDENADA or len(y) != _LARGO_COORDENADA:
@@ -143,14 +164,14 @@ def _clave_rsa(jwk: dict) -> rsa.RSAPublicKey:
         La clave pública lista para verificar firmas.
 
     Raises:
-        ValueError: Si ``n`` o ``e`` no son base64url, el módulo no mide entre
-            2048 y 4096 bits o el exponente no es 65537.
+        ValueError: Si ``n`` o ``e`` no son base64url sin relleno, el módulo no mide
+            2048, 3072 o 4096 bits o el exponente no es 65537.
     """
     if any(k in jwk for k in ("p", "q", "dp", "dq", "qi", "oth")):
         raise ValueError("El JWK no puede incluir la parte privada.")
     try:
-        n_bytes = _b64url_decodificar(jwk["n"])
-        e_bytes = _b64url_decodificar(jwk["e"])
+        n_bytes = _b64url_canonico(jwk["n"])
+        e_bytes = _b64url_canonico(jwk["e"])
     except (KeyError, TypeError, ValueError):
         raise ValueError("El módulo o el exponente del JWK no son base64url.") from None
     if n_bytes[:1] == b"\x00" or e_bytes[:1] == b"\x00":
@@ -158,8 +179,9 @@ def _clave_rsa(jwk: dict) -> rsa.RSAPublicKey:
         raise ValueError("El módulo y el exponente no pueden tener ceros a la izquierda.")
     n = int.from_bytes(n_bytes, "big")
     e = int.from_bytes(e_bytes, "big")
-    if not RSA_BITS_MIN <= n.bit_length() <= RSA_BITS_MAX:
-        raise ValueError(f"La clave RSA debe medir entre {RSA_BITS_MIN} y {RSA_BITS_MAX} bits.")
+    if n.bit_length() not in RSA_BITS:
+        # Con otro tamaño el equipo se enrolaría, pero sus firmas no tendrían un largo válido.
+        raise ValueError("La clave RSA debe medir 2048, 3072 o 4096 bits.")
     if e != _RSA_EXPONENTE:
         raise ValueError("El exponente de la clave RSA debe ser 65537.")
     try:
@@ -251,6 +273,19 @@ def verificar_prueba(clave: ClavePublica, codigo: str, prueba: str) -> None:
         raise FirmaInvalida() from None
 
 
+def _codigo_vigente(registro: EnrollmentCode | None, ahora: datetime) -> bool:
+    """Indica si el código existe, no se usó y no venció.
+
+    Args:
+        registro: Código leído de la base, si existe.
+        ahora: Hora actual.
+
+    Returns:
+        ``True`` si todavía sirve para enrolar.
+    """
+    return registro is not None and registro.used_at is None and registro.expires_at > ahora
+
+
 async def enrolar(
     db: AsyncSession,
     *,
@@ -263,9 +298,11 @@ async def enrolar(
 ) -> Enrolamiento:
     """Enrola el equipo dueño del código y confirma la transacción.
 
-    El código se bloquea con ``FOR UPDATE`` para que dos enrolamientos con el
-    mismo código no ganen los dos. Solo se marca como usado si la prueba de
-    posesión es válida, así un error de firma no quema el código.
+    Primero se bloquea el equipo y después el código (``FOR UPDATE``), el mismo orden
+    de ``/admin/machines/{id}/revoke-key`` y ``enrollment-code``: así no hay
+    interbloqueos y dos enrolamientos con el mismo código no ganan los dos. El código se
+    vuelve a comprobar ya bloqueado. Solo se marca como usado si la prueba de posesión
+    es válida, así un error de firma no quema el código.
 
     Args:
         db: Sesión de base de datos.
@@ -288,18 +325,21 @@ async def enrolar(
     ahora = now or datetime.now(UTC)
     clave = clave_publica_desde_jwk(jwk)
 
-    registro = await db.scalar(
-        select(EnrollmentCode)
-        .where(EnrollmentCode.code_hash == sha256_digest(codigo))
-        .with_for_update()
-    )
-    if registro is None or registro.used_at is not None or registro.expires_at <= ahora:
+    consulta = select(EnrollmentCode).where(EnrollmentCode.code_hash == sha256_digest(codigo))
+    registro = await db.scalar(consulta)
+    if not _codigo_vigente(registro, ahora):
         raise CodigoInvalido()
 
     verificar_prueba(clave, codigo, prueba)
 
     machine = await db.get(Machine, registro.machine_id, with_for_update=True)
     if machine is None:
+        raise CodigoInvalido()
+    # Mientras se esperaba el equipo, el código pudo usarse o invalidarse.
+    registro = await db.scalar(
+        consulta.with_for_update().execution_options(populate_existing=True)
+    )
+    if not _codigo_vigente(registro, ahora):
         raise CodigoInvalido()
     if machine.status == MachineStatus.disabled:
         raise EquipoDeshabilitado()

@@ -30,8 +30,8 @@ from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.crypto import sha256_digest
 from app.config import settings
+from app.crypto import sha256_digest
 from app.database import obtener_base_datos
 from app.jwt import create_access_token
 from app.main import app
@@ -62,6 +62,8 @@ RUTAS_ADMIN: list[tuple[str, str, str, dict[str, Any] | None]] = [
     ("crear sala", "POST", "/admin/labs", {"name": "Sala intrusa"}),
     ("listar equipos", "GET", "/admin/machines", None),
     ("editar equipo", "PATCH", f"/admin/machines/{ID_INEXISTENTE}", {"mode": "kiosk"}),
+    ("generar código", "POST", f"/admin/machines/{ID_INEXISTENTE}/enrollment-code", None),
+    ("revocar clave", "POST", f"/admin/machines/{ID_INEXISTENTE}/revoke-key", None),
     ("listar accesos", "GET", "/admin/sessions", None),
     ("cerrar acceso", "POST", f"/admin/sessions/{ID_INEXISTENTE}/end", None),
 ]
@@ -1025,7 +1027,8 @@ async def test_codigo_de_enrolamiento_se_muestra_una_sola_vez(
         headers=cab_admin,
     )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 201
+    assert resp.headers["Cache-Control"] == "no-store"
     cuerpo = resp.json()
     codigo = cuerpo["code"]
     assert codigo.startswith("ENR-")

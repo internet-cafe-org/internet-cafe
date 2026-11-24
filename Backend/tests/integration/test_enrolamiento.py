@@ -30,6 +30,7 @@ from app.models import (
     UserRole,
     UserStatus,
 )
+from app.security import firma
 from app.services import enrolamiento
 from tests.firmador import FirmaEquipo, Firmador
 
@@ -369,6 +370,69 @@ def test_validacion_rsa_en_el_servicio():
         enrolamiento.clave_publica_desde_jwk({"kty": "RSA", "n": _entero(2**5000 + 1), "e": "AQAB"})
     with pytest.raises(ValueError, match="EC P-256 o RSA"):
         enrolamiento.clave_publica_desde_jwk({"kty": "OKP"})
+
+
+@pytest.mark.parametrize("bits", [2056, 2560])
+async def test_tamano_rsa_intermedio_responde_422(cliente, sesiones, pendiente, bits):
+    """Un tamaño con el que luego no se podría firmar se rechaza al enrolar."""
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=EquipoRsa(bits=bits).cuerpo(codigo))
+
+    assert resp.status_code == 422
+    assert (await _equipo(sesiones, pendiente.id)).status == MachineStatus.pending_enrollment
+
+
+def test_los_tamanos_rsa_coinciden_con_los_de_la_firma():
+    """Todo tamaño que se enrola tiene un largo de firma que el verificador acepta."""
+    assert {bits // 8 for bits in enrolamiento.RSA_BITS} <= firma._LARGOS_FIRMA
+
+
+@pytest.mark.parametrize("bits", [2048, 3072, 4096])
+async def test_tamanos_rsa_admitidos(cliente, sesiones, pendiente, bits):
+    """Los tres tamaños del contrato se enrolan."""
+    codigo = await _codigo(sesiones, pendiente)
+
+    resp = await cliente.post(RUTA, json=EquipoRsa(bits=bits).cuerpo(codigo))
+
+    assert resp.status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("clase", "campo", "relleno"),
+    [(EquipoRsa, "n", "=="), (Equipo, "x", "="), (Equipo, "y", "=")],
+    ids=["rsa-n", "ec-x", "ec-y"],
+)
+async def test_el_relleno_no_permite_enrolar_la_misma_clave_en_dos_equipos(
+    cliente, sesiones, datos, pendiente, clase, campo, relleno
+):
+    """La misma clave escrita con ``=`` daría otra huella: se rechaza con 422."""
+    equipo = clase()
+    primero = await cliente.post(RUTA, json=equipo.cuerpo(await _codigo(sesiones, pendiente)))
+    codigo = await _codigo(sesiones, datos.pc02)
+
+    con_relleno = await cliente.post(
+        RUTA, json=equipo.cuerpo(codigo, jwk={**equipo.jwk, campo: equipo.jwk[campo] + relleno})
+    )
+    sin_relleno = await cliente.post(RUTA, json=equipo.cuerpo(codigo))
+
+    assert primero.status_code == 201
+    assert con_relleno.status_code == 422
+    assert sin_relleno.status_code == 409
+
+
+@pytest.mark.parametrize("clase", [Equipo, EquipoRsa], ids=["ec", "rsa"])
+def test_los_bits_sobrantes_no_cambian_la_huella(clase):
+    """Un último carácter con bits sobrantes decodifica igual, pero no es canónico."""
+    alfabeto = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    jwk = clase().jwk
+    campo = "n" if jwk["kty"] == "RSA" else "x"
+    ultimo = alfabeto[alfabeto.index(jwk[campo][-1]) + 1]
+    alterado = jwk[campo][:-1] + ultimo
+
+    assert _b64d(alterado) == _b64d(jwk[campo])
+    with pytest.raises(ValueError, match="base64url"):
+        enrolamiento.clave_publica_desde_jwk({**jwk, campo: alterado})
 
 
 def _b64d(valor: str) -> bytes:
