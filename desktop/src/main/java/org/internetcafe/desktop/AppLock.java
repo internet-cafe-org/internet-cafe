@@ -56,10 +56,7 @@ public final class AppLock implements AutoCloseable {
 
     FileChannel channel =
         FileChannel.open(
-            lockFile,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.WRITE,
-            StandardOpenOption.READ);
+            lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.READ);
 
     FileLock lock;
     try {

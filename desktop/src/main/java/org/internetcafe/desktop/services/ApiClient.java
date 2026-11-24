@@ -27,9 +27,9 @@ import org.internetcafe.desktop.contract.EnrollmentResponse;
 import org.internetcafe.desktop.contract.HealthResponse;
 import org.internetcafe.desktop.contract.HeartbeatResponse;
 import org.internetcafe.desktop.contract.LongPollResponse;
+import org.internetcafe.desktop.contract.RecentSession;
 import org.internetcafe.desktop.contract.RegistrationRequest;
 import org.internetcafe.desktop.contract.RegistrationResponse;
-import org.internetcafe.desktop.contract.RecentSession;
 import org.internetcafe.desktop.contract.TemporaryCredentialResponse;
 import org.internetcafe.desktop.signing.RequestSigner;
 import org.internetcafe.desktop.signing.RequestSigner.SignedRequest;
@@ -173,7 +173,7 @@ public class ApiClient {
         JsonNode.class);
   }
 
-    /**
+  /**
    * Returns the student's most recent closed accesses for the board (RF-EQU-09).
    *
    * <p>Calls the signed {@code GET /api/v1/machine/sessions/current} and reads {@code

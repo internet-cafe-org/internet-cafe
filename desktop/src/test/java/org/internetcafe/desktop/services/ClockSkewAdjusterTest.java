@@ -13,8 +13,8 @@ class ClockSkewAdjusterTest {
 
   /**
    * RFC 1123 has only second precision. When we format an Instant and parse it back, we lose the
-   * sub-second part (F ms, 0–999). The adjuster also calls Instant.now() after the parse, adding
-   * δ ms of processing time. So the measured offset is:
+   * sub-second part (F ms, 0–999). The adjuster also calls Instant.now() after the parse, adding δ
+   * ms of processing time. So the measured offset is:
    *
    * <pre>offset = expectedSkewMs − F − δ</pre>
    *
@@ -126,7 +126,8 @@ class ClockSkewAdjusterTest {
     Instant serverTime = Instant.now().plusSeconds(10);
     adjuster.applyFromDateHeader(formatRfc1123(serverTime));
 
-    // adjuster.now() = Instant.now() + offset; delta vs plain Instant.now() ≈ offset ∈ [8800, 10000]
+    // adjuster.now() = Instant.now() + offset; delta vs plain Instant.now() ≈ offset ∈ [8800,
+    // 10000]
     long delta = adjuster.now().toEpochMilli() - Instant.now().toEpochMilli();
     assertTrue(
         delta >= 10000L - 2 * TOLERANCE_MS && delta <= 10000L,

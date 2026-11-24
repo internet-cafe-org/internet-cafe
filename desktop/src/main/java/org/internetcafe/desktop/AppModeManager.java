@@ -33,8 +33,7 @@ public final class AppModeManager {
     if (onModeChanged == null) {
       throw new IllegalArgumentException("onModeChanged must not be null");
     }
-    this.currentMode =
-        new AtomicReference<>(initialMode != null ? initialMode : MachineMode.KIOSK);
+    this.currentMode = new AtomicReference<>(initialMode != null ? initialMode : MachineMode.KIOSK);
     this.onModeChanged = onModeChanged;
   }
 

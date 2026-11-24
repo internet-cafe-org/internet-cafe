@@ -10,11 +10,11 @@ import org.internetcafe.desktop.contract.ChallengeWaitResponse;
 /**
  * Long-polls the backend on a virtual thread until a student claims the machine's QR challenge.
  *
- * <p>States: IDLE (created), WAITING (polling), APPROVED (terminal, the QR was claimed) and
- * STOPPED (terminal, cancelled by the caller). When the backend answers {@code approved}, the QR
- * rotation is stopped first and then the listener is notified, exactly once. "Waiting" answers
- * start a new request, and network errors are retried with a growing delay, so the loop never
- * spins. Nothing from the responses is written to the log.
+ * <p>States: IDLE (created), WAITING (polling), APPROVED (terminal, the QR was claimed) and STOPPED
+ * (terminal, cancelled by the caller). When the backend answers {@code approved}, the QR rotation
+ * is stopped first and then the listener is notified, exactly once. "Waiting" answers start a new
+ * request, and network errors are retried with a growing delay, so the loop never spins. Nothing
+ * from the responses is written to the log.
  */
 public final class ChallengeWaitService implements AutoCloseable {
 

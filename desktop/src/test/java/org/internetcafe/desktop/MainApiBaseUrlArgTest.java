@@ -8,10 +8,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifica que {@link Main#applyApiBaseUrlArg(String[])} lee el argumento
- * {@code --api-base-url=<url>} y lo establece como propiedad del sistema
- * {@code api.base.url}, permitiendo que el script de arranque
- * {@code Register-Startup.ps1} sobreescriba la URL embebida en el MSI.
+ * Verifica que {@link Main#applyApiBaseUrlArg(String[])} lee el argumento {@code
+ * --api-base-url=<url>} y lo establece como propiedad del sistema {@code api.base.url}, permitiendo
+ * que el script de arranque {@code Register-Startup.ps1} sobreescriba la URL embebida en el MSI.
  */
 class MainApiBaseUrlArgTest {
 
@@ -36,7 +35,8 @@ class MainApiBaseUrlArgTest {
   @Test
   @DisplayName("Establece api.base.url cuando se pasa --api-base-url=<url>")
   void estableceUrlCuandoSePassaElArgumento() {
-    Main.applyApiBaseUrlArg(new String[] {"--api-base-url=https://internet-cafe-tq03.onrender.com"});
+    Main.applyApiBaseUrlArg(
+        new String[] {"--api-base-url=https://internet-cafe-tq03.onrender.com"});
     assertEquals(
         "https://internet-cafe-tq03.onrender.com",
         System.getProperty(PROP),
@@ -48,8 +48,7 @@ class MainApiBaseUrlArgTest {
   void usaLaUltimaOcurrencia() {
     Main.applyApiBaseUrlArg(
         new String[] {
-          "--api-base-url=https://primera.example.com",
-          "--api-base-url=https://segunda.example.com"
+          "--api-base-url=https://primera.example.com", "--api-base-url=https://segunda.example.com"
         });
     assertEquals("https://segunda.example.com", System.getProperty(PROP));
   }

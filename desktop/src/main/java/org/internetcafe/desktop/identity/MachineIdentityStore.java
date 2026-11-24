@@ -1,5 +1,7 @@
 package org.internetcafe.desktop.identity;
 
+import com.sun.jna.platform.win32.Advapi32Util;
+import com.sun.jna.platform.win32.Win32Exception;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -210,12 +212,20 @@ public final class MachineIdentityStore {
 
     List<AclEntry> entries = new ArrayList<>();
     entries.add(allow(Files.getOwner(path), directory));
+
+    // Resuelve por SID para funcionar en cualquier idioma de Windows.
+    // S-1-5-18 = SYSTEM, S-1-5-32-545 = Users, S-1-5-11 = Authenticated Users,
+    // S-1-5-32-544 = Administrators.
     var lookup = path.getFileSystem().getUserPrincipalLookupService();
-    entries.add(allow(lookup.lookupPrincipalByName("NT AUTHORITY\\SYSTEM"), directory));
+    String systemName = resolveNameBySid("S-1-5-18", "NT AUTHORITY\\SYSTEM");
+    entries.add(allow(lookup.lookupPrincipalByName(systemName), directory));
+
     var users = resolveRuntimeUsers(lookup, directory);
     entries.add(readOnly(users, directory));
+
+    String adminsName = resolveNameBySid("S-1-5-32-544", "BUILTIN\\Administrators");
     try {
-      entries.add(allow(lookup.lookupPrincipalByName("BUILTIN\\Administrators"), directory));
+      entries.add(allow(lookup.lookupPrincipalByName(adminsName), directory));
     } catch (UserPrincipalNotFoundException exception) {
       if (directory) {
         LOGGER.warning(
@@ -226,14 +236,50 @@ public final class MachineIdentityStore {
     aclView.setAcl(entries);
   }
 
+  /**
+   * Resuelve el nombre de cuenta (localizado) a partir de un SID bien conocido usando JNA. Si JNA
+   * no está disponible o el SID no se reconoce, devuelve el nombre en inglés como fallback para
+   * mantener compatibilidad con entornos no-Windows (p. ej. pruebas en Linux).
+   */
+  private static String resolveNameBySid(String sid, String englishFallback) {
+    try {
+      Advapi32Util.Account account = Advapi32Util.getAccountBySid(sid);
+      if (account != null && account.domain != null && !account.domain.isBlank()) {
+        return account.domain + "\\" + account.name;
+      }
+      if (account != null && account.name != null && !account.name.isBlank()) {
+        return account.name;
+      }
+    } catch (Win32Exception exception) {
+      LOGGER.warning(
+          "Could not resolve well-known SID "
+              + sid
+              + " (Win32 error "
+              + exception.getErrorCode()
+              + "); using English fallback");
+    } catch (UnsatisfiedLinkError | NoClassDefFoundError error) {
+      LOGGER.warning(
+          "JNA is not available to resolve SID "
+              + sid
+              + " ("
+              + error.getClass().getSimpleName()
+              + "); using English fallback");
+    }
+    return englishFallback;
+  }
+
   private static java.nio.file.attribute.UserPrincipal resolveRuntimeUsers(
       java.nio.file.attribute.UserPrincipalLookupService lookup, boolean directory)
       throws IOException {
+    // S-1-5-32-545 = BUILTIN\Users (localizado según el idioma del SO)
+    String usersName = resolveNameBySid("S-1-5-32-545", "BUILTIN\\Users");
     try {
-      return lookup.lookupPrincipalByName("BUILTIN\\Users");
+      return lookup.lookupPrincipalByName(usersName);
     } catch (UserPrincipalNotFoundException exception) {
+      // S-1-5-11 = NT AUTHORITY\Authenticated Users (localizado)
+      String authName = resolveNameBySid("S-1-5-11", "NT AUTHORITY\\Authenticated Users");
       try {
-        var authenticatedUsers = lookup.lookupPrincipalByName("NT AUTHORITY\\Authenticated Users");
+        var authenticatedUsers = lookup.lookupPrincipalByName(authName);
         if (directory) {
           LOGGER.warning(
               "Windows Users group could not be resolved; read-only access is granted to"
