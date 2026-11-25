@@ -2,7 +2,7 @@
 
 > **Dueño del documento:** equipo Backend  
 > **Revisado por:** Scrum Master antes de cada review  
-> **Última actualización:** 2026-11-09
+> **Última actualización:** 2026-11-25
 
 Este runbook describe cómo montar, actualizar y depurar el backend en el entorno
 dev de Render. Para el flujo de despliegue automatizado ver también
@@ -179,3 +179,48 @@ El PO tiene acceso de respaldo a la cuenta de Render del equipo. Las credenciale
 están en el gestor de contraseñas compartido del equipo. Para saber dónde están,
 preguntar en el canal privado `#ops-credenciales` — ahí solo se indica la
 ubicación, **no** se comparten las credenciales directamente por chat.
+
+
+---
+
+## 11. Dominio verificado en Resend (ST-OPS-01)
+
+El envío de correos (OTP y avisos) usa Resend con un dominio verificado
+(SRS, PEND-02). Dominio acordado: `<dominio>`. DNS administrado en: `<proveedor>`.
+
+### 11.1 Agregar el dominio en Resend
+
+1. Resend → **Domains → Add Domain**.
+2. Escribir `<dominio>` y elegir la región que use el equipo.
+3. Resend muestra los registros DNS que hay que crear. **Copiar los valores
+   desde el panel**: nombres y contenidos pueden variar entre dominios.
+
+### 11.2 Publicar los registros en el DNS
+
+| Registro | Nombre (típico) | Tipo | Contenido |
+|---|---|---|---|
+| SPF | `send.<dominio>` | TXT | `v=spf1 include:amazonses.com ~all` |
+| Retorno | `send.<dominio>` | MX | `feedback-smtp...amazonses.com` (prioridad 10) |
+| DKIM | `resend._domainkey.<dominio>` | TXT | `p=...` (llave pública del panel) |
+| DMARC | `_dmarc.<dominio>` | TXT | `v=DMARC1; p=none;` |
+
+Después, en Resend, pulsar **Verify**. La propagación puede tardar de minutos a
+unas horas.
+
+### 11.3 Comprobar con la prueba automática
+
+```powershell
+cd Backend
+$env:DOMINIO_REENVIAR = "<dominio>"
+# Solo si el subdominio de envío no es "send":
+# $env:SUBDOMINIO_ENVIO = "<subdominio>"
+python -m pytest tests/ops -v --noconftest
+```
+
+Resultado esperado: `4 passed`. Si falla, el mensaje indica qué registro falta.
+
+### 11.4 Credenciales
+
+- La API key de Resend debe ser de **solo envío**, restringida al dominio.
+- Va únicamente en Render como `RESEND_API_KEY` (y el remitente en
+  `EMAIL_FROM`). **Nunca** en el repositorio ni en los logs.
