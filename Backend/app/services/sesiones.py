@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, update
+from sqlalchemy.orm import load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
@@ -34,6 +35,11 @@ NOMBRE_POR_DEFECTO = "Estudiante"
 def texto_plano(valor: bytes | None, por_defecto: str, *, aad: str | None = None) -> str:
     """Descifra o decodifica una columna ``*_ct``."""
     return pii.revelar(valor, por_defecto, aad=aad)
+
+
+# Columnas de users que necesita datos_estudiante: las únicas que svc_machine puede leer
+# (ST-SEC-03, SRS §12.8).
+COLUMNAS_ESTUDIANTE = (User.id, User.full_name_ct, User.student_code_ct)
 
 
 def datos_estudiante(usuario: User | None) -> tuple[str, str]:
@@ -256,7 +262,12 @@ async def obtener_sesion_actual(db: AsyncSession, machine_id: uuid.UUID) -> dict
     if sesion is None:
         return None
     usuario = (
-        await db.execute(select(User).where(User.id == sesion.user_id))
+        await db.execute(
+            # ST-SEC-03: svc_machine solo puede leer estas columnas de users
+            select(User)
+            .options(load_only(*COLUMNAS_ESTUDIANTE, raiseload=True))
+            .where(User.id == sesion.user_id)
+        )
     ).scalar_one_or_none()
     nombre, codigo = datos_estudiante(usuario)
     return {

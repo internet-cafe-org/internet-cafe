@@ -488,7 +488,7 @@ async def test_long_poll_fallback_db_al_despertar():
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("app.routers.machine.SesionLocalAsync") as mock_session_local:
+        with patch("app.routers.machine.SesionMaquina") as mock_session_local:
             mock_fallback_session = AsyncMock()
             mock_fallback_session.execute.side_effect = mock_execute
             mock_session_local.return_value.__aenter__.return_value = mock_fallback_session
