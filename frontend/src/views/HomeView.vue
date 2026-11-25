@@ -144,7 +144,7 @@ onMounted(cargar)
     <p class="subtitle">Bienvenido a tu portal de acceso universitario</p>
 
     <div v-if="infoMessage" class="feedback" :role="infoIsError ? 'alert' : 'status'">
-      <i class="pi pi-info-circle"></i>
+      <i aria-hidden="true" class="pi pi-info-circle"></i>
       <span>{{ infoMessage }}</span>
       <button v-if="loadFailed" class="link" type="button" @click="cargar">Reintentar</button>
     </div>
@@ -158,7 +158,7 @@ onMounted(cargar)
             <h2>Mi sesión actual</h2>
 
             <span class="badge">
-              <i class="dot"></i>
+              <i aria-hidden="true" class="dot"></i>
               Acceso activo
             </span>
           </header>
@@ -440,7 +440,7 @@ h2 {
   gap: 0.5rem;
   border: 0;
   border-radius: 8px;
-  background: var(--c-primary);
+  background: var(--primary-solid, #2563eb);
   color: var(--c-primary-text);
   font: inherit;
   font-weight: 600;

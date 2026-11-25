@@ -175,7 +175,8 @@ async function loadSessions(resetOffset = false) {
     } else if (err instanceof Error) {
       error.value = err.message
     } else {
-      error.value = 'No se pudo conectar con el servidor para consultar los accesos.'
+      error.value =
+        'No se pudo conectar con el servidor para consultar los accesos. Comprueba tu conexión e inténtalo de nuevo.'
     }
     sessions.value = []
     totalSessions.value = 0
@@ -251,7 +252,8 @@ async function onExportCsv() {
     } else if (err instanceof Error) {
       exportError.value = err.message
     } else {
-      exportError.value = 'No se pudo conectar con el servidor para exportar el archivo.'
+      exportError.value =
+        'No se pudo conectar con el servidor para exportar el archivo. Comprueba tu conexión e inténtalo de nuevo.'
     }
   } finally {
     isExporting.value = false
@@ -306,7 +308,7 @@ async function confirmForceClose() {
       if (err.status === 404) {
         closeError.value = 'La sesión indicada no existe o ya no está disponible.'
       } else {
-        closeError.value = err.message || 'Error al intentar forzar el cierre de la sesión.'
+        closeError.value = err.message || 'No se pudo cerrar la sesión. Inténtalo de nuevo.'
       }
     } else if (err instanceof Error) {
       closeError.value = err.message

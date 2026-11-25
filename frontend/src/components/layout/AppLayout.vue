@@ -283,8 +283,9 @@ async function handleSignOut() {
   --inner: #eef3fa;
   --border: #dce4ef;
   --text: #233e60;
-  --muted: #61738b;
+  --muted: #5a6c84;
   --primary: #2563eb;
+  --primary-solid: #2563eb;
   --hover: #edf3fc;
   --success: #157347;
   --success-bg: #e7f5ee;
@@ -296,7 +297,7 @@ async function handleSignOut() {
 
   --chrome: #ffffff;
   --nav-active-bg: #e4edfd;
-  --nav-active-text: #2563eb;
+  --nav-active-text: #1d4ed8;
 
   display: flex;
   flex-direction: column;
@@ -320,7 +321,8 @@ async function handleSignOut() {
   --border: #334155;
   --text: #e7edf6;
   --muted: #a2b0c4;
-  --primary: #3b82f6;
+  --primary: #6ba3ff;
+  --primary-solid: #2563eb;
   --hover: #1d3157;
   --success: #7bdcb0;
   --success-bg: #17382f;

@@ -218,13 +218,13 @@ onMounted(loadLabs)
         </div>
 
         <button class="primary-button" type="button" @click="openCreate">
-          <i class="pi pi-plus"></i>
+          <i aria-hidden="true" class="pi pi-plus"></i>
           Nueva sala
         </button>
       </header>
 
       <div v-if="successMessage" class="message success-message" role="status">
-        <i class="pi pi-check-circle"></i>
+        <i aria-hidden="true" class="pi pi-check-circle"></i>
         {{ successMessage }}
       </div>
 
@@ -234,7 +234,7 @@ onMounted(loadLabs)
             <span>Salas registradas</span>
             <strong>{{ loadFailed || loading ? '—' : totalLabs }}</strong>
           </div>
-          <i class="pi pi-table summary-icon"></i>
+          <i aria-hidden="true" class="pi pi-table summary-icon"></i>
         </article>
 
         <article class="summary-card">
@@ -242,7 +242,7 @@ onMounted(loadLabs)
             <span>Bloques / edificios</span>
             <strong>{{ loadFailed || loading ? '—' : uniqueBlocks }}</strong>
           </div>
-          <i class="pi pi-building summary-icon"></i>
+          <i aria-hidden="true" class="pi pi-building summary-icon"></i>
         </article>
 
         <article class="summary-card">
@@ -252,7 +252,7 @@ onMounted(loadLabs)
               {{ loadFailed || loading ? '—' : totalAssignedEquipment }}
             </strong>
           </div>
-          <i class="pi pi-desktop summary-icon"></i>
+          <i aria-hidden="true" class="pi pi-desktop summary-icon"></i>
         </article>
       </section>
 
@@ -267,28 +267,28 @@ onMounted(loadLabs)
         </div>
 
         <div v-if="loading" class="empty-state">
-          <i class="pi pi-spin pi-spinner"></i>
+          <i aria-hidden="true" class="pi pi-spin pi-spinner"></i>
           <p>Cargando salas...</p>
         </div>
 
         <div v-else-if="loadFailed" class="empty-state">
-          <i class="pi pi-wifi"></i>
+          <i aria-hidden="true" class="pi pi-wifi"></i>
           <strong>No se pudieron cargar las salas</strong>
           <p>Se perdió la conexión con el servicio. Comprueba tu conexión y vuelve a intentarlo.</p>
 
           <button class="primary-button" type="button" @click="loadLabs">
-            <i class="pi pi-refresh"></i>
+            <i aria-hidden="true" class="pi pi-refresh"></i>
             Reintentar
           </button>
         </div>
 
         <div v-else-if="labs.length === 0" class="empty-state">
-          <i class="pi pi-building"></i>
+          <i aria-hidden="true" class="pi pi-building"></i>
           <strong>Aún no hay salas</strong>
           <p>Crea la primera sala para organizar tus equipos.</p>
 
           <button class="primary-button" type="button" @click="openCreate">
-            <i class="pi pi-plus"></i>
+            <i aria-hidden="true" class="pi pi-plus"></i>
             Crear primera sala
           </button>
         </div>
@@ -324,7 +324,7 @@ onMounted(loadLabs)
 
                 <td class="text-right">
                   <button class="edit-action-button" type="button" @click="openEdit(lab)">
-                    <i class="pi pi-pencil"></i>
+                    <i aria-hidden="true" class="pi pi-pencil"></i>
                     <span>Editar</span>
                   </button>
                 </td>
@@ -357,7 +357,7 @@ onMounted(loadLabs)
         </div>
 
         <button class="secondary-button" type="button" @click="goList">
-          <i class="pi pi-arrow-left"></i>
+          <i aria-hidden="true" class="pi pi-arrow-left"></i>
           Volver a salas
         </button>
       </header>
@@ -372,7 +372,7 @@ onMounted(loadLabs)
           </div>
 
           <div v-if="formError" class="message error-message" role="alert">
-            <i class="pi pi-exclamation-circle"></i>
+            <i aria-hidden="true" class="pi pi-exclamation-circle"></i>
 
             <div>
               <strong>{{ formError.title }}</strong>
@@ -390,10 +390,12 @@ onMounted(loadLabs)
                 maxlength="80"
                 placeholder="Ingresa el nombre de la sala"
                 :class="{ 'input-error': nameError }"
+                :aria-invalid="nameError ? 'true' : undefined"
+                :aria-describedby="nameError ? 'lab-name-error' : undefined"
                 @input="nameError = ''"
               />
 
-              <span v-if="nameError" class="field-error-text">
+              <span v-if="nameError" id="lab-name-error" class="field-error-text">
                 {{ nameError }}
               </span>
 
@@ -418,6 +420,7 @@ onMounted(loadLabs)
             <div class="form-actions">
               <button class="primary-button" type="submit" :disabled="saving">
                 <i
+                  aria-hidden="true"
                   :class="saving ? 'pi pi-spin pi-spinner' : isEdit ? 'pi pi-check' : 'pi pi-check'"
                 ></i>
 
@@ -432,7 +435,7 @@ onMounted(loadLabs)
         <aside class="side-card">
           <h2>Una ubicación clara</h2>
 
-          <i class="pi pi-building side-icon"></i>
+          <i aria-hidden="true" class="pi pi-building side-icon"></i>
 
           <p>
             Usa un nombre breve y reconocible, por ejemplo «Sala 1», y un bloque para facilitar su
@@ -440,7 +443,7 @@ onMounted(loadLabs)
           </p>
 
           <div class="info-box">
-            <i class="pi pi-info-circle"></i>
+            <i aria-hidden="true" class="pi pi-info-circle"></i>
 
             <div>
               <strong>Nombres sin duplicados</strong>
@@ -461,7 +464,7 @@ onMounted(loadLabs)
           </div>
 
           <div v-if="isEdit" class="info-box demo-info">
-            <i class="pi pi-info-circle"></i>
+            <i aria-hidden="true" class="pi pi-info-circle"></i>
 
             <div>
               <strong>Modo demostración</strong>
@@ -530,7 +533,7 @@ h2 {
 
 .primary-button {
   color: #ffffff;
-  background: var(--primary);
+  background: var(--primary-solid);
   border: 1px solid transparent;
   transition: opacity 0.2s;
 }

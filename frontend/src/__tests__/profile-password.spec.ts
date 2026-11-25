@@ -99,7 +99,7 @@ describe('Perfil: cambio de contraseña (ST-UI-02)', () => {
     await submit(wrapper)
 
     const error = wrapper.get('#actual-error')
-    expect(error.text()).toBe('La contraseña actual no es correcta.')
+    expect(error.text()).toBe('La contraseña actual no es correcta. Revísala e inténtalo de nuevo.')
     expect(wrapper.get('input#actual').attributes('aria-invalid')).toBe('true')
     expect(wrapper.get('input#actual').attributes('aria-describedby')).toBe('actual-error')
     expect(wrapper.find('.feedback.error').exists()).toBe(false)
@@ -127,7 +127,9 @@ describe('Perfil: cambio de contraseña (ST-UI-02)', () => {
     await fill(wrapper, 'mala-clave-1', 'NuevaClave-2026', 'NuevaClave-2026')
     await submit(wrapper)
 
-    expect(wrapper.get('#actual-error').text()).toBe('La contraseña actual no es correcta.')
+    expect(wrapper.get('#actual-error').text()).toBe(
+      'La contraseña actual no es correcta. Revísala e inténtalo de nuevo.',
+    )
     expect(wrapper.find('.feedback.error').exists()).toBe(false)
     expect(value(wrapper, 'input#nueva')).toBe('NuevaClave-2026')
   })

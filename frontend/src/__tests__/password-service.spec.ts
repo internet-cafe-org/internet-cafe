@@ -101,7 +101,7 @@ describe('passwordChangeFailure', () => {
     })
     expect(passwordChangeFailure(error)).toEqual({
       field: 'actual',
-      message: 'La contraseña actual no es correcta.',
+      message: 'La contraseña actual no es correcta. Revísala e inténtalo de nuevo.',
     })
   })
 
@@ -113,7 +113,7 @@ describe('passwordChangeFailure', () => {
     })
     expect(passwordChangeFailure(error)).toEqual({
       field: 'actual',
-      message: 'La contraseña actual no es correcta.',
+      message: 'La contraseña actual no es correcta. Revísala e inténtalo de nuevo.',
     })
   })
 
