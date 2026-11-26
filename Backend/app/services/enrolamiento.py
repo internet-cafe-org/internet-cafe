@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
 from app.crypto import sha256_digest
+from app.database import fijar_contexto_rls
 from app.models import AuditActorType, EnrollmentCode, Lab, Machine, MachineMode, MachineStatus
 from app.security.dependencies import hash_machine_credential
 
@@ -336,6 +337,8 @@ async def enrolar(
 
     verificar_prueba(clave, codigo, prueba)
 
+    # Código válido: desde aquí la RLS deja operar sobre ese equipo (ST-SEC-05)
+    await fijar_contexto_rls(db, machine_id=registro.machine_id)
     machine = await db.get(Machine, registro.machine_id, with_for_update=True)
     if machine is None:
         raise CodigoInvalido()

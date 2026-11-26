@@ -53,7 +53,25 @@ Cada variable es opcional: el actor que no la tenga usa `DATABASE_URL`, así que
 activar de a una. **Orden:** primero crear los roles y después desplegar (el deploy corre
 `alembic upgrade head`, que les da los GRANT). Si los roles se crean cuando la migración ya
 corrió, sus GRANT se aplican con `alembic downgrade 7c2d4f9a1b3e && alembic upgrade head`.
-Las políticas RLS por `app.user_id` / `app.machine_id` llegan con ST-SEC-05.
+
+### 2c. Row-Level Security (ST-SEC-05, SRS §12.8)
+La migración `c3a7e5f1d902` activa RLS en `access_sessions`, `login_challenges`, `refresh_tokens`
+y `machines` (en esta solo se limita el UPDATE). `svc_web` y `svc_machine` solo ven las filas que
+corresponden a las variables `app.*` que la API fija tras autenticar (`fijar_contexto_rls` en
+`app/database.py`); **sin variables ven cero filas** (falla cerrada):
+
+| Variable | La fija | Deja ver |
+|---|---|---|
+| `app.user_id` | `require_user`, login, renovación | Sesiones y refresh tokens del usuario |
+| `app.machine_id` | `require_machine`, enrolamiento | Sesiones y retos del equipo; actualizar su fila |
+| `app.machine_user_id` | Sesión actual del equipo | Historial del estudiante sentado en ese equipo |
+| `app.refresh_hash` | Renovar / cerrar sesión | Solo el refresh token presentado |
+| `app.challenge_hash` | Vista previa y claim del QR | Solo el reto del QR escaneado |
+| `app.claim_machine_id` | Claim del QR | Sesiones y retos del equipo del QR (equipo ocupado) |
+
+`svc_admin`, `svc_jobs` y `svc_app` (el rol único de transición) no tienen restricción; el dueño
+de las tablas y los superusuarios no pasan por RLS. Una tabla nueva con dueño necesita sus
+políticas en su migración.
 
 ## 3. Orden de despliegue
 1. `bootstrap_roles.sql` → 2. `alembic upgrade head` con `DATABASE_URL_MIGRATOR` → 3. volver a correr el bootstrap (idempotente, reafirma privilegios).
@@ -64,4 +82,5 @@ Se acepta la URL de Neon tal cual (`sslmode`, `channel_binding`): `app/db_url.py
 ## 4. Pruebas
 `tests/unit/test_bootstrap_roles.py` y `tests/unit/test_st_sec03_roles_por_actor.py` corren siempre. Contra PostgreSQL real (opt-in):
 `TEST_ROLES_ADMIN_URL=postgresql://postgres@localhost/internet_cafe_test_roles pytest tests/integration/test_roles_bootstrap.py`
-(`tests/integration/test_st_sec03_privilegios_por_actor.py` prueba los cuatro roles con la misma variable).
+(`tests/integration/test_st_sec03_privilegios_por_actor.py` prueba los cuatro roles y
+`tests/integration/test_st_sec05_rls.py` el aislamiento por RLS, con la misma variable).

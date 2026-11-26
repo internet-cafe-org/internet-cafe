@@ -16,6 +16,7 @@ from sqlalchemy.orm import load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
+from app.database import fijar_contexto_rls
 from app.models import (
     AccessSession,
     AuditActorType,
@@ -190,6 +191,8 @@ async def crear_reto(
 async def obtener_vista_previa(db: AsyncSession, token: str, user_id) -> dict:
     """Obtiene los datos de previsualización de un reto QR sin consumirlo."""
     token_bytes = hash_token(token)
+    # RLS (ST-SEC-05): quien tiene el QR solo puede ver ese reto
+    await fijar_contexto_rls(db, challenge_hash=token_bytes)
     reto_res = await db.execute(
         select(LoginChallenge).where(LoginChallenge.token_hash == token_bytes)
     )
@@ -263,6 +266,8 @@ async def reclamar_reto_qr(
     """
     now = now or ahora()
     token_bytes = hash_token(token)
+    # RLS (ST-SEC-05): quien tiene el QR solo puede ver ese reto
+    await fijar_contexto_rls(db, challenge_hash=token_bytes)
 
     # 1. Lectura sin bloqueo: solo para conocer el equipo
     reto = (
@@ -272,6 +277,9 @@ async def reclamar_reto_qr(
     ).scalar_one_or_none()
     if not reto:
         raise ChallengeNotFoundError
+    # ...y las sesiones y retos de ese equipo: hacen falta para MACHINE_BUSY y
+    # para cancelar sus otros retos pendientes
+    await fijar_contexto_rls(db, claim_machine_id=reto.machine_id)
 
     # 2. Equipo primero: serializa los claims y las rotaciones del mismo equipo
     machine = await _bloquear_equipo(db, reto.machine_id, solo_columnas_publicas=True)

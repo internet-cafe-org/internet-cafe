@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import obtener_base_datos
+from app.database import fijar_contexto_rls, obtener_base_datos
 from app.jwt import InvalidTokenError, TokenExpiredError, verify_access_token
 from app.logger import obtener_logger
 from app.models import Machine, MachineStatus, UserRole
@@ -64,8 +64,12 @@ def _error(status: int, code: str) -> HTTPException:
 
 async def require_user(
     credenciales: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: AsyncSession = Depends(obtener_base_datos),
 ) -> CurrentUser:
-    """Exige un access token válido en Authorization: Bearer."""
+    """Exige un access token válido en Authorization: Bearer.
+
+    Con el token validado fija ``app.user_id`` para la RLS (ST-SEC-05).
+    """
     if credenciales is None:
         raise _error(401, "AUTH_INVALID_CREDENTIALS")
     try:
@@ -76,9 +80,11 @@ async def require_user(
         raise _error(401, "AUTH_INVALID_CREDENTIALS") from None
 
     try:
-        return CurrentUser(id=uuid.UUID(claims["sub"]), role=UserRole(claims["role"]))
+        usuario = CurrentUser(id=uuid.UUID(claims["sub"]), role=UserRole(claims["role"]))
     except ValueError:
         raise _error(401, "AUTH_INVALID_CREDENTIALS") from None
+    await fijar_contexto_rls(db, user_id=usuario.id)
+    return usuario
 
 
 async def require_admin(usuario: CurrentUser = Depends(require_user)) -> CurrentUser:
@@ -116,8 +122,12 @@ async def require_machine(
     """
     modo = settings.machine_auth_mode
     if modo == "signature" or (modo == "dual" and firma.trae_firma(request)):
-        return await _por_firma(request, db)
-    return await _por_credencial(x_machine_code, x_machine_key, db)
+        machine = await _por_firma(request, db)
+    else:
+        machine = await _por_credencial(x_machine_code, x_machine_key, db)
+    # Equipo autenticado: la RLS lo limita a sus filas (ST-SEC-05, SRS §12.8)
+    await fijar_contexto_rls(db, machine_id=machine.id)
+    return machine
 
 
 async def require_machine_retos(
@@ -161,6 +171,7 @@ async def require_machine_retos(
             "Reto pedido solo con X-Machine-Code (salida transitoria)",
             extra={"datos": {"evento": "machine.retos_solo_codigo", "machine_id": str(machine.id)}},
         )
+        await fijar_contexto_rls(db, machine_id=machine.id)
         return machine
     return await require_machine(request, x_machine_code, x_machine_key, db)
 
