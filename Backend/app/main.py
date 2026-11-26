@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 
+from app import database
 from app.config import settings
 from app.database import SesionLocalAsync, obtener_base_datos
 from app.error_handlers import registrar_manejadores
@@ -26,7 +27,7 @@ from app.errors import PROBLEM_MEDIA_TYPE, AppError, ErrorCode
 from app.logger import configurar_logger
 from app.routers import admin, auth, machine, me, scan
 from app.security.arranque import verificar_llaves
-from app.services import inactividad
+from app.services import inactividad, outbox
 
 logger = configurar_logger()
 
@@ -219,7 +220,10 @@ async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
         extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}},
     )
     try:
-        yield
+        # Usa el rol de tareas cuando está disponible (ST-SEC-03).
+        sesiones_correo = getattr(database, "SesionTareas", database.SesionLocalAsync)
+        async with outbox.trabajador_configurado(sesiones_correo):
+            yield
     finally:
         if tarea is not None:
             tarea.cancel()
