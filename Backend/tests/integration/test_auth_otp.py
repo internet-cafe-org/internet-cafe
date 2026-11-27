@@ -31,7 +31,7 @@ CORREO = "otp.estudiante@test.invalid"
 CLAVE_INICIAL = "ClaveInicial-2026"
 CLAVE_NUEVA = "ClaveNueva-2026-ok"
 CLAVE_INDICE = bytes(range(32)).hex()
-CLAVE_OTP = "c" * 64
+CLAVE_OTP = bytes([0xCC] * 32).hex()
 
 
 def _extraer_codigo_de_outbox(fila: EmailOutbox) -> str:
