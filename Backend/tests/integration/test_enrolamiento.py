@@ -1,7 +1,7 @@
 """Pruebas de integración de ``POST /machine/enroll`` (SEC-05, #110).
 
-Cubren el camino feliz (el equipo queda activo, con su JWK, su huella y una
-credencial que sirve para ``require_machine``) y los rechazos del contrato
+Cubren el camino feliz (el equipo queda activo, con su JWK y su huella, y su
+firma sirve para ``require_machine``) y los rechazos del contrato
 v0.2.1: código inexistente, usado o vencido, firma inválida, JWK inválido,
 equipo deshabilitado y clave repetida.
 """
@@ -30,9 +30,9 @@ from app.models import (
     UserRole,
     UserStatus,
 )
-from app.security.dependencies import hash_machine_credential
 from app.security import firma
 from app.services import enrolamiento
+from tests.firmador import FirmaEquipo, Firmador
 
 RUTA = "/api/v1/machine/enroll"
 
@@ -203,8 +203,8 @@ async def _equipo(sesiones, machine_id) -> Machine:
 # ---------------------------------------------------------------- camino feliz
 
 
-async def test_enrolar_activa_el_equipo_y_entrega_la_credencial(cliente, sesiones, pendiente):
-    """El equipo queda activo con su JWK y su huella; la credencial solo como hash."""
+async def test_enrolar_activa_el_equipo_sin_entregar_credencial(cliente, sesiones, pendiente):
+    """El equipo queda activo con su JWK y su huella; la respuesta no trae ninguna credencial."""
     equipo = Equipo()
     codigo = await _codigo(sesiones, pendiente)
 
@@ -212,6 +212,7 @@ async def test_enrolar_activa_el_equipo_y_entrega_la_credencial(cliente, sesione
 
     assert resp.status_code == 201
     cuerpo = resp.json()
+    assert set(cuerpo) == {"machine_id", "code", "lab", "mode", "keyid"}
     assert cuerpo["machine_id"] == str(pendiente.id)
     assert cuerpo["code"] == "LAB-TEST-PC09"
     assert cuerpo["lab"] == "Sala de pruebas"
@@ -223,8 +224,6 @@ async def test_enrolar_activa_el_equipo_y_entrega_la_credencial(cliente, sesione
     assert machine.status == MachineStatus.active
     assert machine.public_key_jwk == equipo.jwk
     assert machine.key_thumbprint == cuerpo["keyid"]
-    assert machine.credential_hash == hash_machine_credential(cuerpo["provisional_credential"])
-    assert cuerpo["provisional_credential"] not in str(machine.credential_hash)
     assert machine.enrolled_at is not None
     assert (machine.hostname, machine.app_version) == ("PC09", "1.0.0")
 
@@ -234,22 +233,20 @@ async def test_enrolar_activa_el_equipo_y_entrega_la_credencial(cliente, sesione
     assert usado is not None
     assert [a.action for a in auditoria] == ["machine.enroll"]
     assert auditoria[0].metadata_info["keyid"] == cuerpo["keyid"]
-    assert cuerpo["provisional_credential"] not in str(auditoria[0].metadata_info)
 
 
-async def test_la_credencial_del_enrolamiento_autentica_al_equipo(cliente, sesiones, pendiente):
-    """``require_machine`` acepta la credencial devuelta (se prueba con el latido)."""
+async def test_la_clave_enrolada_autentica_al_equipo(cliente, sesiones, pendiente):
+    """La firma de la clave enrolada sirve para el latido; un token responde 401."""
+    firmador = Firmador()
     equipo = Equipo()
+    equipo.clave, equipo.jwk = firmador.clave, firmador.jwk
     resp = await cliente.post(RUTA, json=equipo.cuerpo(await _codigo(sesiones, pendiente)))
-    credencial = resp.json()["provisional_credential"]
+    assert resp.status_code == 201
 
-    latido = await cliente.post(
-        "/api/v1/machine/heartbeat",
-        headers={"X-Machine-Code": "LAB-TEST-PC09", "X-Machine-Key": credencial},
-    )
+    latido = await cliente.post("/api/v1/machine/heartbeat", auth=FirmaEquipo(firmador))
     rechazo = await cliente.post(
         "/api/v1/machine/heartbeat",
-        headers={"X-Machine-Code": "LAB-TEST-PC09", "X-Machine-Key": "otra-credencial"},
+        headers={"X-Machine-Code": "LAB-TEST-PC09", "X-Machine-Key": "token-ficticio"},
     )
 
     assert latido.status_code == 200
@@ -267,7 +264,6 @@ async def test_reenrolar_con_un_codigo_nuevo_reemplaza_la_clave(cliente, sesione
     assert r1.status_code == r2.status_code == 201
     machine = await _equipo(sesiones, pendiente.id)
     assert machine.key_thumbprint == r2.json()["keyid"] != r1.json()["keyid"]
-    assert machine.credential_hash == hash_machine_credential(r2.json()["provisional_credential"])
 
 
 # ---------------------------------------------------------------- clave RSA del TPM (ST-SEC-04)

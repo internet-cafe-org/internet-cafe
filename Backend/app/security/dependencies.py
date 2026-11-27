@@ -2,34 +2,25 @@
 
 - require_user: valida el access token ES256 y devuelve el usuario.
 - require_admin: exige además role = admin.
-- require_machine: autentica al equipo según MACHINE_AUTH_MODE: firma RFC 9421
-  (SEC-07, ``app.security.firma``) o credencial provisional (``dual``/``token``).
-
-La credencial provisional se compara por hash: la base solo guarda el
-SHA-256 (hex) en machines.credential_hash (SEC-05). SEC-14 la retira cuando la
-firma sea obligatoria; los routers no cambian.
+- require_machine: autentica al equipo por la firma RFC 9421 de cada petición
+  (SEC-07, ``app.security.firma``). Es el único camino: SEC-14 retiró la
+  credencial provisional.
 """
 
-import hashlib
-import hmac
 import uuid
 from dataclasses import dataclass
 
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.database import obtener_base_datos
 from app.jwt import InvalidTokenError, TokenExpiredError, verify_access_token
-from app.logger import obtener_logger
 from app.models import Machine, MachineStatus, UserRole
 from app.security import firma
 
 _bearer = HTTPBearer(auto_error=False)
-_logger = obtener_logger("equipos")
-_HASH_VACIO = "0" * 64
 
 
 @dataclass(frozen=True)
@@ -38,11 +29,6 @@ class CurrentUser:
 
     id: uuid.UUID
     role: UserRole
-
-
-def hash_machine_credential(credential: str) -> str:
-    """SHA-256 en hex (64 caracteres) de la credencial del equipo."""
-    return hashlib.sha256(credential.encode("utf-8")).hexdigest()
 
 
 def _error(status: int, code: str) -> HTTPException:
@@ -90,83 +76,12 @@ async def require_admin(usuario: CurrentUser = Depends(require_user)) -> Current
 
 async def require_machine(
     request: Request,
-    x_machine_code: str | None = Header(default=None),
-    x_machine_key: str | None = Header(default=None),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> Machine:
-    """Autentica al equipo según ``MACHINE_AUTH_MODE`` (SEC-07, HU-19).
+    """Autentica al equipo por su firma RFC 9421 (SEC-07, HU-19).
 
-    - ``token``: solo la credencial provisional (``X-Machine-Code`` + ``X-Machine-Key``).
-    - ``dual``: si llega la firma RFC 9421 debe ser válida; si no, se acepta la
-      credencial. Es el modo de transición mientras Desktop integra la firma.
-    - ``signature``: solo la firma.
-
-    Args:
-        request: Petición entrante (cabeceras de firma y cuerpo).
-        x_machine_code: Código del equipo, para la credencial provisional.
-        x_machine_key: Credencial provisional.
-        db: Sesión de base de datos.
-
-    Returns:
-        El equipo autenticado.
-
-    Raises:
-        HTTPException: 401 ``MACHINE_SIGNATURE_INVALID`` o ``MACHINE_CLOCK_SKEW``;
-            403 ``MACHINE_DISABLED`` si el equipo está deshabilitado.
-    """
-    modo = settings.machine_auth_mode
-    if modo == "signature" or (modo == "dual" and firma.trae_firma(request)):
-        return await _por_firma(request, db)
-    return await _por_credencial(x_machine_code, x_machine_key, db)
-
-
-async def require_machine_retos(
-    request: Request,
-    x_machine_code: str | None = Header(default=None),
-    x_machine_key: str | None = Header(default=None),
-    db: AsyncSession = Depends(obtener_base_datos),
-) -> Machine:
-    """Autenticación de ``/machine/challenges`` y ``/wait`` con la salida transitoria.
-
-    Igual que ``require_machine``, salvo que con ``RETOS_ACEPTAN_SOLO_CODIGO=true``
-    (y nunca con ``APP_ENV=prod``) acepta una petición que solo trae
-    ``X-Machine-Code``, como hacía la API antes del arreglo. Existe para no dejar
-    sin QR al escritorio actual mientras se actualiza; cada uso queda en el log.
-
-    Args:
-        request: Petición entrante.
-        x_machine_code: Código del equipo.
-        x_machine_key: Credencial provisional, si viene.
-        db: Sesión de base de datos.
-
-    Returns:
-        El equipo autenticado.
-
-    Raises:
-        HTTPException: Los mismos errores que ``require_machine``.
-    """
-    solo_codigo = x_machine_code and not x_machine_key and not firma.trae_firma(request)
-    if solo_codigo and settings.retos_aceptan_solo_codigo and settings.app_env != "prod":
-        machine = (
-            await db.execute(select(Machine).where(Machine.code == x_machine_code))
-        ).scalar_one_or_none()
-        if machine is None:
-            raise _error(401, "MACHINE_SIGNATURE_INVALID")
-        if machine.status == MachineStatus.disabled:
-            raise _error(403, "MACHINE_DISABLED")
-        if machine.status != MachineStatus.active:
-            raise _error(401, "MACHINE_SIGNATURE_INVALID")
-
-        _logger.warning(
-            "Reto pedido solo con X-Machine-Code (salida transitoria)",
-            extra={"datos": {"evento": "machine.retos_solo_codigo", "machine_id": str(machine.id)}},
-        )
-        return machine
-    return await require_machine(request, x_machine_code, x_machine_key, db)
-
-
-async def _por_firma(request: Request, db: AsyncSession) -> Machine:
-    """Autentica al equipo por su firma RFC 9421 (SEC-07a y SEC-07b).
+    Las cabeceras de la credencial provisional retirada (``X-Machine-Key``) no se
+    leen: una petición sin firma válida responde 401 aunque las traiga.
 
     Args:
         request: Petición entrante.
@@ -203,41 +118,4 @@ async def _por_firma(request: Request, db: AsyncSession) -> Machine:
         raise _error(403, "MACHINE_DISABLED")
     if machine.status != MachineStatus.active:
         raise _error(401, "MACHINE_SIGNATURE_INVALID")
-    return machine
-
-
-async def _por_credencial(
-    x_machine_code: str | None, x_machine_key: str | None, db: AsyncSession
-) -> Machine:
-    """Autentica al equipo por código + credencial provisional (comparada por hash).
-
-    TRANSITORIO: SEC-14 retira este camino cuando la firma sea obligatoria.
-
-    Args:
-        x_machine_code: Código del equipo.
-        x_machine_key: Credencial provisional.
-        db: Sesión de base de datos.
-
-    Returns:
-        El equipo autenticado.
-
-    Raises:
-        HTTPException: 401 ``MACHINE_SIGNATURE_INVALID``; 403 ``MACHINE_DISABLED``.
-    """
-    if not x_machine_code or not x_machine_key:
-        raise _error(401, "MACHINE_SIGNATURE_INVALID")
-
-    machine = (
-        await db.execute(select(Machine).where(Machine.code == x_machine_code))
-    ).scalar_one_or_none()
-
-    presentado = hash_machine_credential(x_machine_key)
-    guardado = machine.credential_hash if machine is not None else None
-    # Se compara siempre, para que el tiempo de respuesta no delate si el equipo existe.
-    coincide = hmac.compare_digest(presentado, guardado or _HASH_VACIO)
-
-    if machine is None or guardado is None or not coincide:
-        raise _error(401, "MACHINE_SIGNATURE_INVALID")
-    if machine.status == MachineStatus.disabled:
-        raise _error(403, "MACHINE_DISABLED")
     return machine

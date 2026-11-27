@@ -100,7 +100,6 @@ async def cliente(
     monkeypatch.setattr(settings, "jwt_private_key", privada)
     monkeypatch.setattr(settings, "jwt_public_key", publica)
     monkeypatch.setattr(settings, "public_api_base_url", BASE)
-    monkeypatch.setattr(settings, "machine_auth_mode", "dual")
 
     async def _db() -> AsyncIterator[AsyncSession]:
         async with sesiones() as db:
@@ -170,7 +169,7 @@ async def _vivos(sesiones: Sesiones, machine_id: uuid.UUID) -> int:
 
 
 async def test_generar_enrolar_revocar_y_volver_a_enrolar(cliente, cab_admin, datos) -> None:
-    """El código sirve una vez; tras revocar, ni la firma ni la credencial autentican."""
+    """El código sirve una vez; tras revocar, ni la firma ni un token autentican."""
     equipo = EquipoP256()
     codigo = (await _generar(cliente, cab_admin, datos.pc01.id)).json()["code"]
     alta = await _enrolar(cliente, equipo, codigo)
@@ -180,11 +179,11 @@ async def test_generar_enrolar_revocar_y_volver_a_enrolar(cliente, cab_admin, da
 
     revocado = await _revocar(cliente, cab_admin, datos.pc01.id)
     con_firma = await _pedir_reto(cliente, equipo, keyid)
-    con_credencial = await cliente.post(
+    con_token = await cliente.post(
         f"{API}/machine/challenges",
         headers={
             "X-Machine-Code": datos.pc01.code,
-            "X-Machine-Key": alta.json()["provisional_credential"],
+            "X-Machine-Key": "token-ficticio",
         },
     )
     nuevo = (await _generar(cliente, cab_admin, datos.pc01.id)).json()["code"]
@@ -194,7 +193,7 @@ async def test_generar_enrolar_revocar_y_volver_a_enrolar(cliente, cab_admin, da
     assert repetido.json()["code"] == "ENROLLMENT_CODE_INVALID"
     assert antes.status_code == 201
     assert (revocado.status_code, revocado.json()["status"]) == (200, "pending_enrollment")
-    for resp in (con_firma, con_credencial):
+    for resp in (con_firma, con_token):
         assert resp.status_code == 401
         assert resp.json()["code"] == "MACHINE_SIGNATURE_INVALID"
     assert otra_alta.status_code == 201
@@ -282,6 +281,18 @@ async def test_revocar_conserva_deshabilitado_y_se_puede_rehabilitar(
     assert auditoria.metadata_info["status"] == "disabled"
 
 
+@pytest.mark.parametrize("estado", list(MachineStatus))
+async def test_reto_solo_con_codigo_se_rechaza_siempre(cliente, datos, sesiones, estado) -> None:
+    """Sin firma no hay QR, sea cual sea el estado del equipo (SEC-14)."""
+    await _estado(sesiones, datos.pc01.id, estado)
+
+    resp = await cliente.post(
+        f"{API}/machine/challenges", headers={"X-Machine-Code": datos.pc01.code}
+    )
+
+    assert (resp.status_code, resp.json()["code"]) == (401, "MACHINE_SIGNATURE_INVALID")
+
+
 @pytest.mark.parametrize(
     ("estado", "http", "code"),
     [
@@ -289,17 +300,16 @@ async def test_revocar_conserva_deshabilitado_y_se_puede_rehabilitar(
         (MachineStatus.pending_enrollment, 401, "MACHINE_SIGNATURE_INVALID"),
     ],
 )
-async def test_reto_solo_con_codigo_exige_equipo_activo(
-    cliente, datos, sesiones, monkeypatch, estado, http, code
+async def test_reto_firmado_exige_equipo_activo(
+    cliente, cab_admin, datos, sesiones, estado, http, code
 ) -> None:
-    """La salida transitoria no da QR a un equipo deshabilitado ni a uno revocado."""
-    monkeypatch.setattr(settings, "retos_aceptan_solo_codigo", True)
-    monkeypatch.setattr(settings, "app_env", "dev")
+    """Ni con una firma válida hay QR para un equipo deshabilitado o pendiente."""
+    equipo = EquipoP256()
+    codigo = (await _generar(cliente, cab_admin, datos.pc01.id)).json()["code"]
+    keyid = (await _enrolar(cliente, equipo, codigo)).json()["keyid"]
     await _estado(sesiones, datos.pc01.id, estado)
 
-    resp = await cliente.post(
-        f"{API}/machine/challenges", headers={"X-Machine-Code": datos.pc01.code}
-    )
+    resp = await _pedir_reto(cliente, equipo, keyid)
 
     assert (resp.status_code, resp.json()["code"]) == (http, code)
 

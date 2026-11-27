@@ -1,9 +1,7 @@
 """Endpoints del equipo (``/machine/*``): enrolamiento, QR, long-poll, latido y cierre.
 
 Salvo ``/machine/enroll``, que se autentica con el código de un solo uso, todos
-exigen ``require_machine``: hoy la credencial provisional (``X-Machine-Code`` +
-``X-Machine-Key``); con SEC-07, la firma RFC 9421. Los routers no cambian al
-pasar de una a otra.
+exigen ``require_machine``: la firma RFC 9421 de cada petición (SEC-07).
 """
 
 import asyncio
@@ -26,7 +24,7 @@ from app.models import (
     SessionEndReason,
 )
 from app.security import limites
-from app.security.dependencies import require_machine, require_machine_retos
+from app.security.dependencies import require_machine
 from app.services import challenges, enrolamiento, events, inactividad, sesiones
 
 router = APIRouter(prefix="/machine", tags=["machine"])
@@ -140,14 +138,13 @@ class EnrollRequest(BaseModel):
 
 
 class EnrollResponse(BaseModel):
-    """Respuesta de ``POST /machine/enroll``. La credencial se muestra una sola vez."""
+    """Respuesta de ``POST /machine/enroll``."""
 
     machine_id: uuid.UUID
     code: str
     lab: str | None
     mode: MachineMode
     keyid: str
-    provisional_credential: str
 
 
 @router.post("/enroll", response_model=EnrollResponse, status_code=201)
@@ -157,7 +154,7 @@ async def enrolar_equipo(
     response: Response,
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> EnrollResponse:
-    """Registra la clave pública del equipo y le entrega su credencial (SEC-05).
+    """Registra la clave pública del equipo (SEC-05).
 
     Args:
         body: Código, JWK y prueba de posesión.
@@ -166,7 +163,7 @@ async def enrolar_equipo(
         db: Sesión de base de datos.
 
     Returns:
-        Equipo, sala, modo, ``keyid`` y la credencial provisional.
+        Equipo, sala, modo y ``keyid``.
 
     Raises:
         AppError: ``ENROLLMENT_CODE_INVALID`` si el código no existe, se usó o
@@ -201,13 +198,12 @@ async def enrolar_equipo(
         lab=resultado.lab,
         mode=resultado.mode,
         keyid=resultado.keyid,
-        provisional_credential=resultado.provisional_credential,
     )
 
 
 @router.post("/challenges", response_model=ChallengeResponse, status_code=201)
 async def crear_reto(
-    machine: Machine = Depends(require_machine_retos),
+    machine: Machine = Depends(require_machine),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> ChallengeResponse:
     """Crea un reto QR de un solo uso para el equipo (máximo 2 vigentes, RN-06).
@@ -243,7 +239,7 @@ async def crear_reto(
 )
 async def esperar_reto(
     timeout: int = Query(default=25, ge=1, le=25),
-    machine: Machine = Depends(require_machine_retos),
+    machine: Machine = Depends(require_machine),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> ChallengeWaitResponse:
     """Espera en long-poll la confirmación de un reto QR para el equipo (SRS §8.1 / BE-06).
@@ -306,7 +302,7 @@ async def esperar_reto(
 
 # =====================================================================================
 # Contrato v0.2 (BE-18): latido con `mode`, sesión actual y cierre desde el equipo.
-# Autenticación: `require_machine` (credencial provisional hasta la firma RFC 9421).
+# Autenticación: `require_machine` (firma RFC 9421).
 # =====================================================================================
 class HeartbeatRequest(BaseModel):
     """Cuerpo opcional del latido. Rechaza campos desconocidos (VALIDATION_ERROR)."""

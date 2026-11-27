@@ -30,8 +30,7 @@ public final class MockApiServer implements AutoCloseable {
           + "\"mensaje\":\"Registro aceptado para procesamiento en segundo plano\"}";
   private static final String ENROLL =
       "{\"machine_id\":\"machine-test\",\"code\":\"dev-98765\",\"lab\":\"Sala 1\","
-          + "\"mode\":\"kiosk\",\"keyid\":\"keyid-placeholder\","
-          + "\"provisional_credential\":\"credential-placeholder\"}";
+          + "\"mode\":\"kiosk\",\"keyid\":\"keyid-placeholder\"}";
   private static final String CREDENCIAL =
       "{\"credencial_temporal\":\"temp-token-xyz-789\",\"expiracion_segundos\":300}";
   private static final String LONG_POLL =

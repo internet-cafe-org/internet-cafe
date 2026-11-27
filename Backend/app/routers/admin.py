@@ -741,7 +741,7 @@ async def revocar_clave_equipo(
     admin: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(obtener_base_datos),
 ) -> MachineItem:
-    """Revoca la clave y la credencial del equipo y exige un nuevo enrolamiento.
+    """Revoca la clave del equipo y exige un nuevo enrolamiento.
 
     Invalida sus códigos pendientes, cancela sus retos y cierra su sesión abierta con
     `admin_forced`. Un equipo deshabilitado conserva ese estado (RN-08); los demás
@@ -784,10 +784,10 @@ async def revocar_clave_equipo(
             motivo=SessionEndReason.admin_forced,
         )
 
+    # Elimina la clave pública del equipo: su firma deja de valer.
     # `null()` y no None: en una columna JSONB, None guardaría el JSON `null`.
     machine.public_key_jwk = null()
     machine.key_thumbprint = None
-    machine.credential_hash = None
     machine.enrolled_at = None
     if machine.status != MachineStatus.disabled:
         machine.status = MachineStatus.pending_enrollment

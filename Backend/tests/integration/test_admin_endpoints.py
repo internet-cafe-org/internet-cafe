@@ -50,10 +50,9 @@ from app.models import (
     UserRole,
     UserStatus,
 )
-from app.security.dependencies import hash_machine_credential
+from tests.firmador import FirmaEquipo, firma_de, firmador_de
 
 API = "/api/v1"
-CREDENCIAL_PC = "credencial-ficticia-de-pruebas"
 ID_INEXISTENTE = "00000000-0000-4000-8000-000000000001"
 
 # (nombre, método, ruta, cuerpo): todas las rutas de /admin con un cuerpo válido, para que un
@@ -252,19 +251,16 @@ async def _auditorias(
         return list(filas.scalars().all())
 
 
-async def _dar_credencial(
-    sesiones: async_sessionmaker[AsyncSession], equipo: Machine
-) -> dict[str, str]:
-    """Le pone al equipo una credencial ficticia y devuelve las cabeceras para usarla."""
-    credencial = f"{CREDENCIAL_PC}-{equipo.code}"
+async def _enrolar(sesiones: async_sessionmaker[AsyncSession], equipo: Machine) -> FirmaEquipo:
+    """Le pone al equipo su clave pública de pruebas y devuelve su firma."""
     async with sesiones() as db:
         await db.execute(
             update(Machine)
             .where(Machine.id == equipo.id)
-            .values(credential_hash=hash_machine_credential(credencial))
+            .values(**firmador_de(equipo.code).clave_enrolada)
         )
         await db.commit()
-    return {"X-Machine-Code": equipo.code, "X-Machine-Key": credencial}
+    return firma_de(equipo.code)
 
 
 async def _fallos_en_rutas_admin(
@@ -338,7 +334,7 @@ async def test_token_con_rol_admin_firmado_con_otra_clave_no_entra(
 async def test_credenciales_de_equipo_no_abren_las_rutas_admin(
     cliente: AsyncClient, sesiones: async_sessionmaker[AsyncSession], datos: Any
 ) -> None:
-    cabeceras = await _dar_credencial(sesiones, datos.pc01)
+    cabeceras = {"X-Machine-Code": datos.pc01.code, "X-Machine-Key": "token-ficticio"}
 
     fallos = await _fallos_en_rutas_admin(cliente, cabeceras, 401, "AUTH_INVALID_CREDENTIALS")
 
@@ -480,7 +476,6 @@ async def test_equipos_se_listan_con_su_estado_y_sin_secretos(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
 ) -> None:
-    cabeceras_pc = await _dar_credencial(sesiones, datos.pc01)
     async with sesiones() as db:
         await db.execute(
             update(Machine)
@@ -503,8 +498,6 @@ async def test_equipos_se_listan_con_su_estado_y_sin_secretos(
     for equipo in cuerpo["items"]:
         assert set(equipo) == CAMPOS_DE_EQUIPO
     for secreto in (
-        cabeceras_pc["X-Machine-Key"],
-        hash_machine_credential(cabeceras_pc["X-Machine-Key"]),
         "huella-ficticia-de-pruebas",
         "x-ficticia",
     ):
@@ -719,7 +712,7 @@ async def test_deshabilitar_un_equipo_cancela_sus_retos_y_cierra_su_sesion(
         )
         db.add(reto)
         await db.commit()
-    cabeceras_pc = await _dar_credencial(sesiones, datos.pc01)
+    firma_pc = await _enrolar(sesiones, datos.pc01)
 
     resp = await cliente.patch(
         f"{API}/admin/machines/{datos.pc01.id}", headers=cab_admin, json={"status": "disabled"}
@@ -739,7 +732,7 @@ async def test_deshabilitar_un_equipo_cancela_sus_retos_y_cierra_su_sesion(
     assert [(c.actor_id, c.target_id) for c in cierres] == [(admin.id, sesion_id)]
     assert cierres[0].metadata_info == {"end_reason": "admin_forced"}
     # RN-08: el equipo deshabilitado ya no puede enviar latidos
-    latido = await cliente.post(f"{API}/machine/heartbeat", headers=cabeceras_pc, json=None)
+    latido = await cliente.post(f"{API}/machine/heartbeat", auth=firma_pc, json=None)
     assert latido.status_code == 403
     assert latido.json()["code"] == "MACHINE_DISABLED"
 
@@ -929,11 +922,11 @@ async def test_el_equipo_se_entera_del_cierre_forzado_en_su_proximo_latido(
     datos: Any,
 ) -> None:
     sesion_id = await _crear_sesion(sesiones, datos.ana, datos.pc01, hace_min=5, abierta=True)
-    cabeceras_pc = await _dar_credencial(sesiones, datos.pc01)
+    firma_pc = await _enrolar(sesiones, datos.pc01)
     await cliente.post(f"{API}/admin/sessions/{sesion_id}/end", headers=cab_admin)
 
     latido = await cliente.post(
-        f"{API}/machine/heartbeat", headers=cabeceras_pc, json={"session_id": str(sesion_id)}
+        f"{API}/machine/heartbeat", auth=firma_pc, json={"session_id": str(sesion_id)}
     )
 
     assert latido.status_code == 200
@@ -1084,20 +1077,18 @@ async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
     sesiones: async_sessionmaker[AsyncSession],
     datos: Any,
 ) -> None:
-    """Tras revocar, el equipo ya no firma ni usa su credencial, y la revocación se audita."""
+    """Tras revocar, la firma del equipo ya no vale, y la revocación se audita."""
     equipo = datos.pc01
-    credencial_anterior = f"{CREDENCIAL_PC}-{equipo.code}"
+    firma_pc = firma_de(equipo.code)
 
-    # Prepara un equipo enrolado con una credencial ficticia.
+    # Prepara un equipo enrolado con su clave de pruebas.
     async with sesiones() as db:
         await db.execute(
             update(Machine)
             .where(Machine.id == equipo.id)
             .values(
                 status=MachineStatus.active,
-                public_key_jwk={"kty": "EC"},
-                key_thumbprint="a" * 64,
-                credential_hash=hash_machine_credential(credencial_anterior),
+                **firmador_de(equipo.code).clave_enrolada,
                 enrolled_at=datetime.now(UTC),
             )
         )
@@ -1112,6 +1103,10 @@ async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
             )
         )
         await db.commit()
+
+    # Antes de revocar, la firma vale.
+    previo = await cliente.post(f"{API}/machine/heartbeat", auth=firma_pc, json=None)
+    assert previo.status_code == 200
 
     # Crea una sesión activa y un reto pendiente para el equipo.
     sesion_id = await _crear_sesion(
@@ -1150,13 +1145,12 @@ async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
     ):
         assert campo not in resp.json()
 
-    # Comprueba que las credenciales fueron eliminadas de la base de datos.
+    # Comprueba que la clave fue eliminada de la base de datos.
     equipo_actualizado = await _leer_equipo(sesiones, equipo.id)
 
     assert equipo_actualizado.status == MachineStatus.pending_enrollment
     assert equipo_actualizado.public_key_jwk is None
     assert equipo_actualizado.key_thumbprint is None
-    assert equipo_actualizado.credential_hash is None
     assert equipo_actualizado.enrolled_at is None
 
     # El código anterior queda invalidado.
@@ -1186,15 +1180,8 @@ async def test_revocar_la_clave_de_un_equipo_lo_deja_sin_poder_autenticarse(
     assert auditorias[0].actor_id == admin.id
     assert auditorias[0].target_id == equipo.id
 
-    # La credencial anterior ya no permite enviar latidos.
-    latido = await cliente.post(
-        f"{API}/machine/heartbeat",
-        headers={
-            "X-Machine-Code": equipo.code,
-            "X-Machine-Key": credencial_anterior,
-        },
-        json=None,
-    )
+    # La firma con la clave revocada ya no permite enviar latidos.
+    latido = await cliente.post(f"{API}/machine/heartbeat", auth=firma_pc, json=None)
 
     assert latido.status_code == 401
     assert latido.json()["code"] == "MACHINE_SIGNATURE_INVALID"

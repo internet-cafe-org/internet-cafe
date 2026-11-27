@@ -108,7 +108,6 @@ class ApiClientTest {
     assertEquals("Sala 1", enrollment.lab());
     assertEquals("kiosk", enrollment.mode());
     assertEquals("keyid-placeholder", enrollment.keyid());
-    assertEquals("credential-placeholder", enrollment.provisionalCredential());
     assertEquals("POST", requestMethods.get("/api/v1/machine/enroll"));
     JsonNode enrollmentBody = OBJECT_MAPPER.readTree(requestBodies.get("/api/v1/machine/enroll"));
     assertEquals("enrollment-code-placeholder", enrollmentBody.get("enrollment_code").asText());
@@ -245,8 +244,7 @@ class ApiClientTest {
               201,
               "{\"machine_id\":\"machine-test\",\"code\":\"LAB1-PC03\","
                   + "\"lab\":\"Sala 1\",\"mode\":\"kiosk\","
-                  + "\"keyid\":\"keyid-placeholder\","
-                  + "\"provisional_credential\":\"credential-placeholder\"}");
+                  + "\"keyid\":\"keyid-placeholder\"}");
       case "/api/v1/credencial-provisional" -> {
         requestBodies.put(
             "credential-device-id", exchange.getRequestHeaders().getFirst("X-Device-ID"));

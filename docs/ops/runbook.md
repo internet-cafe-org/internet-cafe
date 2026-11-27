@@ -107,6 +107,24 @@ automáticamente tras fusionar a `main` (ver `despliegue-dev.md`):
 
 ---
 
+### Volver atrás después de SEC-14
+
+Desde SEC-14 la firma es la única autenticación del equipo. `MACHINE_AUTH_MODE` ya no existe:
+**no se puede volver a `dual` cambiando la configuración**; hay que revertir el código.
+
+1. **Primero la base, aún con el código de SEC-14:** `alembic downgrade 7c2d4f9a1b3e` con
+   `svc_migrator`. Recrea `credential_hash` vacía; la API anterior la necesita para leer
+   `machines`, y la API de SEC-14 sigue funcionando con ella.
+2. **Después el código:** revertir el merge de SEC-14 con un PR y desplegar. El revert también
+   quita la migración; si la base no se bajó antes, Alembic no reconoce su revisión y falla.
+3. Definir otra vez `MACHINE_AUTH_MODE` en Render.
+
+Los hashes borrados no se recuperan. Los equipos enrolados siguen entrando con su firma en modo
+`dual` o `signature`; para usar otra vez una credencial provisional hay que enrolarlos de nuevo.
+Si después de SEC-14 hay migraciones nuevas, el `downgrade` también las deshace: revisarlas antes.
+
+---
+
 ## 6. Ambientes Neon (dev y prod son proyectos separados)
 
 Neon organiza los ambientes como **proyectos independientes**, no como ramas

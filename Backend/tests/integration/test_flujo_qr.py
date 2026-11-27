@@ -25,8 +25,8 @@ from app.database import obtener_base_datos
 from app.jwt import create_access_token
 from app.main import app
 from app.models import AccessSession, ChallengeStatus, LoginChallenge, Machine, SessionEndReason
-from app.security.dependencies import hash_machine_credential
 from app.services import challenges
+from tests.firmador import firma_de, firmador_de
 
 T0 = datetime(2026, 10, 29, 10, 0, 0, tzinfo=UTC)
 
@@ -447,15 +447,17 @@ def fijar_hora(monkeypatch, momento: datetime) -> None:
 async def test_http_claim_camino_feliz_y_repeticion(cliente, sesiones, datos, monkeypatch):
     fijar_hora(monkeypatch, T0)
     async with sesiones() as db:
-        (await db.get(Machine, datos.pc01.id)).credential_hash = hash_machine_credential("clave-pc01")
+        machine = await db.get(Machine, datos.pc01.id)
+        for columna, valor in firmador_de(machine.code).clave_enrolada.items():
+            setattr(machine, columna, valor)
         await db.commit()
-    sin_clave = await cliente.post("/api/v1/machine/challenges", headers={"X-Machine-Code": "LAB-TEST-PC01"})
-    assert sin_clave.status_code == 401
-    assert sin_clave.json()["code"] == "MACHINE_SIGNATURE_INVALID"
+    sin_firma = await cliente.post("/api/v1/machine/challenges", headers={"X-Machine-Code": "LAB-TEST-PC01"})
+    assert sin_firma.status_code == 401
+    assert sin_firma.json()["code"] == "MACHINE_SIGNATURE_INVALID"
 
     r = await cliente.post(
         "/api/v1/machine/challenges",
-        headers={"X-Machine-Code": "LAB-TEST-PC01", "X-Machine-Key": "clave-pc01"},
+        auth=firma_de("LAB-TEST-PC01"),
     )
     assert r.status_code == 201
     token = r.json()["qr_url"].split("#", 1)[1]

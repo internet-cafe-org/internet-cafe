@@ -94,8 +94,6 @@ Valores fijos de prod en `render.prod.yaml`:
 | Variable | Valor | Por qué |
 |---|---|---|
 | `APP_ENV` | `prod` | Desactiva los previews de Vercel en `/auth` |
-| `MACHINE_AUTH_MODE` | `signature` | HU-32 y SRS §12.4: el equipo firma cada petición |
-| `RETOS_ACEPTAN_SOLO_CODIGO` | `false` | En prod los retos exigen firma |
 | `RATE_LIMIT_ENABLED` | `true` | SRS §12.2 |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | MVP sin correo (backlog §4) |
 | `plan` | `free`, 1 worker | SRS O-06 y §13.4: costo USD 0 |
@@ -146,7 +144,7 @@ Los secretos de la semilla del piloto y del administrador inicial llegan con QA-
 - [ ] Las llaves de prod son distintas de las de dev, y el respaldo cifrado está en dos
       ubicaciones fuera de línea.
 - [ ] Render prod responde `/healthz` y queda suspendido.
-- [ ] Render prod tiene `APP_ENV=prod` y `MACHINE_AUTH_MODE=signature`.
+- [ ] Render prod tiene `APP_ENV=prod`.
 - [ ] El segundo proyecto de Vercel existe, sin despliegues automáticos desde Git.
 - [ ] El environment `prod` exige la aprobación del PO o el SM y solo acepta etiquetas `v*`.
 - [ ] La evidencia está en el issue #139, sin valores secretos.

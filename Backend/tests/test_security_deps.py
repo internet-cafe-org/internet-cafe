@@ -5,7 +5,8 @@ import httpx
 from fastapi import Depends, FastAPI
 from app.database import obtener_base_datos
 from app.models import Machine, MachineStatus
-from app.security.dependencies import require_admin, require_machine, require_user, hash_machine_credential
+from app.security.dependencies import require_admin, require_machine, require_user
+from tests.firmador import firma_de, firmador_de
 
 @pytest.fixture
 def jwt_keys(monkeypatch):
@@ -32,9 +33,8 @@ def admin(jwt_keys): return _crear_actor('admin')
 
 @pytest.fixture
 def equipo():
-    credencial = 'credencial-provisional-de-prueba'
-    machine = Machine(id=_uuid.uuid4(), code='LAB-TEST-01', status=MachineStatus.active, credential_hash=hash_machine_credential(credencial))
-    return {'machine': machine, 'credential': credencial, 'headers': {'X-Machine-Code': machine.code, 'X-Machine-Key': credencial}}
+    machine = Machine(id=_uuid.uuid4(), code='LAB-TEST-01', status=MachineStatus.active, **firmador_de('LAB-TEST-01').clave_enrolada)
+    return {'machine': machine, 'firma': firma_de(machine.code)}
 
 class _Resultado:
     def __init__(self, valor): self._valor = valor
@@ -85,5 +85,12 @@ async def test_require_admin_con_rol_estudiante_da_403(student):
 
 @pytest.mark.asyncio
 async def test_require_machine_camino_feliz(equipo):
-    async with _cliente(_crear_app(machine=equipo['machine'])) as c: r = await c.get('/equipo', headers=equipo['headers'])
+    async with _cliente(_crear_app(machine=equipo['machine'])) as c: r = await c.get('/equipo', auth=equipo['firma'])
     assert r.status_code == 200
+
+@pytest.mark.asyncio
+async def test_require_machine_con_token_da_401(equipo):
+    cabeceras = {'X-Machine-Code': 'LAB-TEST-01', 'X-Machine-Key': 'token-ficticio'}
+    async with _cliente(_crear_app(machine=equipo['machine'])) as c: r = await c.get('/equipo', headers=cabeceras)
+    assert r.status_code == 401
+    assert r.json()['detail']['code'] == 'MACHINE_SIGNATURE_INVALID'

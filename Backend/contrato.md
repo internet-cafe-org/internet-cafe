@@ -14,16 +14,21 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 
 ## 2. Cambios
 
+### SEC-14 · credencial provisional retirada
+- **Retirado** el esquema `machineProvisional` (`X-Machine-Key`): `/machine/*`, excepto enroll, solo acepta `machineSignature`. Un token sin firma responde 401 `MACHINE_SIGNATURE_INVALID`.
+- **Retirado** `provisional_credential` de la respuesta de `POST /machine/enroll`. **Cambio incompatible:** el escritorio anterior a SEC-14 no puede enrolarse; primero hay que actualizarlo.
+- **Retiradas** las variables `MACHINE_AUTH_MODE` y `RETOS_ACEPTAN_SOLO_CODIGO`.
+
 ### v0.2.1 respecto a v0.2
 - **Nuevo** `POST /auth/register` y `POST /auth/login` (SEC-02).
 - **Documentados** `POST /auth/refresh` y `POST /auth/logout` (SEC-03a), que ya existían en la API pero no estaban en el YAML.
 - **Nuevo** `POST /machine/enroll` (SEC-05), con la forma del SRS §8.4 y §12.4.
 - **Documentados** `GET /healthz` y `GET /readyz`, fuera del prefijo `/api/v1`.
 - **Cambia** `/scan/preview` y `/scan/claim`: exigen `bearerAuth`. El usuario sale del access token; se elimina la cabecera `X-User-Id`.
-- **Cambia** `/machine/challenges` y `/machine/challenges/wait`: usan la misma autenticación que el resto de `/machine/*` (`machineSignature` o `machineProvisional`); ya no basta con `X-Machine-Code`.
+- **Cambia** `/machine/challenges` y `/machine/challenges/wait`: usan la misma autenticación que el resto de `/machine/*` (hoy solo `machineSignature`, ver SEC-14); ya no basta con `X-Machine-Code`.
 - **Cambia** la cookie de refresh: se llama `__Secure-rt` (SRS §12.2); antes era `refresh_token`.
 - **Nuevas** respuestas `Locked` (423), `TooManyRequests` (429) y `ServiceUnavailable` (503), y los esquemas `AccessToken`, `SessionUser`, `LoginResponse` y `MachineJwk`.
-- **Retiradas** `/registro`, `/enroll`, `/credencial-provisional` y `/long-poll`: venían del borrador v0.1 y la API nunca las implementó. Sus reemplazos son `/auth/register`, `/machine/enroll`, la credencial que devuelve `/machine/enroll` y `/machine/challenges/wait`.
+- **Retiradas** `/registro`, `/enroll`, `/credencial-provisional` y `/long-poll`: venían del borrador v0.1 y la API nunca las implementó. Sus reemplazos son `/auth/register`, `/machine/enroll`, la firma del equipo y `/machine/challenges/wait`.
 
 ### BE-13 (Sprint 3)
 - **Nuevo** `POST /admin/machines/{id}/enrollment-code` (201) y `POST /admin/machines/{id}/revoke-key` (200).
@@ -44,7 +49,7 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 
 ### Impacto en los clientes
 - **UI:** regenerar `frontend/src/api/schema.d.ts`; `services/auth.ts` ya usa la forma de `/auth/register` y `/auth/login`. La cookie cambia de nombre, pero la web no la lee (es HttpOnly).
-- **Desktop:** `EnrollmentRequest` pasa a `{enrollment_code, jwk, proof, hostname?, app_version?}` y `EnrollmentResponse` a `{machine_id, code, lab, mode, keyid, provisional_credential}`, en `POST /machine/enroll`. `/machine/challenges` y `/machine/challenges/wait` deben enviar `X-Machine-Key` además de `X-Machine-Code`.
+- **Desktop:** `EnrollmentRequest` pasa a `{enrollment_code, jwk, proof, hostname?, app_version?}` y `EnrollmentResponse` a `{machine_id, code, lab, mode, keyid}`, en `POST /machine/enroll`. Las demás rutas `/machine/*` van firmadas.
 
 ## 3. Autenticación por actor
 | Esquema | Rutas | Detalle |
@@ -53,17 +58,9 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 | Cookie `__Secure-rt` + `Origin` | `/auth/refresh`, `/auth/logout` | Ver la sección 4. |
 | `bearerAuth` | `/me/*`, `/scan/*`, `/admin/*` | Access token ES256 de 10 min (`alg` fijo, `iss`, `aud = web`, `sub`, `role`, `jti`). `/admin/*` exige `role = admin` (`FORBIDDEN` si no). |
 | Código de un solo uso + prueba de posesión | `/machine/enroll` | Ver la sección 5. |
-| `machineSignature` | `/machine/*` excepto enroll (objetivo) | RFC 9421 con `@method`, `@target-uri` y `content-digest` (RFC 9530). `created` ±30 s (`MACHINE_CLOCK_SKEW`); nonce no repetido en 60 s; firma ausente, inválida o repetida → `MACHINE_SIGNATURE_INVALID`. |
-| `machineProvisional` | `/machine/*` excepto enroll (transitorio) | `X-Machine-Code` + `X-Machine-Key`. El servidor guarda solo el SHA-256 y compara en tiempo constante. Se retira con SEC-14, cuando la firma sea obligatoria (`MACHINE_AUTH_MODE=signature`). |
+| `machineSignature` | `/machine/*` excepto enroll | RFC 9421 con `@method`, `@target-uri` y `content-digest` (RFC 9530). `created` ±30 s (`MACHINE_CLOCK_SKEW`); nonce no repetido en 60 s; firma ausente, inválida o repetida → `MACHINE_SIGNATURE_INVALID`. |
 
-Los routers no cambian al activar la firma: solo se reemplaza la dependencia `require_machine`.
-
-**Modo de autenticación del equipo (`MACHINE_AUTH_MODE`, SEC-07):**
-- `token`: solo `X-Machine-Code` + `X-Machine-Key`.
-- `dual` (transición, ya no se usa en dev): si la petición trae `Signature-Input` y `Signature`, la firma debe ser válida; si no, se acepta la credencial provisional.
-- `signature` (producción y dev, OPS-16): solo la firma.
-
-**Salida transitoria (solo dev):** con `RETOS_ACEPTAN_SOLO_CODIGO=true`, `/machine/challenges` y `/machine/challenges/wait` aceptan una petición con solo `X-Machine-Code`, para no dejar sin QR al escritorio actual mientras se actualiza. Se ignora con `APP_ENV=prod`, cada uso queda en el log (`machine.retos_solo_codigo`) y se elimina con SEC-14.
+La firma es la única autenticación del equipo (dependencia `require_machine`); no hay modo alternativo ni token (SEC-14).
 
 Perfil de la firma (vectores en `contracts/test-vectors`, SEC-08): `sig1`, `ecdsa-p256-sha256` (o `rsa-v1_5-sha256` si el equipo enroló la clave RSA del TPM, ST-SEC-04; el `alg` debe ser el del tipo de la clave), componentes `@method`, `@target-uri` y, solo con cuerpo, `content-digest`; parámetros `created`, `keyid` (huella RFC 7638), `alg` y `nonce`; `@target-uri` = `PUBLIC_API_BASE_URL` + ruta + query; firma `r||s` de 64 bytes en base64 (con RSA, la firma RSASSA-PKCS1-v1_5 del largo del módulo).
 
@@ -86,11 +83,11 @@ Si se presenta un refresh token ya revocado **fuera de la gracia de 10 s** se co
 **Bloqueo y límites (SEC-09):** 5 contraseñas fallidas seguidas bloquean la cuenta 15 min (423 `AUTH_ACCOUNT_LOCKED`). `/auth/*`, `/scan/claim` y `/machine/enroll` admiten 10 peticiones por minuto por cuenta y por IP (429 `RATE_LIMITED` con `Retry-After`); el refresh solo cuenta por su token.
 
 ## 5. Enrolamiento del equipo (`POST /machine/enroll`)
-1. El administrador genera un código de un solo uso que vence en 24 h. Lo genera `POST /admin/machines/{id}/enrollment-code` (BE-13), que lo muestra una sola vez e invalida los anteriores sin usar; en dev también lo genera la semilla (QA-02a). `POST /admin/machines/{id}/revoke-key` borra la clave y la credencial del equipo y exige enrolarlo de nuevo.
+1. El administrador genera un código de un solo uso que vence en 24 h. Lo genera `POST /admin/machines/{id}/enrollment-code` (BE-13), que lo muestra una sola vez e invalida los anteriores sin usar; en dev también lo genera la semilla (QA-02a). `POST /admin/machines/{id}/revoke-key` borra la clave del equipo y exige enrolarlo de nuevo.
 2. El equipo genera un par ECDSA P-256 y envía `{enrollment_code, jwk, proof}`. `jwk` es la clave pública (`kty = EC`, `crv = P-256`, `x`, `y`; sin `d`). `proof` es la firma ECDSA P-256 / SHA-256 de los bytes UTF-8 de `enrollment_code`, en formato `r||s` de 64 bytes y base64url sin relleno.
    - **Clave del TPM (ST-SEC-04, HU-28):** en Windows con TPM 2.0 el equipo puede enrolar en su lugar la clave RSA no exportable de `Windows-MY` (SunMSCAPI). `jwk` es `{kty: "RSA", n, e}` (2048, 3072 o 4096 bits, `e = AQAB`, sin parte privada ni ceros a la izquierda) y `proof` es la firma RSASSA-PKCS1-v1_5 / SHA-256 (`SHA256withRSA`) del código, en base64url sin relleno (342 caracteres con 2048 bits). La huella RFC 7638 usa `e`, `kty` y `n`. Después el equipo firma sus peticiones con `alg="rsa-v1_5-sha256"`. Sin TPM se sigue usando la clave P-256 del PKCS12.
-3. La API valida el JWK, verifica la firma, calcula la huella RFC 7638 (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional y audita `machine.enroll`. Todo en una transacción.
-4. Respuesta 201: `{machine_id, code, lab, mode, keyid, provisional_credential}`. La credencial se muestra una sola vez; la API guarda solo su hash.
+3. La API valida el JWK, verifica la firma, calcula la huella RFC 7638 (`keyid`), marca el código como usado, pasa el equipo a `active` y audita `machine.enroll`. Todo en una transacción.
+4. Respuesta 201: `{machine_id, code, lab, mode, keyid}`. No incluye ninguna credencial: desde aquí el equipo firma cada petición.
 
 Errores: código inexistente, usado o vencido → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido, o con miembros en base64url con relleno o no canónico → 422 `VALIDATION_ERROR`; clave ya registrada por otro equipo → 409 `CONFLICT`.
 
@@ -107,7 +104,7 @@ Errores: código inexistente, usado o vencido → 401 `ENROLLMENT_CODE_INVALID`;
 - Los 422 llevan `code: VALIDATION_ERROR` y `errors[]` con `field` y `message`. No devuelven `input` ni `ctx`, para no repetir contraseñas u otros datos del cliente. Los cuerpos de `/auth/*`, `/machine/enroll`, `/machine/heartbeat`, `/me` y `/admin` rechazan campos desconocidos.
 - Además del catálogo del SRS §10.5 existen los códigos genéricos `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `INTERNAL_ERROR` y `CONFLICT`.
 - Un 500 no incluye la traza; el servidor registra un `request_id` que viaja en la cabecera `X-Request-ID`.
-- Ninguna respuesta incluye contraseñas, hashes, refresh tokens, claves privadas ni el código de estudiante completo (siempre `student_code_masked`). La única excepción es `provisional_credential`, que `/machine/enroll` entrega una sola vez.
+- Ninguna respuesta incluye contraseñas, hashes, refresh tokens, claves privadas ni el código de estudiante completo (siempre `student_code_masked`). La única excepción es el código de enrolamiento de un solo uso, que `POST /admin/machines/{id}/enrollment-code` (BE-13) muestra una sola vez, con `Cache-Control: no-store`; la API guarda solo su hash.
 
 ## 8. Especificación OpenAPI v0.2.1
 ```yaml
@@ -508,8 +505,8 @@ paths:
         3072 o 4096 bits con e = 65537 para la clave no exportable del TPM, ST-SEC-04) y una prueba de posesión: la firma
         SHA-256 de los bytes UTF-8 de `enrollment_code` en base64url sin relleno (ECDSA en `r||s` de 64 bytes con
         EC; RSASSA-PKCS1-v1_5 del largo del módulo con RSA). La API valida el JWK (sin parte privada), verifica la firma, calcula la huella RFC 7638
-        (`keyid`), marca el código como usado, pasa el equipo a `active`, emite la credencial provisional (se muestra
-        una sola vez; la API guarda solo su hash) y audita `machine.enroll`. Código inexistente, usado o vencido
+        (`keyid`), marca el código como usado, pasa el equipo a `active` y audita `machine.enroll`. No
+        entrega ninguna credencial: el equipo firma cada petición con su clave (SEC-14). Código inexistente, usado o vencido
         → 401 `ENROLLMENT_CODE_INVALID`; firma inválida → 401 `MACHINE_SIGNATURE_INVALID`; JWK inválido → 422; clave
         ya usada por otro equipo → 409 `CONFLICT`.'
       requestBody:
@@ -557,7 +554,6 @@ paths:
                 - lab
                 - mode
                 - keyid
-                - provisional_credential
                 properties:
                   machine_id:
                     type: string
@@ -575,10 +571,6 @@ paths:
                     type: string
                     description: Huella RFC 7638 del JWK (base64url de SHA-256).
                     example: NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs
-                  provisional_credential:
-                    type: string
-                    description: TRANSITORIO. Valor de `X-Machine-Key`. Se muestra una sola vez y se retira con
-                      SEC-14, cuando la firma RFC 9421 sea obligatoria.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
@@ -593,7 +585,6 @@ paths:
       - machine
       security:
       - machineSignature: []
-      - machineProvisional: []
       summary: Generar un reto QR para una máquina
       description: Crea un reto QR de un solo uso para el equipo identificado. Máximo 2 retos vigentes por equipo
         (RN-06).
@@ -631,7 +622,6 @@ paths:
       - machine
       security:
       - machineSignature: []
-      - machineProvisional: []
       summary: Espera en long-poll de la aprobación de un reto QR
       description: Mantiene la conexión abierta hasta que un estudiante reclame el reto QR del equipo o venza el
         timeout.
@@ -820,7 +810,6 @@ paths:
       - machine
       security: &id004
       - machineSignature: []
-      - machineProvisional: []
       summary: Latido del equipo (v0.2)
       description: 'El equipo lo envía cada 60 s. Devuelve la hora del servidor, el modo del equipo (`mode`) y el
         estado de su sesión. Es la vía por la que el equipo se entera de un cierre remoto (web, administrador o
@@ -1268,7 +1257,7 @@ paths:
       - admin
       security: *id005
       summary: Revocar la clave de un equipo (BE-13)
-      description: 'Borra la clave pública y la credencial provisional, invalida los códigos de enrolamiento sin usar,
+      description: 'Borra la clave pública, invalida los códigos de enrolamiento sin usar,
         cancela los retos pendientes y cierra la sesión abierta con `admin_forced`. El equipo queda en `pending_enrollment`;
         si estaba `disabled`, conserva ese estado (RN-08). Es idempotente. Audita `machine_key_revoked`.'
       parameters:
@@ -1432,22 +1421,16 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Access token ES256 de 10 min (SEC-00). Rutas /me y /admin; /admin exige además `role = admin`.
-    machineProvisional:
-      type: apiKey
-      in: header
-      name: X-Machine-Key
-      description: TRANSITORIO. Credencial provisional del equipo, enviada junto con `X-Machine-Code`; el servidor
-        solo guarda su SHA-256 y la compara en tiempo constante. Se retira cuando Seguridad active la firma.
     machineSignature:
       type: apiKey
       in: header
       name: Signature
-      description: 'OBJETIVO v0.2 (RFC 9421 + RFC 9530). Cabeceras: `Content-Digest: sha-256=:<base64>:`, `Signature-Input:
+      description: 'Única autenticación del equipo (RFC 9421 + RFC 9530). Cabeceras: `Content-Digest: sha-256=:<base64>:`, `Signature-Input:
         sig1=("@method" "@target-uri" "content-digest");created=<epoch>;nonce="<id>";keyid="<thumbprint>";alg="ecdsa-p256-sha256"`
         y `Signature: sig1=:<r||s 64 bytes base64>:`. Con una clave RSA enrolada (TPM, ST-SEC-04) `alg="rsa-v1_5-sha256"`
         y la firma mide lo que el módulo; el `alg` debe ser el del tipo de la clave. Tolerancia de reloj ±30 s (`MACHINE_CLOCK_SKEW`), nonce no
-        repetido en 60 s, firma inválida o repetida → `MACHINE_SIGNATURE_INVALID`. Estado: contrato propuesto; la
-        verificación en el servidor la entrega el equipo de Seguridad.'
+        repetido en 60 s, firma inválida o repetida → `MACHINE_SIGNATURE_INVALID`. Una petición con
+        `X-Machine-Key` y sin firma responde 401 (SEC-14).'
   schemas:
     ProblemDetail:
       type: object

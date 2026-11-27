@@ -69,15 +69,6 @@ services:
       - key: APP_ENV
         value: dev
 
-      # Firma del equipo (SEC-07): solo peticiones firmadas (OPS-16). Para volver
-      # atrás si un equipo falla: dual.
-      - key: MACHINE_AUTH_MODE
-        value: signature
-
-      # Los retos QR también exigen firma (OPS-16). SEC-14 elimina esta variable.
-      - key: RETOS_ACEPTAN_SOLO_CODIGO
-        value: "false"
-
       # Base con la que el equipo firma @target-uri (no la URL interna del proxy).
       # Corregido al host real de Render.
       - key: PUBLIC_API_BASE_URL
