@@ -8,11 +8,12 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import select
 
 from app import database, main
 from app.config import settings
-from app.models import EmailOutbox
-from app.services import outbox, pii
+from app.models import EmailCode, EmailOutbox
+from app.services import otp, outbox, pii
 from app.services.correo import ResendEmailSender
 
 DESTINO = "estudiante@test.invalid"
@@ -41,12 +42,33 @@ async def test_encolar_participa_en_la_transaccion(sesiones, datos):
     assert await _fila(sesiones, id_correo) is None
 
 
-async def test_arranque_envia_otp_cifrado_y_limpia_el_payload(sesiones, datos, monkeypatch):
-    id_correo = await _encolar(
-        sesiones, datos.ana.id, "verify_email", codigo="246810", vence_en=datetime.now(UTC) + timedelta(minutes=10),
+async def test_registro_encola_y_worker_envia_otp_cifrado(async_client, sesiones, monkeypatch):
+    async def db_de_prueba():
+        async with sesiones() as db:
+            yield db
+
+    monkeypatch.setitem(main.app.dependency_overrides, database.obtener_base_datos, db_de_prueba)
+    monkeypatch.setattr(settings, "require_email_verification", True)
+    monkeypatch.setattr(settings, "allowed_email_domains", "")
+    monkeypatch.setattr(otp, "generar_codigo", lambda: "246810")
+
+    registro = await async_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": DESTINO,
+            "student_code": "2026000101",
+            "full_name": "Estudiante de prueba",
+            "password": "Registro-" + str(2026) + "-test",
+            "privacy_consent": True,
+        },
     )
-    antes = await _fila(sesiones, id_correo)
-    assert antes.status == "pending"
+    assert registro.status_code == 202
+    async with sesiones() as db:
+        antes = (await db.scalars(select(EmailOutbox))).one()
+        codigo = (await db.scalars(select(EmailCode))).one()
+    id_correo = antes.id
+    assert (antes.template, antes.status) == ("verify_email", "pending")
+    assert (antes.user_id, antes.created_at) == (codigo.user_id, codigo.created_at)
     assert DESTINO.encode() not in antes.to_ct
     assert b"246810" not in antes.payload_ct
     assert pii.revelar(antes.to_ct, aad=f"email_outbox.to_ct.{id_correo}") == DESTINO
@@ -61,7 +83,7 @@ async def test_arranque_envia_otp_cifrado_y_limpia_el_payload(sesiones, datos, m
     monkeypatch.setattr(settings, "resend_api_key", SecretStr("llave-de-prueba"))
     monkeypatch.setattr(settings, "email_from", REMITENTE)
     monkeypatch.setattr(settings, "tarea_inactividad_activa", False)
-    monkeypatch.setattr(database, "SesionTareas", sesiones, raising=False)
+    monkeypatch.setattr(main, "SesionTareas", sesiones)
     monkeypatch.setattr(main, "verificar_llaves", lambda: None)
 
     async with main.ciclo_de_vida(main.app), asyncio.timeout(5):

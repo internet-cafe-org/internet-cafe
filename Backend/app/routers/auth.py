@@ -27,7 +27,7 @@ from app.jwt import create_access_token
 from app.logger import obtener_logger
 from app.models import AuditActorType, EmailCodePurpose, User, UserRole, UserStatus
 from app.security import limites
-from app.services import otp, pii, refresh_tokens
+from app.services import otp, outbox, pii, refresh_tokens
 from app.services.passwords import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
@@ -831,7 +831,7 @@ async def restablecer_contrasena(
     usuario.failed_login_count = 0
     usuario.locked_until = None
     await refresh_tokens.revocar_todas_menos(db, usuario.id, None)
-    otp.encolar_correo(
+    outbox.encolar_correo(
         db,
         user_id=usuario.id,
         destinatario=datos.email,

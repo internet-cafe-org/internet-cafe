@@ -19,7 +19,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 
-from app import database
 from app.config import settings
 from app.database import SesionTareas, obtener_base_datos
 from app.error_handlers import registrar_manejadores
@@ -197,7 +196,7 @@ class CabecerasSeguridadMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
-    """Valida la configuración y arranca la tarea de inactividad.
+    """Valida la configuración y arranca las tareas de inactividad y correo.
 
     Args:
         _app: La aplicación que arranca.
@@ -221,9 +220,7 @@ async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
         extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}},
     )
     try:
-        # Usa el rol de tareas cuando está disponible (ST-SEC-03).
-        sesiones_correo = getattr(database, "SesionTareas", database.SesionLocalAsync)
-        async with outbox.trabajador_configurado(sesiones_correo):
+        async with outbox.trabajador_configurado(SesionTareas):
             yield
     finally:
         if tarea is not None:

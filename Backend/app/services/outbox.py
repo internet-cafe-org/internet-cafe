@@ -52,8 +52,26 @@ def encolar_correo(
     plantilla: Plantilla,
     codigo: str | None = None,
     vence_en: datetime | None = None,
+    ahora: datetime | None = None,
 ) -> UUID:
-    """Agrega el correo cifrado a la transacción del evento y devuelve su id."""
+    """Agrega el correo cifrado a la transacción del evento.
+
+    Args:
+        db: Sesión en la que se guarda el evento y se encola el correo.
+        user_id: Identificador del usuario destinatario.
+        destinatario: Dirección de correo normalizada.
+        plantilla: Tipo de correo transaccional.
+        codigo: OTP de seis dígitos para verificación o recuperación.
+        vence_en: Expiración del OTP con zona horaria.
+        ahora: Marca temporal del evento, por defecto la hora actual en UTC.
+
+    Returns:
+        Identificador de la fila, que se usa como clave de idempotencia.
+
+    Raises:
+        ValueError: Si el código o su expiración son inválidos, o la llave de cifrado es inválida.
+        pii.PiiError: Si falta la configuración necesaria para cifrar el correo.
+    """
     asunto = _ASUNTOS[plantilla]
     if plantilla == "password_changed":
         texto, html = _AVISO, f"<p>{_AVISO}</p>"
@@ -69,7 +87,7 @@ def encolar_correo(
         vencimiento = vence.isoformat()
 
     id_correo = uuid4()
-    ahora = _ahora()
+    marca = ahora or _ahora()
     payload = json.dumps({"asunto": asunto, "texto": texto, "html": html, "vence_en": vencimiento})
     db.add(
         EmailOutbox(
@@ -78,8 +96,8 @@ def encolar_correo(
             template=plantilla,
             to_ct=pii.proteger(destinatario, aad=_aad(id_correo, "to_ct")),
             payload_ct=pii.proteger(payload, aad=_aad(id_correo, "payload_ct")),
-            created_at=ahora,
-            next_attempt_at=ahora,
+            created_at=marca,
+            next_attempt_at=marca,
         )
     )
     return id_correo
@@ -92,7 +110,18 @@ def _fallar(fila: EmailOutbox, motivo: str) -> None:
 
 
 async def procesar_uno(fabrica: async_sessionmaker[AsyncSession], sender: EmailSender) -> bool:
-    """Procesa el siguiente correo disponible y devuelve si encontró trabajo."""
+    """Procesa el siguiente correo disponible en la cola.
+
+    Args:
+        fabrica: Fábrica de sesiones para reservar el correo y guardar el resultado.
+        sender: Adaptador que entrega el correo con su clave de idempotencia.
+
+    Returns:
+        ``True`` si encontró un correo y ``False`` si no hay trabajo disponible.
+
+    Raises:
+        sqlalchemy.exc.SQLAlchemyError: Si falla el acceso a PostgreSQL.
+    """
     ahora = _ahora()
     async with fabrica.begin() as db:
         fila = await db.scalar(
@@ -167,8 +196,11 @@ async def _trabajar(fabrica: async_sessionmaker[AsyncSession], sender: EmailSend
             for _ in range(10):
                 if not await procesar_uno(fabrica, sender):
                     break
-        except Exception:
-            logger.warning("No se pudo completar un ciclo del outbox")
+        except Exception as exc:
+            logger.warning(
+                "No se pudo completar un ciclo del outbox",
+                extra={"datos": {"excepcion": type(exc).__name__}},
+            )
         await asyncio.sleep(30)
 
 

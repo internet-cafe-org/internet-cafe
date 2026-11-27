@@ -31,7 +31,18 @@ class EmailSender(Protocol):
     """Entrega un correo con una clave idempotente y devuelve el id del proveedor."""
 
     async def enviar(self, correo: Correo, idempotencia: UUID) -> str:
-        """Entrega el mensaje o lanza ``ErrorEnvio``."""
+        """Entrega el mensaje al proveedor.
+
+        Args:
+            correo: Destinatario, asunto y contenido renderizado.
+            idempotencia: UUID de la fila del outbox, estable entre intentos.
+
+        Returns:
+            Identificador del mensaje asignado por el proveedor.
+
+        Raises:
+            ErrorEnvio: Si el proveedor no confirma la entrega.
+        """
         ...
 
 
@@ -45,7 +56,18 @@ class ResendEmailSender:
         self._remitente = remitente
 
     async def enviar(self, correo: Correo, idempotencia: UUID) -> str:
-        """Usa el UUID de la fila como Idempotency-Key en cada intento."""
+        """Envía el mensaje a Resend usando el UUID como ``Idempotency-Key``.
+
+        Args:
+            correo: Destinatario, asunto y contenido renderizado.
+            idempotencia: UUID de la fila del outbox, estable entre intentos.
+
+        Returns:
+            Identificador del mensaje devuelto por Resend.
+
+        Raises:
+            ErrorEnvio: Si falla el transporte, Resend rechaza el mensaje o la respuesta es inválida.
+        """
         try:
             async with asyncio.timeout(5):
                 respuesta = await self._cliente.post(

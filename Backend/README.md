@@ -11,8 +11,8 @@ sin `input`, credenciales, tokens ni trazas en las respuestas.
 ## Correo transaccional (ST-BE-01)
 
 `app.services.outbox.encolar_correo` agrega la fila cifrada a la sesión del evento. El llamador confirma
-esa misma transacción. Las plantillas `verify_email` y `reset_password` reciben `codigo` y `vence_en`
-con zona horaria para la integración de ST-SEC-01. `password_changed` prepara el aviso de cambio de contraseña.
+esa misma transacción. La autenticación usa este encolador para la verificación, la recuperación
+y el aviso de cambio de contraseña. Las plantillas de OTP reciben `codigo` y `vence_en` con zona horaria.
 
 El trabajador arranca con la API cuando están configurados `RESEND_API_KEY`, `EMAIL_FROM` y
 `DATA_ENC_KEYS`. Configura un remitente del dominio verificado y una llave de Resend de solo envío
