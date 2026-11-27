@@ -233,13 +233,11 @@ class EmailOutbox(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class EmailCodePurpose(str, enum.Enum):
-    verify_email = "verify_email"
-    reset_password = "reset_password"
-    """Propósito del código OTP enviado por correo."""
+    """Proposito del codigo OTP enviado por correo."""
 
     verify_email = "verify_email"
     reset_password = "reset_password"
-    
+
 
 
 class EmailCode(Base):
