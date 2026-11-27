@@ -204,14 +204,6 @@ function changeEmail() {
   color: #7a8799;
 }
 </style>
-function changeEmail() {
-  failure.value = ''
-  resent.value = false
-  errors.code = ''
-  errors.password = ''
-  errors.confirmation = ''
-  form.code = ''
-  form.password = ''
-  form.confirmation = ''
-  step.value = 'request'
-}
+function changeEmail() { failure.value = '' resent.value = false errors.code = '' errors.password =
+'' errors.confirmation = '' form.code = '' form.password = '' form.confirmation = '' step.value =
+'request' }
