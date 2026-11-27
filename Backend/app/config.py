@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # Conexión de MIGRACIONES: rol svc_migrator. Solo la usa Alembic (CI / servicio
     # migrador); no debe existir en el servidor de la API (SRS §12.8).
     database_url_migrator: str | None = None
+    # Un rol por actor (ST-SEC-03, SRS §12.8). Sin valor, el actor usa DATABASE_URL.
+    database_url_web: str | None = None  # svc_web: /auth, /me, /scan
+    database_url_machine: str | None = None  # svc_machine: /machine/*
+    database_url_admin: str | None = None  # svc_admin: /admin/*
+    database_url_jobs: str | None = None  # svc_jobs: barrido de inactividad
     secret_key: str
 
     app_name: str = "Internet Cafe API"

@@ -106,3 +106,68 @@ GRANT USAGE, SELECT          ON ALL SEQUENCES IN SCHEMA app TO svc_app;
 REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA app FROM svc_app;
 
 \echo 'bootstrap_roles.sql: roles svc_migrator y svc_app listos.'
+
+-- 6. Un rol por actor (ST-SEC-03, SRS §12.8) ----------------------------------------------------
+-- svc_web (/auth, /me, /scan), svc_machine (/machine/*), svc_admin (/admin/*) y
+-- svc_jobs (tareas). Se crean solo si llegan sus cuatro contraseñas:
+--
+--   -v web_password=... -v machine_password=... -v admin_password=... -v jobs_password=...
+--
+-- Aquí solo se crean el rol, sus parámetros, CONNECT y USAGE en `app`. Los GRANT de cada
+-- tabla viven en la migración 9b4e6d2a8c15 (SRS §12.8): por eso estos roles NO reciben
+-- privilegios por defecto, y cada tabla nueva tiene que concederse en su migración.
+SELECT (:{?web_password} OR :{?machine_password} OR :{?admin_password} OR :{?jobs_password}) AS hay_actores,
+       (:{?web_password} AND :{?machine_password} AND :{?admin_password} AND :{?jobs_password}) AS todos_actores
+\gset
+\if :hay_actores
+  \if :todos_actores
+  \else
+    \echo 'roles por actor: faltan contraseñas; se necesitan web, machine, admin y jobs'
+    DO $$ BEGIN RAISE EXCEPTION 'bootstrap_roles: faltan contraseñas de los roles por actor'; END $$;
+  \endif
+
+  SELECT (length(:'web_password') >= 32 AND length(:'machine_password') >= 32
+          AND length(:'admin_password') >= 32 AND length(:'jobs_password') >= 32) AS actores_ok \gset
+  \if :actores_ok
+  \else
+    \echo 'las contraseñas de los roles por actor deben tener 32 o más caracteres'
+    DO $$ BEGIN RAISE EXCEPTION 'bootstrap_roles: las contraseñas deben tener 32 o más caracteres'; END $$;
+  \endif
+
+  SELECT format(
+           'CREATE ROLE %I LOGIN NOINHERIT NOCREATEDB NOCREATEROLE NOSUPERUSER NOREPLICATION NOBYPASSRLS PASSWORD %L',
+           r.rol, r.pwd)
+    FROM (VALUES ('svc_web',     :'web_password'),
+                 ('svc_machine', :'machine_password'),
+                 ('svc_admin',   :'admin_password'),
+                 ('svc_jobs',    :'jobs_password')) AS r(rol, pwd)
+   WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.rol)
+  \gexec
+
+  SELECT format('ALTER ROLE %I WITH PASSWORD %L', r.rol, r.pwd)
+    FROM (VALUES ('svc_web',     :'web_password'),
+                 ('svc_machine', :'machine_password'),
+                 ('svc_admin',   :'admin_password'),
+                 ('svc_jobs',    :'jobs_password')) AS r(rol, pwd)
+  \gexec
+
+  ALTER ROLE svc_web     SET search_path = app;
+  ALTER ROLE svc_machine SET search_path = app;
+  ALTER ROLE svc_admin   SET search_path = app;
+  ALTER ROLE svc_jobs    SET search_path = app;
+  ALTER ROLE svc_web     SET statement_timeout = '5s';                     -- SRS §12.8
+  ALTER ROLE svc_machine SET statement_timeout = '5s';
+  ALTER ROLE svc_admin   SET statement_timeout = '5s';
+  ALTER ROLE svc_jobs    SET statement_timeout = '5s';
+  ALTER ROLE svc_web     SET idle_in_transaction_session_timeout = '10s';  -- SRS §12.8
+  ALTER ROLE svc_machine SET idle_in_transaction_session_timeout = '10s';
+  ALTER ROLE svc_admin   SET idle_in_transaction_session_timeout = '10s';
+  ALTER ROLE svc_jobs    SET idle_in_transaction_session_timeout = '10s';
+
+  GRANT CONNECT ON DATABASE :"DBNAME" TO svc_web, svc_machine, svc_admin, svc_jobs;
+  GRANT USAGE ON SCHEMA app TO svc_web, svc_machine, svc_admin, svc_jobs;
+
+  \echo 'bootstrap_roles.sql: roles svc_web, svc_machine, svc_admin y svc_jobs listos.'
+\else
+  \echo 'bootstrap_roles.sql: sin -v web_password ... no se crean los roles por actor (ST-SEC-03).'
+\endif
