@@ -480,6 +480,25 @@ public class Main extends Application {
 
   public static void main(String[] args) {
     applyApiBaseUrlArg(args);
-    launch(args);
+    AppLock appLock;
+    try {
+      appLock = AppLock.acquire();
+    } catch (AppLock.AlreadyRunningException exception) {
+      LOG.warning("Ya hay otra instancia de Internet Cafe Desktop en ejecucion; esta se cierra.");
+      System.exit(0);
+      return;
+    } catch (IOException exception) {
+      LOG.warning(
+          "No se pudo tomar el bloqueo de instancia unica, se continua sin el: "
+              + exception.getClass().getSimpleName());
+      appLock = null;
+    }
+    try {
+      launch(args);
+    } finally {
+      if (appLock != null) {
+        appLock.close();
+      }
+    }
   }
 }

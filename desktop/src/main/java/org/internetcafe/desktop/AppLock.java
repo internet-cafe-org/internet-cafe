@@ -26,6 +26,7 @@ import java.util.logging.Logger;
 public final class AppLock implements AutoCloseable {
 
   private static final Logger log = Logger.getLogger(AppLock.class.getName());
+  static final String LOCK_DIR_PROPERTY = "internetcafe.lock.dir";
   private static final String LOCK_FILE_NAME = "internet-cafe-desktop.lock";
 
   /** Thrown when another instance already holds the lock. */
@@ -89,11 +90,14 @@ public final class AppLock implements AutoCloseable {
 
   private static Path resolveLockFile() {
     // %APPDATA% on Windows; fall back to user.home on other systems
+    String override = System.getProperty(LOCK_DIR_PROPERTY);
     String appData = System.getenv("APPDATA");
     Path dir =
-        (appData != null && !appData.isBlank())
-            ? Path.of(appData, "InternetCafe")
-            : Path.of(System.getProperty("user.home"), ".internet-cafe");
+        (override != null && !override.isBlank())
+            ? Path.of(override)
+            : (appData != null && !appData.isBlank())
+                ? Path.of(appData, "InternetCafe")
+                : Path.of(System.getProperty("user.home"), ".internet-cafe");
 
     try {
       java.nio.file.Files.createDirectories(dir);
