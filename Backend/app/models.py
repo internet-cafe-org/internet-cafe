@@ -248,7 +248,10 @@ class EmailCode(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app.users.id"), nullable=False)
-    purpose: Mapped[EmailCodePurpose] = mapped_column(Enum(EmailCodePurpose), nullable=False)
+    purpose: Mapped[EmailCodePurpose] = mapped_column(
+    Enum(EmailCodePurpose, schema=SCHEMA_NAME), nullable=False
+     )
+
     code_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
