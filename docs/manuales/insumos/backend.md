@@ -65,6 +65,10 @@ defecto; algunos casos traen un detalle más preciso (sección 2.2).
 | `METHOD_NOT_ALLOWED` | 405 | Método no permitido | La ruta no admite este método HTTP. | Error de la aplicación: avisar a soporte. |
 | `CONFLICT` | 409 | Conflicto | La operación no es posible en el estado actual del recurso. | Leer el detalle (sección 2.2). |
 | `PAYLOAD_TOO_LARGE` | 413 | Cuerpo demasiado grande | El cuerpo de la petición supera el límite permitido. | Enviar menos datos. |
+| `OTP_INVALID` | 400 | Código inválido | El código de verificación no es válido. | Revisar el código de 6 dígitos o pedir uno nuevo. |
+| `OTP_ALREADY_USED` | 409 | Código ya utilizado | Este código ya fue usado. Solicita uno nuevo si lo necesitas. | Solicitar un código nuevo si hace falta. |
+| `OTP_EXPIRED` | 410 | Código expirado | El código expiró tras 10 minutos. Solicita uno nuevo. | Pedir un nuevo código de verificación o recuperación. |
+| `OTP_MAX_ATTEMPTS` | 429 | Demasiados intentos | El código superó el máximo de 5 intentos. Solicita uno nuevo. | Pedir un nuevo código tras agotar los 5 intentos. |
 | `INTERNAL_ERROR` | 500 | Error interno | Ocurrió un error inesperado. Inténtalo más tarde. | Reintentar. Si se repite, dar a soporte la cabecera `X-Request-ID`. |
 
 ### 2.2 Detalles específicos

@@ -231,3 +231,31 @@ class EmailOutbox(Base):
     provider_message_id: Mapped[str] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class EmailCodePurpose(str, enum.Enum):
+    """Proposito del codigo OTP enviado por correo."""
+
+    verify_email = "verify_email"
+    reset_password = "reset_password"
+
+
+
+class EmailCode(Base):
+    """Codigo OTP de un solo uso por correo (SRS 11.2). Solo se guarda su HMAC."""
+
+    __tablename__ = "email_codes"
+    __table_args__ = (Index("ix_email_codes_user_purpose", "user_id", "purpose"), {"schema": SCHEMA_NAME})
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app.users.id"), nullable=False)
+    purpose: Mapped[EmailCodePurpose] = mapped_column(
+    Enum(EmailCodePurpose, schema=SCHEMA_NAME), nullable=False
+     )
+
+    code_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
