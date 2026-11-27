@@ -22,6 +22,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.database import fijar_contexto_rls
 from app.models import RefreshToken, User, UserRole, UserStatus
 
 
@@ -62,6 +63,8 @@ async def _crear(
     user_agent: str | None,
     family_id: uuid.UUID | None,
 ) -> tuple[str, RefreshToken]:
+    # RLS (ST-SEC-05): solo se emiten tokens del usuario ya autenticado
+    await fijar_contexto_rls(db, user_id=user_id)
     token = generar_token()
     fila = RefreshToken(
         user_id=user_id,
@@ -128,6 +131,8 @@ async def rotar(
     db: AsyncSession, token: str, user_agent: str | None = None
 ) -> Rotacion:
     """Valida el refresh, lo revoca y emite uno nuevo de la misma familia."""
+    # RLS (ST-SEC-05): quien presenta el token solo puede ver ese token...
+    await fijar_contexto_rls(db, refresh_hash=hash_token(token))
     registro = (
         await db.execute(
             select(RefreshToken)
@@ -138,6 +143,8 @@ async def rotar(
 
     if registro is None:
         raise RefreshInvalido("desconocido")
+    # ...y, ya identificado su dueño, la familia completa de ese usuario
+    await fijar_contexto_rls(db, user_id=registro.user_id)
 
     if registro.revoked_at is not None:
         if await _en_gracia(db, registro):
@@ -219,11 +226,13 @@ async def _emitir_en_gracia(
 
 async def revocar(db: AsyncSession, token: str) -> None:
     """Cierra la sesion: revoca la familia del token. Es idempotente."""
+    await fijar_contexto_rls(db, refresh_hash=hash_token(token))
     registro = (
         await db.execute(
             select(RefreshToken).where(RefreshToken.token_hash == hash_token(token))
         )
     ).scalar_one_or_none()
     if registro is not None:
+        await fijar_contexto_rls(db, user_id=registro.user_id)
         await revocar_familia(db, registro.family_id)
         await db.commit()

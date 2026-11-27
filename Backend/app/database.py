@@ -24,13 +24,14 @@ from typing import Literal
 from app.config import settings
 from app.db_url import preparar_conexion
 from fastapi import Request
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import Session, declarative_base
 
 Actor = Literal["web", "maquina", "admin", "tareas"]
 
@@ -150,3 +151,57 @@ async def obtener_base_datos(request: Request) -> AsyncIterator[AsyncSession]:
     async with fabricas[actor_de_ruta(request.url.path)]() as sesion:
         yield sesion
 
+
+
+# --------------------------------------------------------------------- RLS (ST-SEC-05)
+# Variables de sesión que leen las políticas RLS (SRS §12.8). Son locales a la
+# transacción (``set_config(..., true)``), así que se guardan en ``sesion.info`` y
+# se vuelven a fijar al empezar cada transacción: una petición puede hacer varios
+# commit y la variable no debe perderse entre ellos.
+VARIABLES_RLS = frozenset(
+    {
+        "user_id",  # usuario autenticado (svc_web)
+        "machine_id",  # equipo autenticado (svc_machine)
+        "machine_user_id",  # estudiante con sesión abierta en ese equipo
+        "refresh_hash",  # hash del refresh token presentado (renovar / cerrar sesión)
+        "challenge_hash",  # hash del token del QR escaneado
+        "claim_machine_id",  # equipo del QR escaneado (ver si está ocupado)
+    }
+)
+_CLAVE_INFO = "rls"
+
+
+async def fijar_contexto_rls(sesion: AsyncSession, **valores: object) -> None:
+    """Fija variables ``app.*`` para las políticas RLS en esta sesión.
+
+    Args:
+        sesion: Sesión de base de datos de la petición.
+        **valores: Variables de ``VARIABLES_RLS``. Los UUID se pasan tal cual y
+            los hashes como ``bytes`` (se guardan en hexadecimal).
+
+    Raises:
+        ValueError: Si se pasa una variable que no está en ``VARIABLES_RLS``.
+    """
+    if not isinstance(sesion, AsyncSession):
+        # Pruebas unitarias con una sesión simulada: no hay base de datos que filtrar.
+        return
+    contexto: dict[str, str] = sesion.info.setdefault(_CLAVE_INFO, {})
+    for nombre, valor in valores.items():
+        if nombre not in VARIABLES_RLS:
+            raise ValueError(f"variable RLS desconocida: {nombre}")
+        contexto[nombre] = valor.hex() if isinstance(valor, bytes) else str(valor)
+    for nombre in valores:
+        await sesion.execute(
+            text("SELECT set_config(:nombre, :valor, true)"),
+            {"nombre": f"app.{nombre}", "valor": contexto[nombre]},
+        )
+
+
+@event.listens_for(Session, "after_begin")
+def _reaplicar_contexto_rls(sesion: Session, _transaccion, conexion) -> None:
+    """Vuelve a fijar las variables RLS al empezar cada transacción."""
+    for nombre, valor in sesion.info.get(_CLAVE_INFO, {}).items():
+        conexion.execute(
+            text("SELECT set_config(:nombre, :valor, true)"),
+            {"nombre": f"app.{nombre}", "valor": valor},
+        )

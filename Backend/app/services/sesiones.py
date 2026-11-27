@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
 from app.config import settings
+from app.database import fijar_contexto_rls
 from app.models import (
     AccessSession,
     AuditActorType,
@@ -270,6 +271,8 @@ async def obtener_sesion_actual(db: AsyncSession, machine_id: uuid.UUID) -> dict
         )
     ).scalar_one_or_none()
     nombre, codigo = datos_estudiante(usuario)
+    # RLS (ST-SEC-05): el equipo ve el historial solo del estudiante sentado en él
+    await fijar_contexto_rls(db, machine_user_id=sesion.user_id)
     return {
         "session": {"id": sesion.id, "status": "active", "started_at": sesion.started_at},
         "user": {"full_name": nombre, "student_code_masked": codigo},
