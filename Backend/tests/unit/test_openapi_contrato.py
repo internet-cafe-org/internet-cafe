@@ -35,6 +35,10 @@ NUEVAS_V021 = [
     ("/api/v1/auth/login", "post"),
     ("/api/v1/auth/refresh", "post"),
     ("/api/v1/auth/logout", "post"),
+    ("/api/v1/auth/verify-email", "post"),
+    ("/api/v1/auth/resend-code", "post"),
+    ("/api/v1/auth/password/forgot", "post"),
+    ("/api/v1/auth/password/reset", "post"),
     ("/api/v1/machine/enroll", "post"),
 ]
 

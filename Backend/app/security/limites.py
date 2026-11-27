@@ -32,6 +32,8 @@ from app.logger import obtener_logger
 logger = obtener_logger("limites")
 
 VENTANA_S = 60.0
+OTP_ENVIO_MAX_POR_HORA = 3
+OTP_ENVIO_VENTANA_S = 3600.0
 
 
 class Origen(Enum):
@@ -49,13 +51,20 @@ class LimitadorVentana:
         self._marcas: dict[str, deque[float]] = {}
         self._candado = Lock()
 
-    def registrar(self, clave: str, limite: int, ahora: float | None = None) -> int:
+    def registrar(
+        self,
+        clave: str,
+        limite: int,
+        ahora: float | None = None,
+        ventana_s: float = VENTANA_S,
+    ) -> int:
         """Cuenta una petición y dice cuánto esperar si se pasó del límite.
 
         Args:
             clave: Identificador de lo que se limita (cuenta, IP o token).
             limite: Peticiones permitidas en la ventana.
             ahora: Reloj monótono en segundos; solo para las pruebas.
+            ventana_s: Duración de la ventana deslizante en segundos.
 
         Returns:
             0 si la petición se permite; si no, los segundos para ``Retry-After``.
@@ -63,10 +72,10 @@ class LimitadorVentana:
         ahora = time.monotonic() if ahora is None else ahora
         with self._candado:
             marcas = self._marcas.setdefault(clave, deque())
-            while marcas and marcas[0] <= ahora - VENTANA_S:
+            while marcas and marcas[0] <= ahora - ventana_s:
                 marcas.popleft()
             if len(marcas) >= limite:
-                return max(1, math.ceil(marcas[0] + VENTANA_S - ahora))
+                return max(1, math.ceil(marcas[0] + ventana_s - ahora))
             marcas.append(ahora)
             return 0
 
@@ -162,3 +171,30 @@ def limitar(
         espera = limitador.registrar(f"{ruta}:ip:{ip}", settings.rate_limit_por_ip)
         if espera:
             _rechazar(espera, "ip", ruta)
+
+
+def limitar_envio_otp(
+    ruta: str,
+    correo: str,
+    *,
+    limite: int = OTP_ENVIO_MAX_POR_HORA,
+    ventana_s: float = OTP_ENVIO_VENTANA_S,
+) -> None:
+    """Aplica el máximo de envíos de OTP por hora para un correo (RF-AUT-03).
+
+    Args:
+        ruta: Identificador del flujo (p. ej. ``auth.resend_code``).
+        correo: Correo normalizado de la cuenta.
+        limite: Cantidad máxima de envíos permitidos en la ventana.
+        ventana_s: Duración de la ventana en segundos.
+
+    Raises:
+        AppError: 429 ``RATE_LIMITED`` con ``Retry-After`` si supera el límite.
+    """
+    espera = limitador.registrar(
+        f"{ruta}:hora:{_huella(correo)}",
+        limite,
+        ventana_s=ventana_s,
+    )
+    if espera:
+        _rechazar(espera, "cuenta", ruta)

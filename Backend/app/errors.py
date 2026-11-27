@@ -57,6 +57,11 @@ class ErrorCode(StrEnum):
     CONFLICT = "CONFLICT"
     # BE-21: Endurecimiento (el cuerpo de la petición supera el límite permitido)
     PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
+    # ST-SEC-01: códigos OTP de verificación de correo y recuperación de contraseña
+    OTP_INVALID = "OTP_INVALID"
+    OTP_ALREADY_USED = "OTP_ALREADY_USED"
+    OTP_EXPIRED = "OTP_EXPIRED"
+    OTP_MAX_ATTEMPTS = "OTP_MAX_ATTEMPTS"
 
     @property
     def spec(self) -> ErrorSpec:
@@ -146,6 +151,19 @@ CATALOGO: dict[ErrorCode, ErrorSpec] = {
     ),
     ErrorCode.CONFLICT: ErrorSpec(
         409, "Conflicto", "La operación no es posible en el estado actual del recurso."
+    ),
+    # ST-SEC-01: Catálogo de errores para códigos OTP
+    ErrorCode.OTP_INVALID: ErrorSpec(
+        400, "Código inválido", "El código de verificación no es válido."
+    ),
+    ErrorCode.OTP_ALREADY_USED: ErrorSpec(
+        409, "Código ya utilizado", "Este código ya fue usado. Solicita uno nuevo si lo necesitas."
+    ),
+    ErrorCode.OTP_EXPIRED: ErrorSpec(
+        410, "Código expirado", "El código expiró tras 10 minutos. Solicita uno nuevo."
+    ),
+    ErrorCode.OTP_MAX_ATTEMPTS: ErrorSpec(
+        429, "Demasiados intentos", "El código superó el máximo de 5 intentos. Solicita uno nuevo."
     ),
     # BE-21: Catálogo para el error de cuerpo demasiado grande
     ErrorCode.PAYLOAD_TOO_LARGE: ErrorSpec(

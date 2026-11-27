@@ -49,3 +49,5 @@ def llaves_pii_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(settings, "data_enc_keys", '{"1": "' + "a" * 64 + '"}')
     if not settings.blind_index_key:
         monkeypatch.setattr(settings, "blind_index_key", "a" * 64)
+    if not settings.otp_hmac_key:
+        monkeypatch.setattr(settings, "otp_hmac_key", "b" * 64)

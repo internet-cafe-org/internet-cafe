@@ -29,6 +29,12 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 - **Nuevo** `POST /admin/machines/{id}/enrollment-code` (201) y `POST /admin/machines/{id}/revoke-key` (200).
 - **Cambia** `PATCH /admin/machines/{id}`: activar un equipo deshabilitado sin clave lo deja en `pending_enrollment` (antes 409).
 
+### ST-SEC-01 (Sprint 4)
+- **Nuevo** `POST /auth/verify-email` (204), `POST /auth/resend-code` (202), `POST /auth/password/forgot` (202) y `POST /auth/password/reset` (204).
+- **Nuevos** códigos de error `OTP_INVALID` (400), `OTP_ALREADY_USED` (409), `OTP_EXPIRED` (410) y `OTP_MAX_ATTEMPTS` (429).
+- **Nuevo** `POST /admin/machines/{id}/enrollment-code` (201) y `POST /admin/machines/{id}/revoke-key` (200).
+- **Cambia** `PATCH /admin/machines/{id}`: activar un equipo deshabilitado sin clave lo deja en `pending_enrollment` (antes 409).
+
 ### v0.2 respecto a v0.1
 - **Nuevo** `POST /machine/heartbeat`, `GET /machine/sessions/current`, `POST /machine/sessions/current/end`.
 - **Nuevo** `GET /me`, `GET /me/sessions`, `GET /me/sessions/active`, `POST /me/sessions/{id}/end`.
@@ -43,7 +49,7 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 ## 3. Autenticación por actor
 | Esquema | Rutas | Detalle |
 |---|---|---|
-| Ninguno (público, con rate limit) | `/healthz`, `/readyz`, `/auth/register`, `/auth/login` | El rate limit llega con SEC-09 (`RATE_LIMIT_ENABLED`). |
+| Ninguno (público, con rate limit) | `/healthz`, `/readyz`, `/auth/register`, `/auth/verify-email`, `/auth/resend-code`, `/auth/login`, `/auth/password/*` | El rate limit llega con SEC-09 (`RATE_LIMIT_ENABLED`); `resend-code` y `password/forgot` limitan 3 envíos por hora. |
 | Cookie `__Secure-rt` + `Origin` | `/auth/refresh`, `/auth/logout` | Ver la sección 4. |
 | `bearerAuth` | `/me/*`, `/scan/*`, `/admin/*` | Access token ES256 de 10 min (`alg` fijo, `iss`, `aud = web`, `sub`, `role`, `jti`). `/admin/*` exige `role = admin` (`FORBIDDEN` si no). |
 | Código de un solo uso + prueba de posesión | `/machine/enroll` | Ver la sección 5. |
@@ -70,6 +76,10 @@ Perfil de la firma (vectores en `contracts/test-vectors`, SEC-08): `sig1`, `ecds
 |---|---|---|
 | `POST /api/v1/auth/refresh` | Rota el refresh (revoca el usado y emite otro en la misma familia) y devuelve `{access_token, token_type, expires_in}` | 200; 401 `AUTH_INVALID_CREDENTIALS` (sin cookie, desconocido, revocado o reutilizado); 401 `AUTH_TOKEN_EXPIRED` (vencido); 403 `FORBIDDEN` (`Origin` no permitido) |
 | `POST /api/v1/auth/logout` | Revoca la familia del token y borra la cookie. Idempotente | 204; 403 `FORBIDDEN` (`Origin` no permitido) |
+| `POST /api/v1/auth/verify-email` | Valida el OTP `verify_email` de 6 dígitos y activa la cuenta | 204; 400 `OTP_INVALID`; 409 `OTP_ALREADY_USED`; 410 `OTP_EXPIRED`; 429 `OTP_MAX_ATTEMPTS` / `RATE_LIMITED` |
+| `POST /api/v1/auth/resend-code` | Invalida OTP previos, genera uno nuevo y encola el correo (máx. 3/hora) | 202; 422 `VALIDATION_ERROR`; 429 `RATE_LIMITED` |
+| `POST /api/v1/auth/password/forgot` | Si la cuenta está activa, genera OTP `reset_password` y encola el correo | 202; 422 `VALIDATION_ERROR`; 429 `RATE_LIMITED` |
+| `POST /api/v1/auth/password/reset` | Valida el OTP `reset_password`, actualiza contraseña, revoca sesiones y encola aviso | 204; 400 `OTP_INVALID`; 409 `OTP_ALREADY_USED`; 410 `OTP_EXPIRED`; 422 `VALIDATION_ERROR`; 429 `OTP_MAX_ATTEMPTS` / `RATE_LIMITED` |
 
 Si se presenta un refresh token ya revocado **fuera de la gracia de 10 s** se considera robo y se revoca toda la familia. Dentro de la gracia (dos pestañas que renuevan a la vez) se emite otro token de la misma familia (SEC-03b). `Origin` se valida contra `FRONTEND_BASE_URL`, `ALLOWED_ORIGIN` y, solo en dev, `ORIGEN_PREVIEW_REGEX`.
 
@@ -336,6 +346,158 @@ paths:
                 type: string
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/verify-email:
+    post:
+      tags:
+      - auth
+      security: []
+      summary: Verificar correo con OTP (ST-SEC-01)
+      description: Valida el código OTP de 6 dígitos (`verify_email`), marca el código como consumido y activa la
+        cuenta del estudiante. Código inválido o inexistente → 400 `OTP_INVALID`; ya usado → 409 `OTP_ALREADY_USED`;
+        expirado (>10 min) → 410 `OTP_EXPIRED`; superó 5 intentos → 429 `OTP_MAX_ATTEMPTS`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - email
+              - code
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: ^\d{6}$
+                  example: '123456'
+      responses:
+        '204':
+          description: Correo verificado y cuenta activada.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/resend-code:
+    post:
+      tags:
+      - auth
+      security: []
+      summary: Reenviar código OTP de verificación (ST-SEC-01)
+      description: Genera un nuevo OTP de verificación (`verify_email`), invalida códigos activos anteriores y encola
+        el correo en `email_outbox` si la cuenta está en `pending_verification`. Responde 202 sin revelar si el correo
+        existe. Límite de máximo 3 envíos por hora por cuenta/correo (429 `RATE_LIMITED`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+      responses:
+        '202':
+          description: Solicitud aceptada. Cuerpo vacío; no revela el estado ni la existencia de la cuenta.
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/password/forgot:
+    post:
+      tags:
+      - auth
+      security: []
+      summary: Solicitar recuperación de contraseña con OTP (ST-SEC-01)
+      description: Si la cuenta existe y está `active`, invalida códigos previos, genera un OTP (`reset_password`) y
+        encola el correo en `email_outbox`. Responde siempre 202 sin revelar si el correo existe (RF-AUT-09).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+      responses:
+        '202':
+          description: Solicitud aceptada. Cuerpo vacío; no revela si el correo existe.
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/password/reset:
+    post:
+      tags:
+      - auth
+      security: []
+      summary: Restablecer contraseña con OTP (ST-SEC-01)
+      description: Valida el código OTP (`reset_password`) y la nueva contraseña (10 a 128 caracteres), actualiza el
+        hash Argon2id, marca el OTP como consumido, revoca las sesiones web vigentes y encola el aviso `password_changed`.
+        Código inválido → 400 `OTP_INVALID`; ya usado → 409 `OTP_ALREADY_USED`; expirado → 410 `OTP_EXPIRED`; 5
+        intentos → 429 `OTP_MAX_ATTEMPTS`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - email
+              - code
+              - new_password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: ^\d{6}$
+                  example: '123456'
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 10
+                  maxLength: 128
+      responses:
+        '204':
+          description: Contraseña restablecida y sesiones web revocadas.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/machine/enroll:
     post:
       tags:
@@ -1901,7 +2063,7 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
     Gone:
-      description: Reto QR expirado.
+      description: Reto QR o código OTP expirado.
       content:
         application/problem+json:
           schema:
