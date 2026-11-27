@@ -17,7 +17,7 @@ function stubFetch(status: number, body?: unknown) {
 
 function lastCall(fetchMock: ReturnType<typeof stubFetch>) {
   const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-  return { url, method: init.method, body: JSON.parse(String(init.body)) }
+  return { url, method: init.method, body: JSON.parse(init.body as string) }
 }
 
 afterEach(() => {
