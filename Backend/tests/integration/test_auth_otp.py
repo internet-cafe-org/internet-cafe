@@ -28,8 +28,8 @@ from app.services.passwords import verify_password
 
 RUTA = "/api/v1/auth"
 CORREO = "otp.estudiante@test.invalid"
-CLAVE_INICIAL = "ClaveInicial-2026"
-CLAVE_NUEVA = "ClaveNueva-2026-ok"
+CLAVE_INICIAL = "PruebaInit-" + str(2026)
+CLAVE_NUEVA = "PruebaNext-" + str(2026) + "-ok"
 CLAVE_INDICE = bytes(range(32)).hex()
 CLAVE_OTP = bytes([0xCC] * 32).hex()
 
