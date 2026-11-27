@@ -26,7 +26,7 @@ from app.errors import PROBLEM_MEDIA_TYPE, AppError, ErrorCode
 from app.logger import configurar_logger
 from app.routers import admin, auth, machine, me, scan
 from app.security.arranque import verificar_llaves
-from app.services import inactividad
+from app.services import inactividad, outbox
 
 logger = configurar_logger()
 
@@ -196,7 +196,7 @@ class CabecerasSeguridadMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
-    """Valida la configuración y arranca la tarea de inactividad.
+    """Valida la configuración y arranca las tareas de inactividad y correo.
 
     Args:
         _app: La aplicación que arranca.
@@ -220,7 +220,8 @@ async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
         extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}},
     )
     try:
-        yield
+        async with outbox.trabajador_configurado(SesionTareas):
+            yield
     finally:
         if tarea is not None:
             tarea.cancel()

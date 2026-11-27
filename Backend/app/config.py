@@ -3,7 +3,7 @@
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     # Dominios de correo admitidos en el registro, separados por comas
     # (p. ej. "universidad.edu.co"). Vacío: se admite cualquier dominio (PEND-06).
     allowed_email_domains: str = ""
+
+    # Correo transaccional (ST-BE-01).
+    resend_api_key: SecretStr | None = None
+    email_from: str = ""
 
     # Bloqueo de cuenta (SEC-09): tras N contraseñas fallidas, M minutos de bloqueo.
     login_max_intentos: int = 5

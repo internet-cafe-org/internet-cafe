@@ -8,6 +8,21 @@ sin `input`, credenciales, tokens ni trazas en las respuestas.
 - Contrato: `openapi.yaml` / `contrato.md` (v0.2.1).
 - Pruebas: `python -m pytest`.
 
+## Correo transaccional (ST-BE-01)
+
+`app.services.outbox.encolar_correo` agrega la fila cifrada a la sesión del evento. El llamador confirma
+esa misma transacción. La autenticación usa este encolador para la verificación, la recuperación
+y el aviso de cambio de contraseña. Las plantillas de OTP reciben `codigo` y `vence_en` con zona horaria.
+
+El trabajador arranca con la API cuando están configurados `RESEND_API_KEY`, `EMAIL_FROM` y
+`DATA_ENC_KEYS`. Configura un remitente del dominio verificado y una llave de Resend de solo envío
+en el entorno. La prueba de integración usa PostgreSQL de pruebas y un transporte HTTP simulado.
+
+El trabajador conserva el UUID del correo como clave de idempotencia. Reintenta fallos transitorios
+después de 1, 5, 30 y 30 minutos, hasta cinco intentos. Vuelve a reclamar envíos interrumpidos al
+vencer su reserva y descarta los OTP vencidos. Elimina el contenido cifrado al finalizar la entrega
+o agotar los reintentos. Los reintentos se limitan a la ventana de idempotencia de Resend de 24 horas.
+
 ## Concurrencia (BE-05 / BE-07b)
 Orden de bloqueos fijo: fila del equipo `FOR UPDATE` → retos → sesiones. Las cancelaciones de retos son `UPDATE` masivos con
 `WHERE status = 'pending'`, así un reto `approved` nunca se pisa.
