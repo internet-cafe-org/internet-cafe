@@ -51,3 +51,24 @@ export function registerPasswordError(value: string): string {
 export function consentError(accepted: boolean): string {
   return accepted ? '' : 'Debes autorizar el tratamiento de datos para continuar.'
 }
+
+export const OTP_LENGTH = 6
+const OTP_FORMAT = /^\d{6}$/
+
+/** Quita los espacios del código (suele pegarse como «123 456»). */
+export function normalizeOtp(value: string): string {
+  return value.replace(/\s+/g, '')
+}
+
+export function otpCodeError(value: string): string {
+  const code = normalizeOtp(value)
+  if (code === '') return `Ingresa el código de ${OTP_LENGTH} dígitos.`
+  if (!OTP_FORMAT.test(code)) return `El código debe tener ${OTP_LENGTH} dígitos numéricos.`
+  return ''
+}
+
+export function confirmPasswordError(password: string, confirmation: string): string {
+  if (confirmation === '') return 'Confirma tu nueva contraseña.'
+  if (password !== confirmation) return 'Las contraseñas no coinciden.'
+  return ''
+}
