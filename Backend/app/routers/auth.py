@@ -25,9 +25,9 @@ from app.database import obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.jwt import create_access_token
 from app.logger import obtener_logger
-from app.models import AuditActorType, User, UserRole, UserStatus
+from app.models import AuditActorType, EmailCodePurpose, User, UserRole, UserStatus
 from app.security import limites
-from app.services import pii, refresh_tokens
+from app.services import otp, pii, refresh_tokens
 from app.services.passwords import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
@@ -162,6 +162,40 @@ class LoginSalida(TokenAcceso):
     """Respuesta de ``/auth/login``."""
 
     user: UsuarioSesion
+
+
+class CorreoEntrada(BaseModel):
+    """Cuerpo con correo normalizado para ``/auth/resend-code`` y ``/auth/password/forgot``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def _validar_correo(cls, valor: str) -> str:
+        """Valida la forma del correo y lo normaliza.
+
+        Args:
+            valor: Correo recibido en la petición.
+
+        Returns:
+            Correo recortado y en minúsculas.
+        """
+        return _normalizar_correo(valor)
+
+
+class VerificarCorreoEntrada(CorreoEntrada):
+    """Cuerpo de ``POST /auth/verify-email`` (RF-AUT-02)."""
+
+    code: str = Field(min_length=otp.OTP_DIGITOS, max_length=otp.OTP_DIGITOS, pattern=r"^\d{6}$")
+
+
+class RestablecerContrasenaEntrada(CorreoEntrada):
+    """Cuerpo de ``POST /auth/password/reset`` (RF-AUT-09)."""
+
+    code: str = Field(min_length=otp.OTP_DIGITOS, max_length=otp.OTP_DIGITOS, pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
 
 # ---------------------------------------------------------------- cookie y origen
@@ -362,6 +396,14 @@ async def registrar(
         db.add(usuario)
         try:
             await db.flush()
+            if not activa:
+                await otp.emitir_otp(
+                    db,
+                    usuario=usuario,
+                    destinatario=datos.email,
+                    proposito=EmailCodePurpose.verify_email,
+                    ahora=ahora,
+                )
             await audit(
                 db,
                 AuditActorType.user,
@@ -531,3 +573,278 @@ async def cerrar_sesion(
     if refresh_token:
         await refresh_tokens.revocar(db, refresh_token)
     borrar_cookie_refresh(response)
+
+
+# ---------------------------------------------------------------- OTP: verificación y recuperación
+
+
+_ERRORES_OTP: dict[type[otp.OtpError], tuple[ErrorCode, str]] = {
+    otp.OtpInvalidoError: (ErrorCode.OTP_INVALID, "codigo_invalido"),
+    otp.OtpYaUsadoError: (ErrorCode.OTP_ALREADY_USED, "codigo_ya_usado"),
+    otp.OtpExpiradoError: (ErrorCode.OTP_EXPIRED, "codigo_expirado"),
+    otp.OtpIntentosAgotadosError: (ErrorCode.OTP_MAX_ATTEMPTS, "intentos_agotados"),
+}
+
+
+async def _consumir_otp_o_error(
+    db: AsyncSession,
+    *,
+    usuario: User | None,
+    proposito: EmailCodePurpose,
+    codigo: str,
+    evento: str,
+    ahora: datetime,
+) -> None:
+    """Valida y consume un OTP, o traduce el fallo a ``AppError`` del catálogo.
+
+    Args:
+        db: Sesión de base de datos.
+        usuario: Cuenta dueña del código, o ``None`` si el correo no existe.
+        proposito: Propósito esperado del OTP.
+        codigo: Código de 6 dígitos enviado en la petición.
+        evento: Nombre del evento de auditoría y log.
+        ahora: Hora actual del servidor.
+
+    Raises:
+        AppError: ``OTP_INVALID``, ``OTP_ALREADY_USED``, ``OTP_EXPIRED`` u
+            ``OTP_MAX_ATTEMPTS`` según corresponda.
+    """
+    if usuario is None:
+        _registrar_evento(evento, resultado="rechazado", motivo="cuenta_inexistente")
+        raise AppError(ErrorCode.OTP_INVALID)
+    try:
+        await otp.consumir_otp(
+            db,
+            user_id=usuario.id,
+            proposito=proposito,
+            codigo=codigo,
+            ahora=ahora,
+        )
+    except otp.OtpError as exc:
+        if isinstance(exc, otp.OtpInvalidoError):
+            # Persiste el incremento del contador de intentos antes de responder error.
+            await db.commit()
+        error_code, motivo = _ERRORES_OTP[type(exc)]
+        _registrar_evento(evento, resultado="rechazado", user_id=usuario.id, motivo=motivo)
+        raise AppError(error_code) from None
+
+
+@router.post("/verify-email", status_code=204)
+async def verificar_correo(
+    datos: VerificarCorreoEntrada,
+    request: Request,
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> None:
+    """Valida el código OTP de verificación y activa la cuenta del estudiante (ST-SEC-01).
+
+    Args:
+        datos: Correo y código OTP de 6 dígitos.
+        request: Petición HTTP, para el rate limit.
+        db: Sesión de base de datos.
+
+    Raises:
+        AppError: ``OTP_INVALID`` si el código o correo no coinciden;
+            ``OTP_ALREADY_USED`` si ya se consumió; ``OTP_EXPIRED`` si venció;
+            ``OTP_MAX_ATTEMPTS`` si superó 5 intentos; ``RATE_LIMITED`` por límite de tasa.
+    """
+    limites.limitar(request, "auth.verify_email", cuenta=datos.email)
+    ahora = datetime.now(UTC)
+    usuario = await db.scalar(
+        select(User).where(User.email_bidx == pii.indice_ciego(datos.email)).with_for_update()
+    )
+    if usuario is not None and usuario.status == UserStatus.blocked:
+        _registrar_evento(
+            "auth.verify_email", resultado="rechazado", user_id=usuario.id, motivo="cuenta_bloqueada"
+        )
+        raise AppError(ErrorCode.OTP_INVALID)
+
+    await _consumir_otp_o_error(
+        db,
+        usuario=usuario,
+        proposito=EmailCodePurpose.verify_email,
+        codigo=datos.code,
+        evento="auth.verify_email",
+        ahora=ahora,
+    )
+    assert usuario is not None
+    usuario.email_verified_at = ahora
+    if usuario.status == UserStatus.pending_verification:
+        usuario.status = UserStatus.active
+    await audit(
+        db,
+        AuditActorType.user,
+        "auth.verify_email",
+        actor_id=usuario.id,
+        target_type="user",
+        target_id=usuario.id,
+    )
+    await db.commit()
+    _registrar_evento("auth.verify_email", resultado="ok", user_id=usuario.id)
+
+
+@router.post("/resend-code", status_code=202, response_class=Response)
+async def reenviar_codigo(
+    datos: CorreoEntrada,
+    request: Request,
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> Response:
+    """Genera un nuevo OTP de verificación y encola el correo (máx. 3 por hora, RF-AUT-03).
+
+    Args:
+        datos: Correo de la cuenta pendiente de verificación.
+        request: Petición HTTP, para el rate limit.
+        db: Sesión de base de datos.
+
+    Returns:
+        Respuesta 202 sin cuerpo; no revela si el correo existe o ya está activo.
+
+    Raises:
+        AppError: 429 ``RATE_LIMITED`` si supera 3 envíos por hora o el límite por IP.
+    """
+    limites.limitar(request, "auth.resend_code", cuenta=datos.email)
+    limites.limitar_envio_otp("auth.resend_code", datos.email)
+    ahora = datetime.now(UTC)
+    usuario = await db.scalar(
+        select(User).where(User.email_bidx == pii.indice_ciego(datos.email)).with_for_update()
+    )
+    if usuario is not None and usuario.status == UserStatus.pending_verification:
+        await otp.emitir_otp(
+            db,
+            usuario=usuario,
+            destinatario=datos.email,
+            proposito=EmailCodePurpose.verify_email,
+            ahora=ahora,
+        )
+        await audit(
+            db,
+            AuditActorType.user,
+            "auth.resend_code",
+            actor_id=usuario.id,
+            target_type="user",
+            target_id=usuario.id,
+        )
+        await db.commit()
+        _registrar_evento("auth.resend_code", resultado="ok", user_id=usuario.id)
+    else:
+        _registrar_evento(
+            "auth.resend_code",
+            resultado="ignorado",
+            user_id=usuario.id if usuario is not None else None,
+        )
+    return Response(status_code=202)
+
+
+@router.post("/password/forgot", status_code=202, response_class=Response)
+async def solicitar_recuperacion(
+    datos: CorreoEntrada,
+    request: Request,
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> Response:
+    """Genera un OTP de recuperación de contraseña y lo encola si la cuenta está activa.
+
+    Args:
+        datos: Correo de la cuenta a recuperar.
+        request: Petición HTTP, para el rate limit.
+        db: Sesión de base de datos.
+
+    Returns:
+        Respuesta 202 genérica sin cuerpo, exista o no el correo (RF-AUT-09).
+
+    Raises:
+        AppError: 429 ``RATE_LIMITED`` si se supera el límite de tasa.
+    """
+    limites.limitar(request, "auth.password_forgot", cuenta=datos.email)
+    limites.limitar_envio_otp("auth.password_forgot", datos.email)
+    ahora = datetime.now(UTC)
+    usuario = await db.scalar(
+        select(User).where(User.email_bidx == pii.indice_ciego(datos.email)).with_for_update()
+    )
+    if usuario is not None and usuario.status == UserStatus.active:
+        await otp.emitir_otp(
+            db,
+            usuario=usuario,
+            destinatario=datos.email,
+            proposito=EmailCodePurpose.reset_password,
+            ahora=ahora,
+        )
+        await audit(
+            db,
+            AuditActorType.user,
+            "auth.password_forgot",
+            actor_id=usuario.id,
+            target_type="user",
+            target_id=usuario.id,
+        )
+        await db.commit()
+        _registrar_evento("auth.password_forgot", resultado="ok", user_id=usuario.id)
+    else:
+        _registrar_evento(
+            "auth.password_forgot",
+            resultado="ignorado",
+            user_id=usuario.id if usuario is not None else None,
+        )
+    return Response(status_code=202)
+
+
+@router.post("/password/reset", status_code=204)
+async def restablecer_contrasena(
+    datos: RestablecerContrasenaEntrada,
+    request: Request,
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> None:
+    """Valida el OTP de recuperación, actualiza la contraseña y revoca sesiones web.
+
+    Args:
+        datos: Correo, código OTP de 6 dígitos y nueva contraseña.
+        request: Petición HTTP, para el rate limit.
+        db: Sesión de base de datos.
+
+    Raises:
+        AppError: ``OTP_INVALID`` si el código no coincide o la cuenta no está activa;
+            ``OTP_ALREADY_USED`` si ya se consumió; ``OTP_EXPIRED`` si venció;
+            ``OTP_MAX_ATTEMPTS`` si superó 5 intentos; ``RATE_LIMITED`` por límite de tasa.
+    """
+    limites.limitar(request, "auth.password_reset", cuenta=datos.email)
+    ahora = datetime.now(UTC)
+    usuario = await db.scalar(
+        select(User).where(User.email_bidx == pii.indice_ciego(datos.email)).with_for_update()
+    )
+    if usuario is not None and usuario.status != UserStatus.active:
+        _registrar_evento(
+            "auth.password_reset",
+            resultado="rechazado",
+            user_id=usuario.id,
+            motivo="cuenta_inactiva",
+        )
+        raise AppError(ErrorCode.OTP_INVALID)
+
+    await _consumir_otp_o_error(
+        db,
+        usuario=usuario,
+        proposito=EmailCodePurpose.reset_password,
+        codigo=datos.code,
+        evento="auth.password_reset",
+        ahora=ahora,
+    )
+    assert usuario is not None
+    usuario.password_hash = hash_password(datos.new_password)
+    usuario.failed_login_count = 0
+    usuario.locked_until = None
+    await refresh_tokens.revocar_todas_menos(db, usuario.id, None)
+    otp.encolar_correo(
+        db,
+        user_id=usuario.id,
+        destinatario=datos.email,
+        plantilla="password_changed",
+        ahora=ahora,
+    )
+    await audit(
+        db,
+        AuditActorType.user,
+        "auth.password_reset",
+        actor_id=usuario.id,
+        target_type="user",
+        target_id=usuario.id,
+    )
+    await db.commit()
+    _registrar_evento("auth.password_reset", resultado="ok", user_id=usuario.id)

@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
+from sqlalchemy.orm import load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
@@ -74,7 +75,13 @@ def close_session(sesion: AccessSession, motivo: SessionEndReason, now: datetime
     sesion.end_reason = motivo
 
 
-async def _bloquear_equipo(db: AsyncSession, machine_id: uuid.UUID) -> Machine:
+# Columnas de machines que svc_web puede leer (ST-SEC-03, SRS §12.8).
+COLUMNAS_PUBLICAS_EQUIPO = (Machine.id, Machine.code, Machine.lab_id, Machine.status, Machine.mode)
+
+
+async def _bloquear_equipo(
+    db: AsyncSession, machine_id: uuid.UUID, *, solo_columnas_publicas: bool = False
+) -> Machine:
     """SELECT ... FOR UPDATE del equipo: primer bloqueo de toda operación que cambie retos.
 
     ORDEN DE BLOQUEOS (obligatorio para evitar deadlocks, BE-05 / BE-07b):
@@ -83,9 +90,15 @@ async def _bloquear_equipo(db: AsyncSession, machine_id: uuid.UUID) -> Machine:
     equipo se serializan en el paso 1 sin retener todavía ningún reto.
     `populate_existing` refresca el objeto si ya estaba cargado en la sesión
     (por ejemplo por la dependencia del router) con el estado visto bajo el bloqueo.
+
+    Con ``solo_columnas_publicas`` (el claim, que corre con svc_web) se leen solo
+    ``COLUMNAS_PUBLICAS_EQUIPO``: ese rol no puede ver la clave ni la credencial.
     """
+    consulta = select(Machine)
+    if solo_columnas_publicas:
+        consulta = consulta.options(load_only(*COLUMNAS_PUBLICAS_EQUIPO, raiseload=True))
     resultado = await db.execute(
-        select(Machine)
+        consulta
         .where(Machine.id == machine_id)
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -190,7 +203,11 @@ async def obtener_vista_previa(db: AsyncSession, token: str, user_id) -> dict:
         await db.flush()
         raise ChallengeExpiredError
 
-    machine_res = await db.execute(select(Machine).where(Machine.id == reto.machine_id))
+    machine_res = await db.execute(
+        select(Machine)
+        .options(load_only(*COLUMNAS_PUBLICAS_EQUIPO, raiseload=True))
+        .where(Machine.id == reto.machine_id)
+    )
     machine = machine_res.scalar_one()
     lab_name = "Sala sin asignar"
     if machine.lab_id:
@@ -200,15 +217,15 @@ async def obtener_vista_previa(db: AsyncSession, token: str, user_id) -> dict:
             lab_name = lab.name
 
     sesion_activa_res = await db.execute(
-        select(AccessSession, Machine)
+        select(AccessSession, Machine.code)
         .join(Machine, Machine.id == AccessSession.machine_id)
         .where(AccessSession.user_id == user_id, AccessSession.ended_at.is_(None))
     )
     fila_sesion = sesion_activa_res.first()
     active_session_data = None
     if fila_sesion:
-        sesion_activa, machine_activa = fila_sesion
-        active_session_data = {"machine_code": machine_activa.code}
+        _sesion_activa, codigo_activo = fila_sesion
+        active_session_data = {"machine_code": codigo_activo}
 
     return {
         "machine": {"code": machine.code, "lab": lab_name},
@@ -257,7 +274,7 @@ async def reclamar_reto_qr(
         raise ChallengeNotFoundError
 
     # 2. Equipo primero: serializa los claims y las rotaciones del mismo equipo
-    machine = await _bloquear_equipo(db, reto.machine_id)
+    machine = await _bloquear_equipo(db, reto.machine_id, solo_columnas_publicas=True)
 
     # 3. Reto bajo bloqueo, refrescado (puede haber cambiado mientras esperábamos)
     reto = (
@@ -433,7 +450,12 @@ async def obtener_sesion_activa_equipo(
     full_name = "Estudiante"
     student_code_masked = "********"
     if sesion.user_id:
-        user_res = await db.execute(select(User).where(User.id == sesion.user_id))
+        user_res = await db.execute(
+            # ST-SEC-03: svc_machine solo puede leer estas columnas de users
+            select(User)
+            .options(load_only(User.id, User.full_name_ct, User.student_code_ct, raiseload=True))
+            .where(User.id == sesion.user_id)
+        )
         user_obj = user_res.scalar_one_or_none()
         if user_obj:
             full_name = pii.revelar(

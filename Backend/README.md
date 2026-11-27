@@ -41,3 +41,36 @@ python -m tools.admin_cli block-user --email estudiante@dominio
 - El correo puede ir en `ADMIN_CLI_EMAIL` en lugar de `--email`. La salida solo muestra ids, nunca el correo ni la contraseña.
 - Salida: `0` bien, `1` error de datos (cuenta inexistente o repetida, contraseña corta), `2` falta configuración.
 - En GitHub la ejecuta el workflow `admin-cli` (QA-18).
+
+## Preparación de la carga de dev (BE-19a)
+
+Desde `Backend/` en PowerShell, con Python 3.12 y `DATABASE_URL` del proyecto Neon **dev**
+(rol `svc_app`) cargada por el gestor de secretos. La base debe estar migrada.
+
+```powershell
+py -3.12 -m venv .venv
+$python = '.\.venv\Scripts\python.exe'
+& $python -m pip install -r tools/carga/requirements.txt
+$env:APP_ENV = 'dev'
+$env:SECRET_KEY = 'no-se-usa-en-la-semilla'
+& $python -m tools.carga.datos
+```
+
+La semilla crea 300 equipos activos en `Sala Dev Locust` y guarda sus claves públicas en dev.
+Conserva el archivo privado `.env.locust.json` para repetir la preparación y ejecutar Locust
+desde este directorio. Git ya ignora el archivo. Al repetir con las mismas claves, la semilla
+reutiliza los equipos existentes y aborta si encuentra un conflicto.
+
+Para BE-19b, configura `RATE_LIMIT_ENABLED=false` temporalmente en el servicio **dev** de Render
+y comprueba que el despliegue esté activo con `MACHINE_AUTH_MODE=signature`. Usa el mismo origen
+que `PUBLIC_API_BASE_URL` y un reloj sincronizado. Ejemplo desde la misma terminal:
+
+```powershell
+& $python -m locust -f tools/carga/locustfile.py --headless `
+  --host https://internet-cafe-tq03.onrender.com -u 300 -r 10 -t 5m `
+  --stop-timeout 35 --csv "$env:TEMP\locust-dev"
+```
+
+Cada usuario usa una identidad distinta, envía un latido inicial y luego uno cada 60 segundos.
+En paralelo hace long-poll de 25 segundos. Locust registra las dos rutas por separado. Al terminar
+la prueba, restablece `RATE_LIMIT_ENABLED=true` en dev y confirma el despliegue.

@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # Conexión de MIGRACIONES: rol svc_migrator. Solo la usa Alembic (CI / servicio
     # migrador); no debe existir en el servidor de la API (SRS §12.8).
     database_url_migrator: str | None = None
+    # Un rol por actor (ST-SEC-03, SRS §12.8). Sin valor, el actor usa DATABASE_URL.
+    database_url_web: str | None = None  # svc_web: /auth, /me, /scan
+    database_url_machine: str | None = None  # svc_machine: /machine/*
+    database_url_admin: str | None = None  # svc_admin: /admin/*
+    database_url_jobs: str | None = None  # svc_jobs: barrido de inactividad
     secret_key: str
 
     app_name: str = "Internet Cafe API"
@@ -54,6 +59,10 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 10
     data_enc_keys: str | None = None
     blind_index_key: str | None = None
+
+
+
+    otp_hmac_key: str | None = None
 
     # Base del campo `type` de los errores RFC 9457 (ver app/errors.py)
     errors_base_url: str = "https://errors.internet-cafe.example"

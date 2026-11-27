@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import SesionLocalAsync, obtener_base_datos
+from app.database import SesionMaquina, obtener_base_datos
 from app.errors import AppError, ErrorCode
 from app.models import (
     AuditActorType,
@@ -294,7 +294,7 @@ async def esperar_reto(
             return ChallengeWaitResponse(**payload)
 
         # Fallback si el payload no estuviera en memoria
-        async with SesionLocalAsync() as fallback_db:
+        async with SesionMaquina() as fallback_db:
             recuperada = await challenges.obtener_sesion_activa_equipo(fallback_db, machine.id)
             if recuperada:
                 return ChallengeWaitResponse(**recuperada)

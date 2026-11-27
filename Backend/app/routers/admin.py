@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, null, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import audit
@@ -209,6 +210,8 @@ def _item_sesion(
 def _consulta_sesiones(*condiciones: Any):
     return (
         select(AccessSession, User, Machine.code, Lab.name)
+        # ST-SEC-03: svc_admin no puede leer password_hash (SRS §12.8)
+        .options(defer(User.password_hash, raiseload=True))
         .join(Machine, Machine.id == AccessSession.machine_id)
         .join(User, User.id == AccessSession.user_id)
         .outerjoin(Lab, Lab.id == Machine.lab_id)
