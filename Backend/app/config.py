@@ -3,7 +3,7 @@
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # Conexión de MIGRACIONES: rol svc_migrator. Solo la usa Alembic (CI / servicio
     # migrador); no debe existir en el servidor de la API (SRS §12.8).
     database_url_migrator: str | None = None
+    # Un rol por actor (ST-SEC-03, SRS §12.8). Sin valor, el actor usa DATABASE_URL.
+    database_url_web: str | None = None  # svc_web: /auth, /me, /scan
+    database_url_machine: str | None = None  # svc_machine: /machine/*
+    database_url_admin: str | None = None  # svc_admin: /admin/*
+    database_url_jobs: str | None = None  # svc_jobs: barrido de inactividad
     secret_key: str
 
     app_name: str = "Internet Cafe API"
@@ -79,6 +84,10 @@ class Settings(BaseSettings):
     # Dominios de correo admitidos en el registro, separados por comas
     # (p. ej. "universidad.edu.co"). Vacío: se admite cualquier dominio (PEND-06).
     allowed_email_domains: str = ""
+
+    # Correo transaccional (ST-BE-01).
+    resend_api_key: SecretStr | None = None
+    email_from: str = ""
 
     # Bloqueo de cuenta (SEC-09): tras N contraseñas fallidas, M minutos de bloqueo.
     login_max_intentos: int = 5

@@ -92,6 +92,17 @@ services:
       - key: DATABASE_URL
         sync: false
 
+      # Un rol por actor (ST-SEC-03, SRS §12.8). Opcionales: sin valor, el actor usa
+      # DATABASE_URL. Se activan cuando los roles existan (db/README.md §2b):
+      # - key: DATABASE_URL_WEB      # svc_web: /auth, /me, /scan
+      #   sync: false
+      # - key: DATABASE_URL_MACHINE  # svc_machine: /machine/*
+      #   sync: false
+      # - key: DATABASE_URL_ADMIN    # svc_admin: /admin/*
+      #   sync: false
+      # - key: DATABASE_URL_JOBS     # svc_jobs: barrido de inactividad
+      #   sync: false
+
       - key: SECRET_KEY
         generateValue: true
 

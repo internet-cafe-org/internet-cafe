@@ -5,36 +5,21 @@ Vigencia de 10 minutos y máximo 5 intentos (SRS RF-AUT-02). También gestiona l
 emisión, invalidación, consumo atómico y encolado en ``email_outbox``.
 """
 
-import json
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.crypto import constant_time_compare, hmac_sha256_digest
-from app.models import EmailCode, EmailCodePurpose, EmailOutbox, User
-from app.services import pii
+from app.models import EmailCode, EmailCodePurpose, User
+from app.services import outbox
 
 OTP_DIGITOS = 6
 OTP_VIGENCIA = timedelta(minutes=10)
 OTP_MAX_INTENTOS = 5
-
-PlantillaCorreo = Literal["verify_email", "reset_password", "password_changed"]
-
-_ASUNTOS: dict[PlantillaCorreo, str] = {
-    "verify_email": "Verifica tu correo de Internet Café",
-    "reset_password": "Recupera tu contraseña de Internet Café",
-    "password_changed": "Tu contraseña de Internet Café cambió",
-}
-_TEXTO_AVISO_CLAVE = (
-    "La contraseña de tu cuenta de Internet Café se cambió. "
-    "Si no lo solicitaste, contacta a soporte."
-)
-
 
 class OtpError(Exception):
     """Error base en la validación o consumo de un código OTP."""
@@ -133,92 +118,6 @@ def verificar(
     return constant_time_compare(hash_codigo(codigo, user_id, proposito), code_hash)
 
 
-def _aad_outbox(id_correo: uuid.UUID, columna: str) -> str:
-    """Construye el AAD de cifrado para una columna de ``email_outbox``.
-
-    Args:
-        id_correo: Identificador de la fila del outbox.
-        columna: Nombre de la columna cifrada (``to_ct`` o ``payload_ct``).
-
-    Returns:
-        Cadena AAD ``email_outbox.<columna>.<id>``.
-    """
-    return f"email_outbox.{columna}.{id_correo}"
-
-
-def _construir_payload_correo(
-    plantilla: PlantillaCorreo,
-    *,
-    codigo: str | None = None,
-    vence_en_dt: datetime | None = None,
-) -> str:
-    """Serializa el payload JSON esperado por el worker de ``email_outbox``.
-
-    Args:
-        plantilla: Nombre de la plantilla de correo.
-        codigo: Código OTP de 6 dígitos cuando la plantilla lo requiere.
-        vence_en_dt: Fecha de expiración del código con zona horaria.
-
-    Returns:
-        JSON serializado con asunto, texto, html y fecha de expiración.
-    """
-    asunto = _ASUNTOS[plantilla]
-    if plantilla == "password_changed":
-        texto = _TEXTO_AVISO_CLAVE
-        html = f"<p>{_TEXTO_AVISO_CLAVE}</p>"
-        vencimiento = None
-    else:
-        assert codigo is not None and vence_en_dt is not None
-        vence_utc = vence_en_dt.astimezone(UTC)
-        vence_fmt = vence_utc.strftime("%d/%m/%Y a las %H:%M UTC")
-        texto = f"Tu código es {codigo}. Vence el {vence_fmt}."
-        html = f"<p>Tu código es <strong>{codigo}</strong>. Vence el {vence_fmt}.</p>"
-        vencimiento = vence_utc.isoformat()
-    return json.dumps({"asunto": asunto, "texto": texto, "html": html, "vence_en": vencimiento})
-
-
-def encolar_correo(
-    db: AsyncSession,
-    *,
-    user_id: uuid.UUID,
-    destinatario: str,
-    plantilla: PlantillaCorreo,
-    codigo: str | None = None,
-    vence_en_dt: datetime | None = None,
-    ahora: datetime | None = None,
-) -> uuid.UUID:
-    """Agrega un correo cifrado en ``email_outbox`` dentro de la transacción actual.
-
-    Args:
-        db: Sesión de base de datos.
-        user_id: Identificador del usuario destinatario.
-        destinatario: Correo normalizado del destinatario.
-        plantilla: Plantilla de correo (``verify_email``, ``reset_password`` o
-            ``password_changed``).
-        codigo: Código OTP de 6 dígitos si aplica.
-        vence_en_dt: Expiración del OTP en UTC si aplica.
-        ahora: Hora actual del servidor.
-
-    Returns:
-        Identificador de la fila creada en ``email_outbox``.
-    """
-    marca = ahora or datetime.now(UTC)
-    id_correo = uuid.uuid4()
-    payload = _construir_payload_correo(plantilla, codigo=codigo, vence_en_dt=vence_en_dt)
-    db.add(
-        EmailOutbox(
-            id=id_correo,
-            user_id=user_id,
-            template=plantilla,
-            to_ct=pii.proteger(destinatario, aad=_aad_outbox(id_correo, "to_ct")),
-            payload_ct=pii.proteger(payload, aad=_aad_outbox(id_correo, "payload_ct")),
-            created_at=marca,
-            next_attempt_at=marca,
-        )
-    )
-    return id_correo
-
-
 async def emitir_otp(
     db: AsyncSession,
     *,
@@ -262,16 +161,16 @@ async def emitir_otp(
             created_at=marca,
         )
     )
-    plantilla: PlantillaCorreo = (
+    plantilla: outbox.Plantilla = (
         "verify_email" if proposito == EmailCodePurpose.verify_email else "reset_password"
     )
-    encolar_correo(
+    outbox.encolar_correo(
         db,
         user_id=usuario.id,
         destinatario=destinatario,
         plantilla=plantilla,
         codigo=codigo,
-        vence_en_dt=expira,
+        vence_en=expira,
         ahora=marca,
     )
     return codigo

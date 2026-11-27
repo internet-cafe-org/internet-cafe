@@ -26,6 +26,35 @@ Nota: `ALTER ROLE ... PASSWORD` puede aparecer en los logs del servidor; rota la
 | `svc_migrator` | Alembic (CI) | DDL en el esquema `app`; `statement_timeout` 120 s |
 | `svc_app` | API | SELECT, INSERT, UPDATE (también en tablas futuras); sin DELETE/TRUNCATE/DDL; `statement_timeout` 5 s |
 
+### 2b. Un rol por actor (ST-SEC-03, SRS §12.8)
+Se crean con el mismo script si llegan sus cuatro contraseñas (si falta alguna, el script aborta;
+si no llega ninguna, solo se crean `svc_migrator` y `svc_app`):
+```bash
+psql "$NEON_ADMIN_URL" -v ON_ERROR_STOP=1 \
+  -v migrator_password="$SVC_MIGRATOR_PASSWORD" -v app_password="$SVC_APP_PASSWORD" \
+  -v web_password="$(openssl rand -base64 36 | tr -d '\n')" \
+  -v machine_password="$(openssl rand -base64 36 | tr -d '\n')" \
+  -v admin_password="$(openssl rand -base64 36 | tr -d '\n')" \
+  -v jobs_password="$(openssl rand -base64 36 | tr -d '\n')" \
+  -f db/bootstrap_roles.sql
+```
+El script solo crea el rol, sus límites, `CONNECT` y `USAGE` en `app`. Los GRANT de cada tabla
+están en la migración `9b4e6d2a8c15` (y cada tabla nueva tiene que concederse en su migración):
+
+| Rol | Variable en Render | Uso | Lo que NO puede |
+|---|---|---|---|
+| `svc_web` | `DATABASE_URL_WEB` | `/auth`, `/me`, `/scan`, salud | DELETE; leer la clave o la credencial de los equipos |
+| `svc_machine` | `DATABASE_URL_MACHINE` | `/machine/*` | DELETE; leer de `users` algo distinto de id, nombre y código |
+| `svc_admin` | `DATABASE_URL_ADMIN` | `/admin/*` | DELETE; leer o cambiar `password_hash` |
+| `svc_jobs` | `DATABASE_URL_JOBS` | Barrido de inactividad | DELETE fuera de las tablas efímeras; leer `users` |
+
+Ninguno puede hacer DDL ni TRUNCATE, y en `audit_log` solo insertan (`svc_admin` también lee).
+Cada variable es opcional: el actor que no la tenga usa `DATABASE_URL`, así que se pueden
+activar de a una. **Orden:** primero crear los roles y después desplegar (el deploy corre
+`alembic upgrade head`, que les da los GRANT). Si los roles se crean cuando la migración ya
+corrió, sus GRANT se aplican con `alembic downgrade 7c2d4f9a1b3e && alembic upgrade head`.
+Las políticas RLS por `app.user_id` / `app.machine_id` llegan con ST-SEC-05.
+
 ## 3. Orden de despliegue
 1. `bootstrap_roles.sql` → 2. `alembic upgrade head` con `DATABASE_URL_MIGRATOR` → 3. volver a correr el bootstrap (idempotente, reafirma privilegios).
 
@@ -33,5 +62,6 @@ La API usa `DATABASE_URL` con `svc_app`; `DATABASE_URL_MIGRATOR` no se define en
 Se acepta la URL de Neon tal cual (`sslmode`, `channel_binding`): `app/db_url.py` la adapta a asyncpg.
 
 ## 4. Pruebas
-`tests/unit/test_bootstrap_roles.py` corre siempre. Contra PostgreSQL real (opt-in):
+`tests/unit/test_bootstrap_roles.py` y `tests/unit/test_st_sec03_roles_por_actor.py` corren siempre. Contra PostgreSQL real (opt-in):
 `TEST_ROLES_ADMIN_URL=postgresql://postgres@localhost/internet_cafe_test_roles pytest tests/integration/test_roles_bootstrap.py`
+(`tests/integration/test_st_sec03_privilegios_por_actor.py` prueba los cuatro roles con la misma variable).

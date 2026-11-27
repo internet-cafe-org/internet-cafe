@@ -8,6 +8,21 @@ sin `input`, credenciales, tokens ni trazas en las respuestas.
 - Contrato: `openapi.yaml` / `contrato.md` (v0.2.1).
 - Pruebas: `python -m pytest`.
 
+## Correo transaccional (ST-BE-01)
+
+`app.services.outbox.encolar_correo` agrega la fila cifrada a la sesión del evento. El llamador confirma
+esa misma transacción. La autenticación usa este encolador para la verificación, la recuperación
+y el aviso de cambio de contraseña. Las plantillas de OTP reciben `codigo` y `vence_en` con zona horaria.
+
+El trabajador arranca con la API cuando están configurados `RESEND_API_KEY`, `EMAIL_FROM` y
+`DATA_ENC_KEYS`. Configura un remitente del dominio verificado y una llave de Resend de solo envío
+en el entorno. La prueba de integración usa PostgreSQL de pruebas y un transporte HTTP simulado.
+
+El trabajador conserva el UUID del correo como clave de idempotencia. Reintenta fallos transitorios
+después de 1, 5, 30 y 30 minutos, hasta cinco intentos. Vuelve a reclamar envíos interrumpidos al
+vencer su reserva y descarta los OTP vencidos. Elimina el contenido cifrado al finalizar la entrega
+o agotar los reintentos. Los reintentos se limitan a la ventana de idempotencia de Resend de 24 horas.
+
 ## Concurrencia (BE-05 / BE-07b)
 Orden de bloqueos fijo: fila del equipo `FOR UPDATE` → retos → sesiones. Las cancelaciones de retos son `UPDATE` masivos con
 `WHERE status = 'pending'`, así un reto `approved` nunca se pisa.
@@ -26,3 +41,36 @@ python -m tools.admin_cli block-user --email estudiante@dominio
 - El correo puede ir en `ADMIN_CLI_EMAIL` en lugar de `--email`. La salida solo muestra ids, nunca el correo ni la contraseña.
 - Salida: `0` bien, `1` error de datos (cuenta inexistente o repetida, contraseña corta), `2` falta configuración.
 - En GitHub la ejecuta el workflow `admin-cli` (QA-18).
+
+## Preparación de la carga de dev (BE-19a)
+
+Desde `Backend/` en PowerShell, con Python 3.12 y `DATABASE_URL` del proyecto Neon **dev**
+(rol `svc_app`) cargada por el gestor de secretos. La base debe estar migrada.
+
+```powershell
+py -3.12 -m venv .venv
+$python = '.\.venv\Scripts\python.exe'
+& $python -m pip install -r tools/carga/requirements.txt
+$env:APP_ENV = 'dev'
+$env:SECRET_KEY = 'no-se-usa-en-la-semilla'
+& $python -m tools.carga.datos
+```
+
+La semilla crea 300 equipos activos en `Sala Dev Locust` y guarda sus claves públicas en dev.
+Conserva el archivo privado `.env.locust.json` para repetir la preparación y ejecutar Locust
+desde este directorio. Git ya ignora el archivo. Al repetir con las mismas claves, la semilla
+reutiliza los equipos existentes y aborta si encuentra un conflicto.
+
+Para BE-19b, configura `RATE_LIMIT_ENABLED=false` temporalmente en el servicio **dev** de Render
+y comprueba que el despliegue esté activo con `MACHINE_AUTH_MODE=signature`. Usa el mismo origen
+que `PUBLIC_API_BASE_URL` y un reloj sincronizado. Ejemplo desde la misma terminal:
+
+```powershell
+& $python -m locust -f tools/carga/locustfile.py --headless `
+  --host https://internet-cafe-tq03.onrender.com -u 300 -r 10 -t 5m `
+  --stop-timeout 35 --csv "$env:TEMP\locust-dev"
+```
+
+Cada usuario usa una identidad distinta, envía un latido inicial y luego uno cada 60 segundos.
+En paralelo hace long-poll de 25 segundos. Locust registra las dos rutas por separado. Al terminar
+la prueba, restablece `RATE_LIMIT_ENABLED=true` en dev y confirma el despliegue.

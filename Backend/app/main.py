@@ -20,13 +20,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 
 from app.config import settings
-from app.database import SesionLocalAsync, obtener_base_datos
+from app.database import SesionTareas, obtener_base_datos
 from app.error_handlers import registrar_manejadores
 from app.errors import PROBLEM_MEDIA_TYPE, AppError, ErrorCode
 from app.logger import configurar_logger
 from app.routers import admin, auth, machine, me, scan
 from app.security.arranque import verificar_llaves
-from app.services import inactividad
+from app.services import inactividad, outbox
 
 logger = configurar_logger()
 
@@ -196,7 +196,7 @@ class CabecerasSeguridadMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
-    """Valida la configuración y arranca la tarea de inactividad.
+    """Valida la configuración y arranca las tareas de inactividad y correo.
 
     Args:
         _app: La aplicación que arranca.
@@ -212,14 +212,16 @@ async def ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
     tarea = None
     if settings.tarea_inactividad_activa:
         # BE-09b: la actividad en memoria se pierde al reiniciar, así que se barre la base.
-        await inactividad.barrido_inicial(SesionLocalAsync)
-        tarea = asyncio.create_task(inactividad.tarea_periodica(SesionLocalAsync))
+        # Corre con el rol de tareas (svc_jobs, ST-SEC-03).
+        await inactividad.barrido_inicial(SesionTareas)
+        tarea = asyncio.create_task(inactividad.tarea_periodica(SesionTareas))
     logger.info(
         "API lista",
         extra={"datos": {"evento": "api.arranque", "entorno": settings.app_env}},
     )
     try:
-        yield
+        async with outbox.trabajador_configurado(SesionTareas):
+            yield
     finally:
         if tarea is not None:
             tarea.cancel()
