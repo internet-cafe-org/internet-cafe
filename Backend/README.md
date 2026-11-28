@@ -62,7 +62,9 @@ desde este directorio. Git ya ignora el archivo. Al repetir con las mismas clave
 reutiliza los equipos existentes y aborta si encuentra un conflicto.
 
 Para BE-19b, configura `RATE_LIMIT_ENABLED=false` temporalmente en el servicio **dev** de Render
-y comprueba que el despliegue esté activo con `MACHINE_AUTH_MODE=signature`. Usa el mismo origen
+(exactamente `false`, sin comillas ni espacios: con otro valor la API no arranca y Render sigue
+sirviendo la versión anterior con el límite encendido) y comprueba que el despliegue esté activo
+con `MACHINE_AUTH_MODE=signature`. Usa el mismo origen
 que `PUBLIC_API_BASE_URL` y un reloj sincronizado. Ejemplo desde la misma terminal:
 
 ```powershell
@@ -74,3 +76,6 @@ que `PUBLIC_API_BASE_URL` y un reloj sincronizado. Ejemplo desde la misma termin
 Cada usuario usa una identidad distinta, envía un latido inicial y luego uno cada 60 segundos.
 En paralelo hace long-poll de 25 segundos. Locust registra las dos rutas por separado. Al terminar
 la prueba, restablece `RATE_LIMIT_ENABLED=true` en dev y confirma el despliegue.
+
+Los resultados del 27/11 están en `docs/qa/reporte-carga-dev.md`. Los 300 equipos
+`DEV-LOCUST-*` quedan en dev para repetir la prueba; se retiran con el workflow `dev-reset`.
