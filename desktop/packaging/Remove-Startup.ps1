@@ -25,6 +25,23 @@ $ErrorActionPreference = 'Stop'
 
 $TaskName = "Internet Cafe Desktop"
 
+function Get-StartupTaskQuery {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $output = & schtasks.exe /Query /TN $TaskName /FO LIST 2>$null
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    [PSCustomObject]@{
+        Output   = $output
+        ExitCode = $exitCode
+    }
+}
+
 Write-Host ""
 Write-Host "=== Internet Cafe Desktop — Eliminar arranque automatico ===" -ForegroundColor Cyan
 Write-Host ""
@@ -32,15 +49,15 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 # 1. Comprobar si la tarea existe
 # ---------------------------------------------------------------------------
-$exists = & schtasks.exe /Query /TN $TaskName /FO LIST 2>&1
-if ($LASTEXITCODE -ne 0) {
+$query = Get-StartupTaskQuery
+if ($query.ExitCode -ne 0) {
     Write-Host "[INFO] La tarea '$TaskName' no esta registrada. No hay nada que eliminar." -ForegroundColor Yellow
     Write-Host ""
     exit 0
 }
 
 Write-Host "[INFO] Tarea encontrada:"
-Write-Host $exists
+Write-Host $query.Output
 Write-Host ""
 
 # ---------------------------------------------------------------------------
@@ -60,10 +77,10 @@ if ($PSCmdlet.ShouldProcess("schtasks", "Eliminar tarea '$TaskName'")) {
 # 3. Verificar que la tarea ya no existe
 # ---------------------------------------------------------------------------
 Write-Host "[INFO] Verificando eliminacion..."
-$check = & schtasks.exe /Query /TN $TaskName /FO LIST 2>&1
-if ($LASTEXITCODE -eq 0) {
+$query = Get-StartupTaskQuery
+if ($query.ExitCode -eq 0) {
     Write-Warning "La tarea '$TaskName' todavia parece existir despues de la eliminacion."
-    Write-Host $check
+    Write-Host $query.Output
     exit 1
 }
 
