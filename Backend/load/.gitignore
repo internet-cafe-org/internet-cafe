@@ -1,0 +1,8 @@
+# Datos de equipos generados por prepare_machines.py (claves privadas en PEM)
+machines.json
+
+# Artefactos de salida de Locust
+reporte-carga.html
+reporte-carga_*.csv
+*.csv
+*.html
