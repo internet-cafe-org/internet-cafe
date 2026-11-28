@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-
+import { useRouter } from 'vue-router'
+import { setPendingVerificationEmail } from '@/services/pendingVerification'
 import AuthField from '@/components/AuthField.vue'
 import AuthLayout from '@/components/AuthLayout.vue'
 import { useSignIn } from '@/composables/useSignIn'
@@ -15,7 +16,11 @@ import {
 
 // Dominios permitidos (PEND-06). Vacío = solo valida el servidor.
 const allowedDomains = parseAllowedDomains(String(import.meta.env.VITE_ALLOWED_EMAIL_DOMAINS ?? ''))
+// Debe coincidir con REQUIRE_EMAIL_VERIFICATION de la API (HU-24).
+const requireEmailVerification = () =>
+  String(import.meta.env.VITE_REQUIRE_EMAIL_VERIFICATION ?? '') === 'true'
 
+const router = useRouter()
 const signIn = useSignIn()
 const form = reactive({ fullName: '', studentCode: '', email: '', password: '', consent: false })
 const errors = reactive({ fullName: '', studentCode: '', email: '', password: '', consent: '' })
@@ -45,6 +50,11 @@ async function onSubmit() {
       password: form.password,
       privacy_consent: form.consent,
     })
+    if (requireEmailVerification()) {
+      setPendingVerificationEmail(form.email.trim())
+      await router.push({ name: 'verify-email' })
+      return
+    }
     succeeded.value = true
     // Inicio de sesión automático, sin OTP (decisión de alcance del diseño).
     await signIn(await login(form.email.trim(), form.password))

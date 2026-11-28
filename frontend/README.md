@@ -101,3 +101,18 @@ inyecta estilos inline en algunos componentes. El resto de directivas son restri
 Si en el futuro se integra un lector de QR basado en WebAssembly o Web Workers,
 habrá que agregar `worker-src 'self'` y posiblemente `'wasm-unsafe-eval'` a la CSP.
 Verificarlo en el preview antes de fusionar.
+## Verificación de correo y recuperación de contraseña (HU-24)
+
+| Pantalla | Ruta | Qué hace |
+|---|---|---|
+| Verificar correo | `/verify-email` | Pide el código de 6 dígitos y permite reenviarlo. |
+| Recuperar contraseña | `/forgot-password` | Paso 1: pide el código. Paso 2: código y contraseña nueva. |
+
+- El correo que se verifica viaja en memoria (`src/services/pendingVerification.ts`), no en la URL.
+- Las respuestas de «reenviar» y «recuperar» son neutras: nunca confirman si el correo existe.
+
+### `VITE_REQUIRE_EMAIL_VERIFICATION`
+Debe coincidir con `REQUIRE_EMAIL_VERIFICATION` de la API.
+- `true`: tras el registro la web va a «Verificar correo».
+- vacío o `false` (por defecto): el registro inicia sesión sola, como en el MVP.
+No la pongas en `true` mientras la API tenga la verificación apagada: no llegaría ningún código.

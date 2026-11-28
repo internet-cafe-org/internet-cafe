@@ -165,3 +165,22 @@ export async function restoreSession(): Promise<boolean> {
 
   return activeRefreshPromise
 }
+/** Activa la cuenta con el OTP de 6 dígitos. 204 sin cuerpo. */
+export function verifyEmail(email: string, code: string): Promise<void> {
+  return post<void>('/auth/verify-email', { email, code })
+}
+
+/** Pide otro OTP de verificación. Responde 202 aunque la cuenta no exista. */
+export function resendCode(email: string): Promise<void> {
+  return post<void>('/auth/resend-code', { email })
+}
+
+/** Pide el OTP de recuperación. Responde siempre 202. */
+export function requestPasswordReset(email: string): Promise<void> {
+  return post<void>('/auth/password/forgot', { email })
+}
+
+/** Cambia la contraseña con el OTP de recuperación. 204 sin cuerpo. */
+export function resetPassword(email: string, code: string, newPassword: string): Promise<void> {
+  return post<void>('/auth/password/reset', { email, code, new_password: newPassword })
+}
