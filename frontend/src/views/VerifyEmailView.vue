@@ -36,6 +36,7 @@ function validateEmail(): boolean {
 }
 
 async function onSubmit() {
+  if (loading.value || resending.value) return
   failure.value = ''
   resendFailure.value = ''
   resendSent.value = false
@@ -56,6 +57,7 @@ async function onSubmit() {
 }
 
 async function onResend() {
+  if (loading.value || resending.value || cooldownActive.value) return
   failure.value = ''
   resendFailure.value = ''
   resendSent.value = false
@@ -132,13 +134,13 @@ async function onResend() {
           placeholder="123456"
           :error="errors.code"
         />
-        <button class="auth-button" type="submit" :disabled="loading">
+        <button class="auth-button" type="submit" :disabled="loading || resending">
           {{ loading ? 'Verificando...' : 'Verificar correo' }}
         </button>
         <button
           class="auth-button verify-secondary"
           type="button"
-          :disabled="resending || cooldownActive"
+          :disabled="loading || resending || cooldownActive"
           @click="onResend"
         >
           {{ cooldownActive ? `Reenviar código (${cooldownLeft} s)` : 'Reenviar código' }}

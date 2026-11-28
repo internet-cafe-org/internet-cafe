@@ -32,7 +32,9 @@ const {
 
 /** Paso 1: pide el código. La API responde 202 exista o no la cuenta. */
 async function onRequest() {
+  if (loading.value) return
   failure.value = ''
+  resent.value = false
   errors.email = loginEmailError(form.email)
   if (errors.email) return
 
@@ -49,6 +51,7 @@ async function onRequest() {
 }
 
 async function onResend() {
+  if (loading.value || cooldownActive.value) return
   failure.value = ''
   resent.value = false
   loading.value = true
@@ -65,7 +68,9 @@ async function onResend() {
 
 /** Paso 2: cambia la contraseña con el código. */
 async function onReset() {
+  if (loading.value) return
   failure.value = ''
+  resent.value = false
   errors.code = otpCodeError(form.code)
   errors.password = registerPasswordError(form.password)
   errors.confirmation = confirmPasswordError(form.password, form.confirmation)
@@ -87,6 +92,7 @@ async function onReset() {
 }
 
 function changeEmail() {
+  if (loading.value) return
   failure.value = ''
   resent.value = false
   errors.code = ''
@@ -180,7 +186,12 @@ function changeEmail() {
         >
           {{ cooldownActive ? `Reenviar código (${cooldownLeft} s)` : 'Reenviar código' }}
         </button>
-        <button class="auth-button forgot-secondary" type="button" @click="changeEmail">
+        <button
+          class="auth-button forgot-secondary"
+          type="button"
+          :disabled="loading"
+          @click="changeEmail"
+        >
           Usar otro correo
         </button>
       </form>

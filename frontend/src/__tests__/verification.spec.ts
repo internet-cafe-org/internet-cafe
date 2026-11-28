@@ -19,6 +19,7 @@ import {
   setPendingVerificationEmail,
 } from '../services/pendingVerification'
 import { confirmPasswordError, otpCodeError } from '../utils/validation'
+import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 
 vi.mock('../services/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/auth')>()
@@ -239,6 +240,26 @@ describe('VerifyEmailView: casos adicionales', () => {
     await flushPromises()
     expect(resendButton(wrapper).attributes('disabled')).toBeUndefined()
   })
+
+  it('mientras verifica no permite reenviar', async () => {
+    let finish!: () => void
+    verifyEmailMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+    )
+    setPendingVerificationEmail(EMAIL)
+    const { wrapper } = await open('/verify-email')
+    await wrapper.get('#verify-code').setValue('123456')
+    await submit(wrapper)
+
+    expect(resendButton(wrapper).attributes('disabled')).toBeDefined()
+    await resendButton(wrapper).trigger('click')
+    expect(resendCodeMock).not.toHaveBeenCalled()
+
+    finish()
+    await flushPromises()
+  })
 })
 
 describe('ForgotPasswordView: casos adicionales', () => {
@@ -330,5 +351,75 @@ describe('ForgotPasswordView: casos adicionales', () => {
 
     expect(wrapper.find('#forgot-email').exists()).toBe(true)
     expect(wrapper.find('#reset-code').exists()).toBe(false)
+  })
+
+  it('usar otro correo borra el código y las contraseñas escritas', async () => {
+    const { wrapper } = await goToResetStep()
+    await wrapper.get('#reset-code').setValue('654321')
+    await wrapper.get('#reset-password').setValue('una-contraseña-larga')
+    await wrapper.get('#reset-confirmation').setValue('una-contraseña-larga')
+
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Usar otro correo'))!
+      .trigger('click')
+    // El correo sigue escrito, así que volver a enviar lleva otra vez al paso 2.
+    await submit(wrapper)
+
+    const value = (id: string) => (wrapper.get(id).element as HTMLInputElement).value
+    expect(value('#reset-code')).toBe('')
+    expect(value('#reset-password')).toBe('')
+    expect(value('#reset-confirmation')).toBe('')
+  })
+
+  it('al cambiar la contraseña no queda nada sensible en memoria', async () => {
+    resetPasswordMock.mockResolvedValue(undefined)
+    const { wrapper } = await goToResetStep()
+    await wrapper.get('#reset-code').setValue('654321')
+    await wrapper.get('#reset-password').setValue('una-contraseña-larga')
+    await wrapper.get('#reset-confirmation').setValue('una-contraseña-larga')
+    await submit(wrapper)
+
+    expect(wrapper.text()).toContain('Contraseña actualizada')
+    const vm = wrapper.findComponent(ForgotPasswordView).vm as unknown as {
+      form: { code: string; password: string; confirmation: string }
+    }
+    expect(vm.form.code).toBe('')
+    expect(vm.form.password).toBe('')
+    expect(vm.form.confirmation).toBe('')
+  })
+
+  it('el aviso de reenvío desaparece al intentar cambiar la contraseña', async () => {
+    vi.useFakeTimers()
+    const { wrapper } = await goToResetStep()
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    await resendButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('te enviamos un código nuevo')
+
+    await submit(wrapper)
+
+    expect(wrapper.text()).not.toContain('te enviamos un código nuevo')
+  })
+
+  it('mientras cambia la contraseña no deja usar otro correo', async () => {
+    let finish!: () => void
+    resetPasswordMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+    )
+    const { wrapper } = await goToResetStep()
+    await wrapper.get('#reset-code').setValue('654321')
+    await wrapper.get('#reset-password').setValue('una-contraseña-larga')
+    await wrapper.get('#reset-confirmation').setValue('una-contraseña-larga')
+    await submit(wrapper)
+
+    const other = wrapper.findAll('button').find((b) => b.text().includes('Usar otro correo'))!
+    expect(other.attributes('disabled')).toBeDefined()
+
+    finish()
+    await flushPromises()
   })
 })

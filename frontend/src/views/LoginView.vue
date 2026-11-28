@@ -87,6 +87,9 @@ async function onSubmit() {
         Iniciar sesión
       </button>
       <p class="auth-switch">
+        <RouterLink :to="{ name: 'forgot-password' }">¿Olvidaste tu contraseña?</RouterLink>
+      </p>
+      <p class="auth-switch">
         ¿Aún no tienes una cuenta?
         <RouterLink :to="{ name: 'register' }">Crear una cuenta</RouterLink>
       </p>
