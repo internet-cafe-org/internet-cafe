@@ -37,9 +37,14 @@ from app.models import (
     MachineStatus,
     SessionEndReason,
     User,
+    UserRole,
+    UserStatus,
 )
 from app.security.dependencies import CurrentUser, require_admin
-from app.services import challenges, pii, sesiones
+from app.logger import obtener_logger
+from app.services import challenges, pii, sesiones, usuarios
+
+logger = obtener_logger("admin")
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -991,3 +996,219 @@ async def exportar_sesiones_csv(
         media_type="text/csv; charset=utf-8",
         headers=cabeceras,
     )
+
+
+# ------------------------------------------------------------------------- usuarios
+class AdminUserItem(BaseModel):
+    """Usuario en las respuestas de administración (ST-BE-02)."""
+
+    id: uuid.UUID
+    email: str
+    full_name: str
+    student_code_masked: str
+    role: UserRole
+    status: UserStatus
+    created_at: datetime
+
+
+class AdminUsersPage(BaseModel):
+    """Página de usuarios."""
+
+    items: list[AdminUserItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class UserPatch(BaseModel):
+    """Cuerpo de ``PATCH /admin/users/{id}``: editar rol, estado o ambos."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: UserRole | None = None
+    status: UserStatus | None = None
+
+    @model_validator(mode="after")
+    def _al_menos_un_campo(self) -> "UserPatch":
+        """Exige al menos un campo y que ninguno llegue como ``null``.
+
+        Returns:
+            La instancia validada.
+
+        Raises:
+            ValueError: Si no se envía ningún campo o alguno es ``null``.
+        """
+        if not self.model_fields_set:
+            raise ValueError("Envía al menos un campo para modificar.")
+        for campo in self.model_fields_set:
+            if getattr(self, campo) is None:
+                raise ValueError(f"El campo {campo} no puede ser null.")
+        return self
+
+
+def _aad_usuario(user_id: uuid.UUID, columna: str) -> str:
+    """Devuelve el AAD con el que se cifró una columna de ``users``.
+
+    Args:
+        user_id: Id del usuario.
+        columna: Nombre de la columna cifrada (p. ej. ``email_ct``).
+
+    Returns:
+        Cadena ``users.<columna>.<id>``.
+    """
+    return f"users.{columna}.{user_id}"
+
+
+def _item_usuario(usuario: User) -> AdminUserItem:
+    """Construye el usuario de la respuesta descifrando sus datos personales.
+
+    Si una columna no se puede descifrar, la fila sale con valores por defecto y se
+    registra solo el id del usuario, para que un dato dañado no tumbe el listado.
+
+    Args:
+        usuario: Fila de ``users`` sin ``password_hash`` cargado.
+
+    Returns:
+        El usuario con el correo y el nombre en claro y el código enmascarado.
+    """
+    try:
+        correo = pii.revelar(usuario.email_ct, "", aad=_aad_usuario(usuario.id, "email_ct"))
+        nombre, codigo = sesiones.datos_estudiante(usuario)
+    except pii.PiiError:
+        logger.warning(
+            "admin.users: no se pudo descifrar un usuario",
+            extra={"datos": {"evento": "admin.users.pii_error", "user_id": str(usuario.id)}},
+        )
+        correo = ""
+        nombre, codigo = sesiones.datos_estudiante(None)
+    return AdminUserItem(
+        id=usuario.id,
+        email=correo,
+        full_name=nombre,
+        student_code_masked=codigo,
+        role=usuario.role,
+        status=usuario.status,
+        created_at=usuario.created_at,
+    )
+
+
+@router.get("/users", response_model=AdminUsersPage)
+async def listar_usuarios(
+    email: str | None = Query(default=None, max_length=254),
+    student_code: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> AdminUsersPage:
+    """Lista usuarios; busca por correo o código exactos con el índice ciego (HU-26).
+
+    Args:
+        email: Correo exacto (se recorta y pasa a minúsculas, como en el registro).
+        student_code: Código de estudiante exacto.
+        limit: Máximo de usuarios por página (1 a 100).
+        offset: Usuarios que se saltan.
+        db: Sesión de base de datos.
+
+    Returns:
+        La página de usuarios, del más reciente al más antiguo, con el total.
+    """
+    condiciones: list[Any] = []
+    if email is not None:
+        condiciones.append(User.email_bidx == pii.indice_ciego(email.strip().lower()))
+    if student_code is not None:
+        condiciones.append(User.student_code_bidx == pii.indice_ciego(student_code.strip()))
+
+    total = (
+        await db.execute(select(func.count()).select_from(User).where(*condiciones))
+    ).scalar_one()
+    filas = (
+        await db.scalars(
+            select(User)
+            # ST-SEC-03: svc_admin no puede leer password_hash (SRS §12.8)
+            .options(defer(User.password_hash, raiseload=True))
+            .where(*condiciones)
+            .order_by(User.created_at.desc(), User.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    return AdminUsersPage(
+        items=[_item_usuario(u) for u in filas], total=total, limit=limit, offset=offset
+    )
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserItem)
+async def editar_usuario(
+    user_id: uuid.UUID,
+    body: UserPatch,
+    admin: CurrentUser = Depends(require_admin),
+    db: AsyncSession = Depends(obtener_base_datos),
+) -> AdminUserItem:
+    """Edita el rol o el estado de un usuario (HU-26, RF-ADM-08).
+
+    Bloquear (``status=blocked``) hace lo mismo que ``admin_cli block-user``: revoca
+    todos los refresh tokens y cierra la sesión de acceso abierta con ``admin_forced``,
+    auditada como ``session_ended`` (RN-12, RF-ADM-09). Bloquear una cuenta ya
+    bloqueada vuelve a cortar lo que haya quedado abierto. Un administrador no puede
+    quitarse el rol, bloquearse ni dejarse pendiente de verificación.
+
+    Args:
+        user_id: Id del usuario a editar.
+        body: Campos a modificar.
+        admin: Administrador autenticado.
+        db: Sesión de base de datos.
+
+    Returns:
+        El usuario actualizado.
+
+    Raises:
+        AppError: ``NOT_FOUND`` si el usuario no existe.
+        AppError: ``CONFLICT`` si el administrador intenta cambiarse a sí mismo.
+    """
+    usuario = await db.scalar(
+        select(User)
+        .options(defer(User.password_hash, raiseload=True))
+        .where(User.id == user_id)
+        .with_for_update()
+    )
+    if usuario is None:
+        raise AppError(ErrorCode.NOT_FOUND, detail="El usuario no existe.")
+
+    if usuario.id == admin.id and (
+        (body.role is not None and body.role != UserRole.admin)
+        or (body.status is not None and body.status != UserStatus.active)
+    ):
+        raise AppError(
+            ErrorCode.CONFLICT, detail="No puedes quitarte el rol ni desactivar tu propia cuenta."
+        )
+
+    if body.role is not None:
+        usuario.role = body.role
+    if body.status is not None:
+        usuario.status = body.status
+
+    metadatos: dict[str, Any] = {"fields": sorted(body.model_fields_set)}
+    if body.status == UserStatus.blocked:
+        refresh_revocados, sesion_cerrada = await usuarios.cortar_acceso(
+            db,
+            usuario.id,
+            ahora=challenges.ahora(),
+            actor_type=AuditActorType.user,
+            actor_id=admin.id,
+        )
+        metadatos |= {
+            "refresh_revocados": refresh_revocados,
+            "sesion_cerrada": sesion_cerrada is not None,
+        }
+
+    await audit(
+        db,
+        actor_type=AuditActorType.user,
+        actor_id=admin.id,
+        action="user_updated",
+        target_type="user",
+        target_id=usuario.id,
+        metadata_info=metadatos,
+    )
+    await db.commit()
+    return _item_usuario(usuario)

@@ -35,6 +35,11 @@ Contrato técnico y de datos de la API REST del sistema Internet Café, acordado
 - **Nuevo** `POST /admin/machines/{id}/enrollment-code` (201) y `POST /admin/machines/{id}/revoke-key` (200).
 - **Cambia** `PATCH /admin/machines/{id}`: activar un equipo deshabilitado sin clave lo deja en `pending_enrollment` (antes 409).
 
+### ST-BE-02 (Sprint 4)
+- **Nuevo** `GET /admin/users`: lista paginada con búsqueda exacta por correo o código (índice ciego).
+- **Nuevo** `PATCH /admin/users/{id}`: edita `role` y `status`. Bloquear revoca los refresh tokens y cierra la sesión abierta con `admin_forced`, igual que `admin_cli block-user`.
+- **Nuevos** esquemas `AdminUser`, `AdminUsersPage` y `UserPatch`.
+
 ### v0.2 respecto a v0.1
 - **Nuevo** `POST /machine/heartbeat`, `GET /machine/sessions/current`, `POST /machine/sessions/current/end`.
 - **Nuevo** `GET /me`, `GET /me/sessions`, `GET /me/sessions/active`, `POST /me/sessions/{id}/end`.
@@ -1425,6 +1430,101 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/users:
+    get:
+      tags:
+      - admin
+      security: *id005
+      summary: Listar y buscar usuarios (ST-BE-02)
+      description: >-
+        Lista usuarios paginados, del más reciente al más antiguo. Con email o
+        student_code hace una búsqueda exacta por índice ciego (HMAC-SHA256); el
+        correo se recorta y pasa a minúsculas, como en el registro. Un usuario cuyos
+        datos no se pueden descifrar sale con email y nombre por defecto.
+      parameters:
+      - in: query
+        name: email
+        schema:
+          type: string
+          maxLength: 254
+        required: false
+        description: Correo electrónico exacto.
+      - in: query
+        name: student_code
+        schema:
+          type: string
+          maxLength: 40
+        required: false
+        description: Código de estudiante exacto.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        required: false
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        required: false
+      responses:
+        '200':
+          description: Página de usuarios.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUsersPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/admin/users/{id}:
+    patch:
+      tags:
+      - admin
+      security: *id005
+      summary: Editar rol o estado de un usuario (ST-BE-02)
+      description: >-
+        Edita role, status o ambos. Bloquear (status=blocked) hace lo mismo que
+        admin_cli block-user: revoca todos los refresh tokens y cierra la sesión de
+        acceso abierta con motivo admin_forced, auditada como session_ended
+        (RF-ADM-08, RF-ADM-09, RN-12). Bloquear una cuenta ya bloqueada vuelve a
+        cortar lo que haya quedado abierto. El administrador que hace la petición no
+        puede quitarse el rol, bloquearse ni dejarse pendiente de verificación (409).
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPatch'
+      responses:
+        '200':
+          description: Usuario actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
 components:
   securitySchemes:
     bearerAuth:
@@ -2031,6 +2131,76 @@ components:
           enum:
           - AQAB
           description: Exponente público 65537 en base64url.
+    AdminUser:
+      type: object
+      required:
+      - id
+      - email
+      - full_name
+      - student_code_masked
+      - role
+      - status
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        full_name:
+          type: string
+        student_code_masked:
+          type: string
+          description: Código enmascarado; nunca el código completo.
+        role:
+          type: string
+          enum:
+          - student
+          - admin
+        status:
+          type: string
+          enum:
+          - pending_verification
+          - active
+          - blocked
+        created_at:
+          type: string
+          format: date-time
+    AdminUsersPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+    UserPatch:
+      type: object
+      description: Campos a modificar (al menos uno; ninguno admite null).
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        role:
+          type: string
+          enum:
+          - student
+          - admin
+        status:
+          type: string
+          enum:
+          - pending_verification
+          - active
+          - blocked
   responses:
     BadRequest:
       description: Petición inválida.
