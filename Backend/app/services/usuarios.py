@@ -7,6 +7,9 @@ Dos operaciones que usa ``tools.admin_cli``:
   tokens (cierra sus sesiones web) y cierra su acceso activo en el PC con
   ``admin_forced``. El equipo se entera en su próximo latido (≤ 60 s).
 
+``cortar_acceso`` es la parte común del bloqueo: la usan el CLI y
+``PATCH /admin/users/{id}`` (ST-BE-02), para que los dos bloqueen igual.
+
 Ninguna función hace commit: lo decide quien llama. Los datos personales se
 guardan y buscan solo por la interfaz ``pii``, y nunca van a la auditoría.
 """
@@ -139,6 +142,54 @@ async def crear_admin(db: AsyncSession, *, email: str, nombre: str, password: st
     return admin
 
 
+async def cortar_acceso(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    ahora: datetime,
+    actor_type: AuditActorType,
+    actor_id: uuid.UUID | None,
+) -> tuple[int, uuid.UUID | None]:
+    """Revoca los refresh tokens vigentes y cierra la sesión de acceso abierta (RN-12).
+
+    Es idempotente: si no queda nada abierto no hace nada. El cierre de la sesión
+    se audita como ``session_ended`` con el actor indicado (RF-ADM-09).
+
+    Args:
+        db: Sesión de base de datos.
+        user_id: Id de la cuenta.
+        ahora: Hora del bloqueo.
+        actor_type: Quién bloquea (``system`` para el CLI, ``user`` para un admin).
+        actor_id: Id del administrador, o ``None`` si bloquea el sistema.
+
+    Returns:
+        Cuántos refresh tokens se revocaron y el id de la sesión cerrada, si había una.
+    """
+    revocados = await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=ahora)
+        .returning(RefreshToken.id)
+        .execution_options(synchronize_session=False)
+    )
+    refresh_revocados = len(revocados.all())
+
+    abierta = await db.scalar(
+        select(AccessSession.id).where(
+            AccessSession.user_id == user_id, AccessSession.ended_at.is_(None)
+        )
+    )
+    motivo = SessionEndReason.admin_forced
+    if abierta is None or not await sesiones.cerrar_sesion_abierta(
+        db, abierta, motivo, ahora, user_id=user_id
+    ):
+        return refresh_revocados, None
+    await sesiones.auditar_cierre(
+        db, actor_type=actor_type, actor_id=actor_id, session_id=abierta, motivo=motivo
+    )
+    return refresh_revocados, abierta
+
+
 async def bloquear_usuario(db: AsyncSession, *, email: str) -> ResultadoBloqueo:
     """Bloquea una cuenta y corta todo su acceso (RN-12).
 
@@ -164,33 +215,9 @@ async def bloquear_usuario(db: AsyncSession, *, email: str) -> ResultadoBloqueo:
     ya_bloqueada = usuario.status == UserStatus.blocked
     usuario.status = UserStatus.blocked
 
-    revocados = await db.execute(
-        update(RefreshToken)
-        .where(RefreshToken.user_id == usuario.id, RefreshToken.revoked_at.is_(None))
-        .values(revoked_at=ahora)
-        .returning(RefreshToken.id)
-        .execution_options(synchronize_session=False)
+    refresh_revocados, sesion_cerrada = await cortar_acceso(
+        db, usuario.id, ahora=ahora, actor_type=AuditActorType.system, actor_id=None
     )
-    refresh_revocados = len(revocados.all())
-
-    abierta = await db.scalar(
-        select(AccessSession.id).where(
-            AccessSession.user_id == usuario.id, AccessSession.ended_at.is_(None)
-        )
-    )
-    sesion_cerrada = None
-    motivo = SessionEndReason.admin_forced
-    if abierta is not None and await sesiones.cerrar_sesion_abierta(
-        db, abierta, motivo, ahora, user_id=usuario.id
-    ):
-        sesion_cerrada = abierta
-        await sesiones.auditar_cierre(
-            db,
-            actor_type=AuditActorType.system,
-            actor_id=None,
-            session_id=abierta,
-            motivo=motivo,
-        )
 
     await audit(
         db,
