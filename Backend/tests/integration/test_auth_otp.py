@@ -407,6 +407,9 @@ async def test_reset_codigo_invalido_usado_expirado_y_5_intentos(cliente, sesion
         assert bloqueado.json()["code"] == "OTP_MAX_ATTEMPTS"
 
         # 3) Código expirado (>10 min) -> 410 OTP_EXPIRED.
+        # Con el reloj congelado, el código nuevo tendría la misma created_at que codigo_1 y el
+        # desempate por id (UUID aleatorio) a veces elegiría el viejo, ya invalidado (409).
+        reloj.tick(timedelta(seconds=1))
         assert (await cliente.post(f"{RUTA}/password/forgot", json={"email": CORREO})).status_code == 202
         codigo_2 = _extraer_codigo_de_outbox(await _ultimo_outbox(sesiones, "reset_password"))
         reloj.tick(timedelta(minutes=10, seconds=1))
