@@ -84,9 +84,12 @@ $TaskRun = "`"$ExePath`""
 if ($ApiBaseUrl -ne "") {
     # La app lee --api-base-url=<url> en Main.applyApiBaseUrlArg() y lo fija como
     # propiedad api.base.url con prioridad sobre la URL embebida en el MSI.
-    $TaskRun = "`"$ExePath`" --api-base-url `"$ApiBaseUrl`""
+    $TaskRun = "`"$ExePath`" --api-base-url=$ApiBaseUrl"
     Write-Host "[INFO] URL de la API configurada: $ApiBaseUrl"
 }
+
+# Preserve the quoted executable path as one /TR argument for schtasks.exe.
+$TaskRunForSchtasks = $TaskRun.Replace('"', '\"')
 
 # ---------------------------------------------------------------------------
 # 3. Registrar la tarea programada (idempotente con /F)
@@ -101,10 +104,11 @@ if ($PSCmdlet.ShouldProcess("schtasks", "Crear tarea '$TaskName' para '$UserAcco
     $schtasksArgs = @(
         '/Create',
         '/TN', $TaskName,
-        '/TR', $TaskRun,
+        '/TR', $TaskRunForSchtasks,
         '/SC', 'ONLOGON',
         '/RU', $UserAccount,
         '/RL', 'HIGHEST',
+        '/IT',
         '/F'          # Sobreescribir si ya existe (idempotente)
     )
 
